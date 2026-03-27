@@ -28,7 +28,7 @@ on:
 jobs:
   run:
     environment: ai-bots
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       actions: read

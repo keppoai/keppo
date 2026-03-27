@@ -18,7 +18,7 @@ jobs:
   analyze-and-retry:
     if: github.event.workflow_run.conclusion == 'failure'
     environment: ai-bots
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       actions: write

@@ -17,7 +17,7 @@ jobs:
   cleanup-closed-pr:
     if: github.event.action == 'closed'
     environment: ai-bots
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     steps:
@@ -42,7 +42,7 @@ jobs:
       github.event.label.name == '/sync-pr' &&
       !contains(github.event.pull_request.labels.*.name, '/fix-pr') &&
       !contains(github.event.pull_request.labels.*.name, 'fix-pr:pending')
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     env:
       CODEX_HOME: tmp/sync-pr/codex-home
       PROMPT_PATH: tmp/sync-pr/agent-prompt.txt
