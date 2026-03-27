@@ -26,8 +26,9 @@ jobs:
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-contents: read
-          permission-repository-advisories: read
+          # No permission-* scoping: repository_advisories is not yet
+          # supported by create-github-app-token, so we inherit all
+          # permissions from the App installation.
 
       - name: Checkout repository
         uses: actions/checkout@v5
