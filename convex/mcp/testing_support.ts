@@ -507,33 +507,46 @@ export const findNotificationEndpointForTesting = internalQuery({
   returns: v.union(notificationEndpointValidator, v.null()),
   handler: async (ctx, args) => {
     const rows =
-      args.userId && args.type
+      args.type && args.destination
         ? await ctx.db
             .query("notification_endpoints")
-            .withIndex("by_org_user_type", (q) =>
-              q.eq("org_id", args.orgId).eq("user_id", args.userId!).eq("type", args.type!),
+            .withIndex("by_org_type_destination", (q) =>
+              q
+                .eq("org_id", args.orgId)
+                .eq("type", args.type!)
+                .eq("destination", args.destination!),
             )
             .order("desc")
-            .take(50)
-        : args.userId
+            .take(10)
+        : args.userId && args.type
           ? await ctx.db
               .query("notification_endpoints")
-              .withIndex("by_org_user_created", (q) =>
-                q.eq("org_id", args.orgId).eq("user_id", args.userId!),
+              .withIndex("by_org_user_type", (q) =>
+                q.eq("org_id", args.orgId).eq("user_id", args.userId!).eq("type", args.type!),
               )
               .order("desc")
               .take(50)
-          : args.type
+          : args.userId
             ? await ctx.db
                 .query("notification_endpoints")
-                .withIndex("by_org_type", (q) => q.eq("org_id", args.orgId).eq("type", args.type!))
+                .withIndex("by_org_user_created", (q) =>
+                  q.eq("org_id", args.orgId).eq("user_id", args.userId!),
+                )
                 .order("desc")
                 .take(50)
-            : await ctx.db
-                .query("notification_endpoints")
-                .withIndex("by_org", (q) => q.eq("org_id", args.orgId))
-                .order("desc")
-                .take(50);
+            : args.type
+              ? await ctx.db
+                  .query("notification_endpoints")
+                  .withIndex("by_org_type", (q) =>
+                    q.eq("org_id", args.orgId).eq("type", args.type!),
+                  )
+                  .order("desc")
+                  .take(50)
+              : await ctx.db
+                  .query("notification_endpoints")
+                  .withIndex("by_org", (q) => q.eq("org_id", args.orgId))
+                  .order("desc")
+                  .take(50);
 
     const endpoint =
       rows.find((candidate) => {

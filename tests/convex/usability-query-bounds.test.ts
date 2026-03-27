@@ -162,6 +162,39 @@ describe("usability query bounds", () => {
     expect(emailEvent?.read_at).toBeNull();
   });
 
+  it("caps notification unread counts to the display budget", async () => {
+    const { t, orgId, authT } = await createAuthenticatedHarness();
+
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 140; index += 1) {
+        await ctx.db.insert("notification_events", {
+          id: `notif_unread_cap_${index}`,
+          org_id: orgId,
+          event_type: "approval_needed",
+          channel: NOTIFICATION_CHANNEL.inApp,
+          title: `Unread ${index}`,
+          body: "Notification body",
+          cta_url: "/approvals",
+          cta_label: "Review",
+          metadata: JSON.stringify({ source: "test" }),
+          action_id: null,
+          endpoint_id: null,
+          read_at: null,
+          status: NOTIFICATION_DELIVERY_STATUS.sent,
+          attempts: 1,
+          last_error: null,
+          created_at: `2026-03-08T12:${String(index % 60).padStart(2, "0")}:00.000Z`,
+        });
+      }
+    });
+
+    await expect(
+      authT.query(refs.countUnreadNotifications, {
+        orgId,
+      }),
+    ).resolves.toBe(100);
+  });
+
   it("bounds the pending approval badge count to the display cap", async () => {
     const { t, orgId, authT } = await createAuthenticatedHarness();
     const workspaceId = "ws_pending_bounds";
