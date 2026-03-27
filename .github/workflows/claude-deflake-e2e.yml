@@ -1,0 +1,226 @@
+name: Claude Deflake E2E
+
+on:
+  schedule:
+    # Weekdays at 10:00 UTC (2 AM PST / 3 AM PDT due to DST)
+    - cron: "0 10 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      commit_count:
+        description: "Number of recent commits on main to scan for flaky tests"
+        required: false
+        default: "10"
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: claude-deflake-e2e
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NODE_OPTIONS: "--max-old-space-size=4096"
+  CONVEX_AGENT_MODE: anonymous
+  E2E_WORKERS: "1"
+  E2E_FLAKE_BUDGET: "2"
+  KEPPO_E2E_STRICT_HANDLES: "1"
+  BETTER_AUTH_SECRET: "keppo-ci-better-auth-secret-0123456789"
+  KEPPO_CALLBACK_HMAC_SECRET: "keppo-ci-callback-hmac-secret-0123456789"
+  KEPPO_CRON_SECRET: "keppo-ci-cron-secret-0123456789"
+  KEPPO_MASTER_KEY: "keppo-ci-master-key-0123456789"
+  KEPPO_OAUTH_STATE_SECRET: "keppo-ci-oauth-state-secret-0123456789"
+  OPENAI_API_KEY: "sk-keppo-ci-openai"
+  GOOGLE_CLIENT_SECRET: "fake-google-client-secret"
+  STRIPE_SECRET_KEY: "sk_test_e2e_billing"
+  STRIPE_WEBHOOK_SECRET: "whsec_e2e_billing"
+  GITHUB_CLIENT_SECRET: "fake-github-client-secret"
+
+jobs:
+  deflake:
+    # Keep GITHUB_TOKEN permissions limited to supported workflow/job scopes.
+    # Workflow-file mutation rights are requested on the GitHub App token below
+    # via `permission-workflows: write`, matching the repo's other agent workflows.
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 180
+    env:
+      ISSUE_BRANCH: ${{ format('claude/deflake-e2e/{0}', github.run_id) }}
+      FLAKY_CONTEXT_PATH: tmp/claude-deflake-e2e/flaky-context.json
+      FLAKY_SUMMARY_PATH: tmp/claude-deflake-e2e/flaky-summary.md
+      PROMPT_PATH: tmp/claude-deflake-e2e/prompt.txt
+      PR_METADATA_PATH: tmp/claude-deflake-e2e/pr-metadata.json
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout workflow base revision
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configure push remote
+        run: |
+          git remote set-url --push origin "https://x-access-token:${APP_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+
+      - name: Prepare branch
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/prepare-branch.sh"
+
+      - name: Record starting commit
+        id: start-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Workspace Export Packages
+        run: pnpm run build:workspace-exports
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Gather flaky context
+        id: gather
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMIT_COUNT: ${{ inputs.commit_count || '10' }}
+          OUTPUT_PATH: ${{ env.FLAKY_CONTEXT_PATH }}
+          SUMMARY_PATH: ${{ env.FLAKY_SUMMARY_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/claude-deflake-e2e/gather-flaky-context.mjs"
+
+      - name: Render Claude prompt
+        if: steps.gather.outputs.has_flaky_tests == 'true'
+        id: prompt
+        env:
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/claude-deflake-e2e.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          BRANCH_NAME: ${{ env.ISSUE_BRANCH }}
+          FLAKY_CONTEXT_PATH: ${{ env.FLAKY_CONTEXT_PATH }}
+          FLAKY_SUMMARY_PATH: ${{ env.FLAKY_SUMMARY_PATH }}
+          PR_METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
+
+      - name: Create minimal agent token
+        if: steps.gather.outputs.has_flaky_tests == 'true'
+        id: agent-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Deflake E2E tests
+        if: steps.gather.outputs.has_flaky_tests == 'true'
+        uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_MAX_OUTPUT_TOKENS: 48000
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.agent-token.outputs.token }}
+          claude_args: --dangerously-skip-permissions --model claude-opus-4-6
+          show_full_output: false
+          display_report: true
+          prompt: ${{ steps.prompt.outputs.prompt }}
+
+      - name: Validate agent commit state
+        if: steps.gather.outputs.has_flaky_tests == 'true'
+        id: validate
+        env:
+          START_SHA: ${{ steps.start-sha.outputs.sha }}
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: |
+          set -euo pipefail
+          current_sha="$(git rev-parse HEAD)"
+          if [ "${current_sha}" = "${START_SHA}" ]; then
+            test ! -f "${METADATA_PATH}"
+            test -z "$(git status --short)"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          test -f "${METADATA_PATH}"
+          test -z "$(git status --short)"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh workflow base revision
+        if: steps.validate.outputs.has_changes == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate PR metadata
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/validate-pr-metadata.mjs"
+
+      - name: Parse PR metadata
+        if: steps.validate.outputs.has_changes == 'true'
+        id: pr
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/export-pr-metadata.mjs"
+
+      - name: Push branch
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/push-branch.sh"
+
+      - name: Create or update PR
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PR_BODY: ${{ steps.pr.outputs.body }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/create-or-update-pr.sh"

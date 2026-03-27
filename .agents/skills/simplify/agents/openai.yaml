@@ -1,0 +1,4 @@
+interface:
+  display_name: "Simplify"
+  short_description: "Simplify the uncommitted diff without changing behavior"
+  default_prompt: "Use $simplify to simplify the current uncommitted code by default, or a specific area if I name one, without changing functionality."

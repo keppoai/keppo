@@ -1,0 +1,32 @@
+---
+title: Stripe
+description: Operate billing-aware automations without losing control of refunds, subscriptions, or usage follow-up.
+audience: user-guide
+---
+
+## Best fit
+
+Stripe belongs in Keppo when automations need to:
+
+- inspect customer or subscription state
+- prepare billing follow-up
+- issue or review refunds
+- react to billing webhooks
+
+## Operating guidance
+
+- Keep finance-sensitive writes approval-gated until the policy is well understood.
+- Align the Stripe integration with the workspace that owns billing responsibility.
+- For self-hosted setups, make sure the billing webhook surface is configured before treating Stripe flows as production-ready.
+
+## Common automation pattern
+
+1. Detect a billing condition or support escalation.
+2. Gather Stripe customer context.
+3. Draft the next action or operator recommendation.
+4. Require human approval before issuing a refund or mutating a subscription.
+
+## Related docs
+
+- [Billing](/docs/user-guide/billing)
+- [Self-Hosted provider setup](/docs/self-hosted/providers)

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deflake E2E"
+  short_description: "Triage and fix flaky or red E2E tests"
+  default_prompt: "Use $deflake-e2e to investigate a targeted E2E failure or flake, reproduce it from local runs or CI traces, apply the smallest real fix, and validate the result."

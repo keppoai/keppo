@@ -1,0 +1,37 @@
+name: BugBot Trigger
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+# Restrict default permissions; each job declares only what it needs.
+permissions: {}
+
+jobs:
+  trigger-bugbot:
+    environment: ai-bots
+    concurrency:
+      group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    # Only review code from regular contributors since bug bot has a capped # of PR reviews.
+    if: |
+      !github.event.pull_request.draft &&
+      (github.event.pull_request.user.login == 'wwwillchen' ||
+      github.event.pull_request.user.login == 'wwwillchen-bot' ||
+      github.event.pull_request.user.login == 'vercel' ||
+      github.event.pull_request.user.login == 'vercel[bot]' ||
+      github.event.pull_request.user.login == 'keppo-bot' ||
+      github.event.pull_request.user.login == 'keppo-bot[bot]') &&
+      !contains(github.event.pull_request.body, '#skip-bugbot') &&
+      !contains(github.event.pull_request.body, '#skip-bb')
+    runs-on: ubicloud-standard-2
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Comment @BugBot run
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
+        with:
+          # Use a PAT from wwwillchen to post on their behalf
+          token: ${{ secrets.WWWILLCHEN_PR_RW_PAT }}
+          issue-number: ${{ github.event.pull_request.number }}
+          body: "@BugBot run"

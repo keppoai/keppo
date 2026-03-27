@@ -1,0 +1,31 @@
+Functional Source License, Version 1.1, Apache 2.0 Future License
+
+Copyright (c) Keppo contributors.
+
+The Licensed Work in this directory is licensed under the Functional Source
+License, Version 1.1, Apache 2.0 Future License ("FSL-1.1-ALv2").
+
+You may obtain a copy of the FSL at:
+https://fsl.software/FSL-1.1-ALv2
+
+Licensor:
+Keppo contributors
+
+Licensed Work:
+All source files and assets in `cloud/`, except files with an explicit
+alternative license notice.
+
+Additional Use Grant:
+You may use this software for any non-production purpose. Production use is
+permitted only for your own organization (including affiliates) and for
+evaluation, staging, and internal business operations.
+
+Change Date:
+Four years after the date each version of the Licensed Work is first published.
+
+Change License:
+Apache License, Version 2.0.
+
+On the Change Date, this Licensed Work will be available under the Change
+License. Until the Change Date, this Licensed Work is available only under the
+Functional Source License, Version 1.1, Apache 2.0 Future License.

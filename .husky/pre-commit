@@ -1,0 +1,8 @@
+pnpm exec lint-staged
+
+shared_inputs="$(git diff --cached --name-only --diff-filter=ACDMR -- packages/shared/src packages/shared/package.json packages/shared/tsconfig.json)"
+if [ -n "${shared_inputs}" ]; then
+  pnpm --filter @keppo/shared build
+fi
+
+pnpm run lint

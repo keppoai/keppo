@@ -1,0 +1,38 @@
+---
+title: Local Development
+description: The expected contributor loop for installing, running, verifying, and shipping changes in Keppo.
+audience: contributors
+---
+
+## Local loop
+
+```bash
+cp .env.example .env.local
+pnpm install
+pnpm run dev
+```
+
+The main local runtime is local Convex plus the TanStack Start web app on `:3000`.
+
+## Required local verification
+
+- `pnpm run typecheck`
+- `pnpm run check:security`
+- `pnpm run check:sdk-type-compat`
+
+If you change `packages/shared/src/**`, rebuild `@keppo/shared` before relying on downstream tests:
+
+```bash
+pnpm --filter @keppo/shared build
+```
+
+## Working expectations
+
+- Use targeted local E2E only. Do not run the full suite locally.
+- Commit meaningful, known-good work early on a feature branch.
+- Keep specs and setup docs in sync with runtime changes.
+
+## Related docs
+
+- [Testing](/docs/contributors/testing)
+- [Architecture](/docs/contributors/architecture)

@@ -1,0 +1,154 @@
+name: Docs Review
+
+on:
+  schedule:
+    # Weekdays at 5:00 UTC
+    - cron: "0 5 * * 1-5"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: docs-review
+  cancel-in-progress: true
+
+jobs:
+  review:
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 60
+    env:
+      ISSUE_BRANCH: claude/docs-review/${{ github.run_id }}
+      PR_METADATA_PATH: tmp/docs-review/pr-metadata.json
+      PROMPT_PATH: tmp/docs-review/prompt.txt
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare branch
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/issue-agent/prepare-branch.sh
+
+      - name: Record starting commit
+        id: start-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Render Claude prompt
+        id: prompt
+        env:
+          TEMPLATE_PATH: .github/prompts/docs-review.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          BRANCH_NAME: ${{ env.ISSUE_BRANCH }}
+          PR_METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node scripts/issue-agent/render-template.mjs
+
+      - name: Create minimal agent token
+        id: agent-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: read
+
+      - name: Review docs
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.agent-token.outputs.token }}
+          claude_args: --dangerously-skip-permissions --model claude-opus-4-6
+          show_full_output: false
+          display_report: true
+          prompt: ${{ steps.prompt.outputs.prompt }}
+
+      - name: Validate agent commit state
+        id: validate
+        env:
+          START_SHA: ${{ steps.start-sha.outputs.sha }}
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: |
+          set -euo pipefail
+          current_sha="$(git rev-parse HEAD)"
+          if [ "${current_sha}" = "${START_SHA}" ]; then
+            test ! -f "${METADATA_PATH}"
+            test -z "$(git status --short)"
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          test -f "${METADATA_PATH}"
+          test -z "$(git status --short)"
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh workflow base revision
+        if: steps.validate.outputs.has_changes == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Validate PR metadata
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/validate-pr-metadata.mjs"
+
+      - name: Parse PR metadata
+        if: steps.validate.outputs.has_changes == 'true'
+        id: pr
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/export-pr-metadata.mjs"
+
+      - name: Push branch
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/push-branch.sh"
+
+      - name: Create or update PR
+        if: steps.validate.outputs.has_changes == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PR_BODY: ${{ steps.pr.outputs.body }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/create-or-update-pr.sh"

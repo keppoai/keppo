@@ -1,0 +1,42 @@
+---
+title: Approvals and Rules
+description: Keep human review explicit at first, then automate only what is truly safe.
+audience: user-guide
+---
+
+## Why approvals are central
+
+Keppo is opinionated: write actions should be reviewable. The approval queue is not an obstacle to work; it is the system that makes automation trustworthy enough to expand.
+
+## Practical approval policy
+
+- Start with manual review for new write paths.
+- Watch a real sample of approved and rejected actions.
+- Add rules only when the operator would make the same decision every time.
+- Revisit rules whenever the prompt, provider surface, or business policy changes.
+
+## Good rule candidates
+
+- low-risk label application in Gmail
+- routine GitHub triage comments
+- repeated Slack updates to an internal channel
+
+## Bad rule candidates
+
+- refunds with ambiguous customer context
+- outbound messages that require judgment
+- actions that touch multiple external systems at once
+
+## Review ergonomics matter
+
+The approval reviewer should see:
+
+- what triggered the action
+- what Keppo plans to do
+- where the write will land
+- enough context to reject it confidently when needed
+
+## Related docs
+
+- [Building Automations](/docs/user-guide/automations/building-automations)
+- [Notifications](/docs/user-guide/notifications)

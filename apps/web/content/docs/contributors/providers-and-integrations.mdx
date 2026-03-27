@@ -1,0 +1,27 @@
+---
+title: Providers and Integrations
+description: The contributor view of the provider registry, connector fidelity, and integration UI boundaries.
+audience: contributors
+---
+
+## Canonical provider model
+
+Keppo’s provider surface is not an ad hoc collection of API wrappers. Providers have canonical IDs, explicit ownership of tools, auth modes, risk classes, and rollout gates.
+
+## Contributor rules that matter
+
+- Do not invent new provider IDs casually.
+- Keep provider behavior faithful to the real SDK or API contract.
+- Separate social-login auth from automation-provider auth.
+- Prefer shared harnesses and contracts over one-off mocks.
+
+## UI and runtime split
+
+- provider runtime and contract logic lives in shared/runtime code
+- dashboard provider cards and detail views belong in the web app
+- public docs should describe the provider inventory without hiding operational caveats
+
+## Related docs
+
+- [User Guide: Integrations](/docs/user-guide/integrations)
+- [Self-Hosted: Providers](/docs/self-hosted/providers)

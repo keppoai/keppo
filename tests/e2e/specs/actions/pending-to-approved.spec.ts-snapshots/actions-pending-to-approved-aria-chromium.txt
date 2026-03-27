@@ -1,0 +1,32 @@
+
+- dialog "Approval detail":
+  - heading "Approval detail" [level=2]
+  - paragraph: Review payload, decision trace, and execution timeline before acting.
+  - heading "send_email" [level=3]
+  - text: high succeeded
+  - paragraph: Recommended next step
+  - paragraph: Action was rejected. Check the approval history and timeline below before retrying from the originating workflow.
+  - paragraph: Created
+  - paragraph: Mar 8, 2026 12:24:21
+  - paragraph: Timeline
+  - paragraph: 6 events recorded
+  - paragraph: Review state
+  - paragraph: 1 approval decision recorded
+  - alert: Queue updated while you were reviewing This action moved out of the current filtered list, but Keppo is keeping the detail panel open so you can finish reviewing the timeline and result without losing context.
+  - alert: Approval recorded Keppo queued the approved action for execution. You can keep this detail panel open or jump to the next review item.
+  - button "Approve" [disabled]
+  - button "Reject" [disabled]
+  - separator
+  - tablist:
+    - tab "Summary" [selected]
+    - tab "Raw data"
+  - tabpanel "Summary":
+    - heading "Payload preview" [level=4]
+    - text: "{ \"body_preview\": \"Your order has shipped.\", \"recipient_count\": 1, \"recipients\": [ \"c***@example.com\" ], \"subject\": \"Order update\" }"
+    - paragraph: Use the redacted preview to confirm the target, scope, and intent before approving.
+    - heading "Execution output" [level=4]
+    - text: "{ \"provider_action_id\": \"msg_sent_1\", \"status\": \"sent\", \"subject\": \"Order update\", \"to\": \"[redacted]\" }"
+    - paragraph: Result details appear here after execution completes or returns an error.
+  - heading "Decision Trace" [level=4]
+  - text: "Approval History human:approve Approved from dashboard Mar 8, 2026 12:24:23 Execution Timeline action.execution_completed Mar 8, 2026 12:24:23 { \"action_id\": \"<id>\", \"attempts\": 1, \"output\": { \"provider_action_id\": \"msg_sent_1\", \"status\": \"sent\", \"subject\": \"Order update\", \"to\": \"[redacted]\" }, \"provider\": \"google\", \"provider_module_version\": 1, \"status\": \"succeeded\" } action.execution_started Mar 8, 2026 12:24:23 { \"action_id\": \"<id>\", \"provider\": \"google\", \"provider_module_version\": 1, \"tool_name\": \"gmail.sendEmail\" } secrets.unwrap_attempt Mar 8, 2026 12:24:23 { \"action_id\": \"<id>\", \"purpose\": \"action_payload\", \"result\": \"success\" } approval.recorded Mar 8, 2026 12:24:23 { \"action_id\": \"<id>\", \"confidence\": null, \"decider_type\": \"human\", \"decision\": \"approve\", \"reason\": \"Approved from dashboard\", \"rule_id\": null } action.approved Mar 8, 2026 12:24:23 { \"action_id\": \"<id>\", \"reason\": \"Approved from dashboard\" } action.created Mar 8, 2026 12:24:21 { \"action_id\": \"<id>\", \"payload_preview\": { \"body_preview\": \"Your order has shipped.\", \"recipient_count\": 1, \"recipients\": [ \"c***@example.com\" ], \"subject\": \"Order update\" }, \"status\": \"pending\", \"tool_name\": \"gmail.sendEmail\" }"
+  - button "Close"

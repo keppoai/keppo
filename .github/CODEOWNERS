@@ -1,0 +1,9 @@
+# Provider pluggability ownership map
+/packages/shared/src/providers.ts @keppo/maintainers
+/packages/shared/src/providers/** @keppo/maintainers
+/packages/shared/src/connectors/** @keppo/maintainers
+/packages/shared/src/tooling.ts @keppo/maintainers
+/packages/shared/provider-registry.snapshot.json @keppo/maintainers
+/scripts/create-provider-module.ts @keppo/maintainers
+/scripts/check-provider-guardrails.ts @keppo/maintainers
+/scripts/check-provider-registry-snapshot.ts @keppo/maintainers

@@ -1,0 +1,152 @@
+# E2E Testing Rules
+
+## Scope
+
+- Use Playwright only for cross-stack risks that genuinely need browser, API, Convex, auth, or MCP transport wiring together.
+- Default web-app rendering, route-context, API contract, and backend deterministic assertions to the non-E2E layers first (`test:web`, `test:convex`, `test:local-convex`, `test:conformance`).
+- Move deterministic backend or rendering logic to Vitest when possible, and keep cross-stack E2E ownership intentionally narrow.
+- When a browser flow needs backend setup or postconditions, prefer shared fixtures/store helpers for setup and move pure database-side assertions to `tests/convex/*` or `tests/local-convex/*.test.ts` instead of polling Convex directly from Playwright.
+
+## Deterministic runtime
+
+- E2E must force its own local callback URLs, fake-provider hosts, and `KEPPO_*` env values. Do not rely on `.env.dev` or `.env.local` defaults.
+- For browser-visible local flows, keep the dashboard origin and any local callback/API base URLs on the same host label (`localhost` vs `127.0.0.1`) within a run. Mixed hostnames can silently drop Better Auth session cookies during OAuth roundtrips even when they resolve to the same port.
+- Local/browser E2E uses same-site Better Auth through the dashboard origin (`app.dashboardBaseUrl/api/auth/*` proxied to the local Convex auth site). Browser auth helpers should rely on browser cookies there; do not route browser auth requests to direct Convex auth URLs.
+- Convex runtime env is fixed when local Convex starts. Do not expect later test-time env mutations to change backend behavior.
+- In prebuilt mode, refresh build artifacts with `pnpm e2e:prepare`.
+- In prebuilt mode, any browser-only `VITE_*` config required by the built dashboard (especially `VITE_CONVEX_URL` / `VITE_CONVEX_SITE_URL`) must be exported before the shared build step runs, not only inside per-worker runtime env setup; runtime-only worker env injection is too late because the prebuilt bundle has already baked those values in.
+- All `test:e2e*` commands must reuse the same preparation contract as `pnpm e2e:prepare`; do not reintroduce ad-hoc build/preflight ordering in shell wrappers.
+- Run `scripts/check-e2e-preflight.mjs` before E2E to catch stale builds, invalid runtime-mode configuration, forbidden shared-state patterns, and broken Playwright report-output assumptions.
+- PR and `main` CI lanes must call the shared repo-owned root script surface (`pnpm test:e2e:ci` and `pnpm test:e2e:ci:timed`; `test:e2e:ci:pr*` and `test:e2e:ci:main*` remain compatibility aliases) instead of embedding workflow-local spec lists or lane-specific behavior in YAML.
+- Keppo E2E is single-worker only. Keep Playwright worker count at `1` for all local runs, CI runs, and meta checks; do not add or rely on higher worker counts.
+- Workflow-level sharding is the approved way to speed up CI E2E. If `main` or PR lanes fan out into multiple jobs, keep `E2E_WORKERS=1` inside every shard and pass only shard selectors (for example `--shard=1/4`) from the workflow; do not replace repo-owned CI scripts with workflow-local spec lists.
+- Browser E2E fixtures must always use the repo-owned full reset helper between test cases; do not reintroduce namespace-only cleanup or invoke `scripts/convex-reset.sh` directly from Playwright fixtures. The shared helper may use the empty-snapshot `convex import --replace-all` technique under the hood.
+- Full reset helpers must also purge storage-backed artifacts referenced by reset rows (for example `automation_runs.log_storage_id`), not only delete the row documents.
+- GitHub Actions E2E jobs must run on `ubicloud-standard-2`. This suite is known to flake on standard GitHub-hosted runners, so moving E2E lanes to GitHub-hosted Linux runners or similar requires fresh evidence that the flake profile is gone and an update to this rule in the same change.
+- GitHub Actions E2E jobs must export enough Node heap for the Playwright/runtime stack (`NODE_OPTIONS=--max-old-space-size=4096` today). A shard hitting V8 heap OOM is infrastructure debt to fix in the shared workflow, not a reason to trim spec coverage ad hoc.
+- Code-mode sandbox verification is explicit. Default browser runs may skip `execute_code` specs when Docker/Vercel sandbox infrastructure is unavailable, but intentional sandbox verification must set `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` so the same condition fails fast instead of silently reducing coverage.
+- When a workflow needs Playwright video artifacts from passing tests, control video capture through repo-owned config/env (for example `KEPPO_PLAYWRIGHT_VIDEO_MODE=on`), not unsupported ad-hoc CLI flags like `--video=on`.
+
+## Isolation
+
+- Every test namespace must include the Playwright repeat index as well as the retry index.
+- Do not mutate shared default workspaces or shared credentials across parallel workers.
+- Run global cleanup once per E2E run, not once per worker.
+- Queue-broker state, fake-provider logs, and seeded backend records must stay namespace-scoped.
+- Provider webhook payload ids, externally injected event ids, and similar dedupe keys used in specs must include `app.namespace` (or equivalent worker-scoped isolation) so reruns do not inherit durable duplicate state from prior local runs.
+
+## Stable assertions
+
+- Avoid background worker races in e2e snapshots.
+- Prefer inline approval processing for e2e approval flows unless a test explicitly needs worker polling behavior.
+- Keep Playwright per-test hard timeout at `30_000ms` with stricter sub-budgets (`expect <= 5_000ms`, action/navigation <= `8_000ms`); approval-flow teardown races can otherwise reset the active namespace before MCP writes finish.
+- Default Playwright per-test timeout stays `30_000ms`; only grant explicit per-spec overrides for proven long-path flows (for example multi-login invite roundtrips, billing tier mutation journeys, or custom-MCP execution loops) instead of raising the global budget.
+- When an app-internal flow moves from browser-visible `/api/...` fetches to TanStack Start server functions, update E2E assertions to target the operator-visible result and E2E-only backend helpers rather than `page.waitForResponse` on the old browser request.
+- When a browser E2E still needs deterministic stubbing for a TanStack Start server function, use the app's E2E-only server-function mock hook from the browser context instead of Playwright-routing the retired `/api/...` request path.
+- Do not `page.route()` a TanStack Start page document URL and fulfill JSON to simulate a server-function error. Keep the real HTML navigation, seed the backend error state directly, and let the page's server-function request drive the user-facing UI.
+- Code-mode timeout-path browser specs must use an explicit per-spec timeout override because the product deliberately spends most of its runtime budget inside the sandbox timeout before asserting the structured error payload.
+- Treat worker-count env overrides as optional and validate they are positive integers; never export empty worker env values that can coerce to `0`.
+- E2E stack bootstrap must terminate any pre-existing competing local web/watch processes and local queue broker instances before tests start.
+- Local Convex bootstrap commands used by e2e must include `--local-force-upgrade` to avoid non-interactive CLI upgrade prompts in CI/automation terminals.
+- Local Convex bootstrap commands used by e2e must force anonymous deployment selection (`CONVEX_AGENT_MODE=anonymous` with an `anonymous-*` `CONVEX_DEPLOYMENT`) before invoking `convex dev`; inherited project-linked deployment config from `.env.local` can otherwise force an interactive Convex login prompt and break automation terminals.
+- Any local-Convex-only e2e entrypoint (not just the full Playwright harness) must reclaim stale listeners on `3210/3211/3212` before bootstrap so helper checks cannot attach to a prior runtime with mismatched env.
+- Any local-Convex-only e2e entrypoint that calls `sync_local_convex_runtime_env`/`setup_e2e_convex_env` must also wait until `e2e:countNamespaceRecords` is callable before starting tests; a ready config file alone is not enough and can race local-Convex test suites against function registration.
+- Convex umbrella helper modules that back runtime-facing test ids (for example `convex/e2e.ts`) must bind imported helpers to explicit local `export const` values. Do not rely on bare re-export lists for functions that local Convex test harnesses call by module name.
+- Any local-Convex e2e bootstrap wrapper that probes repo-owned helper functions must call both `setup_common_convex_env` and `setup_e2e_convex_env` after `sync_local_convex_runtime_env` and before readiness checks; otherwise clean CI runners can start Convex successfully but leave E2E helpers disabled in runtime env.
+- Local Convex bootstrap wrappers may retry a small bounded number of times only for known transient local faults (`OptimisticConcurrencyControlFailure`, stale port `3210`, or wrapper `SIGKILL` during startup/teardown); keep retries in the shell wrapper and do not hide deterministic app/test failures behind broad catch-all reruns.
+- Local Convex env sync helpers (`convex env set`) may also retry a small bounded number of times on `OptimisticConcurrencyControlFailure` / `update_environment_variables` `503` responses, because those occur during local bootstrap before the actual browser specs begin.
+- `convex dev --once --local --run-sh ...` may report inner `run-sh` failures in stdout/stderr while still exiting zero; bootstrap wrappers must inspect the captured log for those nested failure markers before deciding whether a run was actually successful.
+- Approved-action execution paths must preserve `e2e_namespace` (from run metadata as fallback) so connector calls route to the worker-scoped fake gateway.
+- Approved-action workers must guard action status transitions with compare-and-set semantics (`approved -> executing -> terminal`). Duplicate queue deliveries or late retries must no-op against the current status instead of re-executing side effects or overwriting `rejected` / `expired` terminal states.
+- Background cron drivers used by e2e infra must never surface unhandled promise rejections from periodic ticks; auto-loop failures should be logged and non-fatal unless a test explicitly asserts on them.
+- E2E cron-driver ticks must still advance/drain the worker queue even when the shared maintenance action fails transiently (for example Convex OCC on shared tables), or parallel workers can starve unrelated approval/action flows.
+- In `KEPPO_E2E_MODE`, background Convex cron heartbeat wrappers should no-op after recording success, and the Playwright cron driver must not invoke the full maintenance path on every queue tick; keep queue advance/drain frequent, but run expensive maintenance on a slower dedicated cadence.
+- Playwright E2E auto-cron should default to queue advance/drain only. Do not run maintenance on a background cadence unless a specific lane opts in; tests that need maintenance must trigger it explicitly through the shared helper so setup mutations do not race background sweeps.
+- Per-test global resets must detach and close every open page in the Playwright browser context before resetting backend state. Resetting Convex/fake services while any prior page remains alive can leak in-flight notification/query activity across test-case boundaries.
+- Maintenance sweeps triggered during E2E must bound active-run scans with indexed time filters (for example `automation_runs.by_status_started`) before inspecting metadata like `last_activity_at`; full scans across all active runs can exceed the local Convex 1-second mutation budget and cascade into unrelated browser failures.
+- Do not target auto-approval toggles by index; use the tool-specific switch id/name (for example `auto-gmail.sendEmail`) to keep tests resilient to list/order changes.
+- For action-flow preconditions, prefer backend fixture mutation setup (for example `rules:setAutoApproval`) over UI toggles; UI assertions should validate outcomes, not pay setup cost.
+- Action-flow e2e that toggles workspace rules must operate on the same selected workspace credential used by MCP calls; avoid creating detached workspaces unless the UI selection is updated to match.
+- Workspace-settings e2e that mutate workspace-level toggles (for example Code Mode) must explicitly select the seeded target workspace card in the UI before toggling; do not assume the newly seeded workspace is the active selection.
+- Queue approval/rejection UI specs may intentionally seed against the currently selected workspace to keep MCP-created actions and queue views aligned under the same workspace context.
+- Cross-system approval queue browser specs that seed a workspace, initialize MCP, create a gated action, and resolve it through the dashboard should opt into a per-spec slow budget (`test.slow()`), rather than assuming the default `30_000ms` budget covers cold-stack propagation.
+- Seeded workspaces used for MCP flows must be unique per test case; do not rotate credentials on a shared default workspace under parallel workers (this causes revoked-credential races).
+- Browser specs that already have seeded `orgSlug`/`workspaceSlug` fixtures must navigate with those explicit slugs after auth or invite redirects; do not rebuild scoped dashboard URLs from ambient page state when the flow intentionally leaves the browser on global routes like `/login` or `/invites/*`.
+- Auth fixture seeding (`ensurePersonalOrgForUser`) must use the same fake-auth identity that Convex login flow uses (`KEPPO_FAKE_AUTH_USER_ID` defaults) or tests will seed integrations in an org/workspace the UI session cannot access.
+- Auth/workspace seeding helpers must resolve organization slugs from admin-side Better Auth data, not from browser-side `/api/auth/organization/list` probes; browser-session introspection races can leave tests on `/` with an unselected workspace.
+- Namespace cleanup logic must match namespace tokens with boundaries (not raw substring includes), or repeat indices like `.1` and `.10` can cross-delete each other under `--repeat-each`.
+- Global Convex state reset and "kill competing worker" cleanup must execute once per e2e run (run-scoped lock), never once per Playwright worker startup; per-worker resets cause cross-worker `Forbidden`/credential flakes under parallel repeat runs.
+- E2E teardown/cleanup must discover all persisted worker runtime records instead of assuming a fixed worker range; leaked high-index worker stacks leave detached API/Vite/fake-gateway processes behind and later runs fail with port conflicts or false `ECONNREFUSED` noise.
+- Local e2e stack bootstrap must prefer the current `.convex/local/default/config.json` admin key over any inherited `KEPPO_CONVEX_ADMIN_KEY` env value; stale env keys can survive local Convex restarts and otherwise cause suite-wide `BadAdminKey` failures.
+- Namespace reset mutations that scan/delete across shared tables can OCC with active parallel writes; high-volume conformance specs may disable per-test namespace reset via fixture option and rely on unique namespaces instead.
+- Login polling helpers must never use unbounded locator actions inside retry loops; use short click timeouts and retry to avoid full-test deadlocks.
+- Shared login helpers should cache one-time auth provisioning work per test runtime (for example seeded email/password users or personal-org scaffolding) so multi-login specs spend time on the actual flow, not repeated setup.
+- E2E fixture seeding that runs before browser login must provision the Better Auth email/password account as well as the app-side user/org rows; creating only the app-side user record leads to false `Invalid email or password` failures in later `/api/auth/sign-in/email` flows.
+- Broad admin snapshot helpers (for example `mcp:getDbSnapshot`) are for offline inspection, not hot-path browser readiness or `expect.poll` loops; login/scope helpers and action/notification assertions must use narrow E2E-only queries for the specific workspace, action, or endpoint they need so local Convex stays under the 1-second budget.
+- When E2E helpers set controlled React form values programmatically, assert the locator’s value after dispatching events before clicking Save/Submit; otherwise the next action can read stale pre-update component state.
+- Workspace-switch helpers used after backend seeding must verify the requested workspace actually became the active URL/scope before continuing; writing the remembered slug alone is not enough because the dashboard can fall back to the previously selected workspace during hydration.
+- Workspace-creation helpers used by browser specs must not return after only the modal closes or the new workspace appears in a list; they must wait until the created workspace becomes the active dashboard URL/scope, or readiness/home assertions will race the post-create navigation.
+- Browser E2E must follow the shipped confirmation UX. If the app uses `AlertDialog` or another first-class confirmation surface, tests must confirm that dialog explicitly instead of wiring `page.once("dialog")` for legacy `window.confirm`.
+- Provider action-matrix e2e should treat `session not found/expired` as recoverable within the conformance harness (re-run `initialize`, then retry once), while leaving generic MCP client session semantics unchanged for lifecycle-specific specs.
+- Provider action-matrix resilient MCP wrappers must treat `status="failed"` tool payloads as retryable transient errors (with bounded retries and OCC/session detection), because parallel local Convex runs may surface OCC/session churn as failed payload envelopes instead of thrown transport errors.
+- Shared MCP helpers own bounded session/OCC recovery, readiness probes, and `approval_required` polling; specs should call those helpers instead of open-coding retry loops or ad-hoc `keppo.wait_for_action` polling.
+- Local Convex E2E helpers must follow real foreign-key relationships (for example `action.workspace_id`) when loading related org/workspace records; never derive parent ids by parsing opaque custom ids.
+- Local/browser full deployment resets should use the repo-owned empty-snapshot import helper (`convex import --replace-all`) instead of row-by-row mutation paging; keep paginated `e2e:reset` / `e2e:resetNamespace` for namespace-scoped cleanup and Convex-layer regression coverage.
+- Full deployment resets that use `convex import --replace-all` must quiesce the local auto-cron driver first; out-of-band imports can race maintenance ticks and queue advancement, causing OCC noise, hung local-convex runs, or stale post-reset state.
+- Paginated E2E reset helpers (`e2e:reset`, `e2e:resetNamespace`) must be drained until `done=true`; a single mutation call only clears one page and will leave stale rows behind for later tests.
+- Reset helpers that span app tables plus Better Auth component tables must not report `done=true` immediately after the last app-schema table; the Better Auth phase is part of the same reset contract and must be paged through too.
+- MCP API/Vitest tests must send spec-valid `initialize` payloads (`protocolVersion`, `capabilities`, `clientInfo`) and parse streamable HTTP POST responses as SSE-framed MCP messages instead of assuming plain JSON response bodies.
+- High-volume provider conformance e2e (for example provider action-matrix sharded runs) must set seeded org subscription tier to `pro` before tool-call loops to avoid free-tier `TOOL_CALL_LIMIT_REACHED` interference.
+- High-volume provider conformance shards should seed workspaces with `default_action_behavior=auto_approve_all` and skip best-effort workspace-integration toggles to reduce `executeApprovedAction` OCC contention and `setWorkspaceIntegrations` permission noise under parallel workers.
+- Async UI validation effects must guard against stale in-flight responses (for example with run/version ids) so clearing/changing form input cannot be overwritten by older validation promises.
+- Action-backed write specs must treat `action_id` as the completion handle. When an MCP or `execute_code` write response returns `action_id` with a non-terminal status (`approval_required`, `approved`, `executing`, or `pending`), poll `keppo.wait_for_action` through the shared helper before asserting provider side effects, empty queues, or namespace isolation.
+- Invite-acceptance browser E2E must not depend on external email delivery; capture raw invite tokens through E2E-only backend plumbing and allow the invite-send API path to succeed without Mailgun when `KEPPO_E2E_MODE=true`.
+- Browser flows that depend on Better Auth immediately after login or invite redirects must key critical post-login work off the Better Auth session user first, not only Convex auth hydration; local E2E can have a valid Better Auth session before Convex marks the browser authenticated.
+- Notification-preference endpoint additions must not treat an optimistic UI row as proof of persistence; after clicking Add/Enable, poll a narrow backend helper for the concrete endpoint record before seeding delivery failures or other follow-up admin state.
+- When a notification-preference flow needs to mutate a just-added endpoint again (toggle, remove, or edit per-event preferences), wait until the optimistic row has been replaced by the persisted record and the row controls are enabled before clicking the next control.
+- Approved-action maintenance and enqueue sweeps must query the indexed `actions.by_status_created` path in descending created order; collecting all approved actions and slicing later can bury the current test namespace behind stale backlog and starve approval-flow E2E.
+- Local Better Auth E2E bootstrap must sync Convex `KEPPO_URL` to the actual dashboard origin served by the E2E stack, not a generic fallback when the worker uses a different dashboard port; otherwise org-activation POSTs like `/api/auth/organization/set-active` can fail `403 Forbidden` while login/session reads still appear healthy.
+- Local/browser E2E wrappers must treat undecryptable `dotenvx` placeholders (`encrypted:...`) as unset for fake-only config like Stripe test keys and price ids; otherwise the local fake gateways will receive invalid credentials instead of the deterministic test defaults.
+- In TanStack Start prebuilt mode, same-origin `/api/auth/**` requests must be proxied through the app server to the Better Auth site and must preserve `set-better-auth-cookie`; otherwise login E2E can stall on `/login` with `session:no-cookie`.
+- When `packages/shared/src/**` changes and any runtime imports `@keppo/shared`, run `pnpm --filter @keppo/shared build` before e2e to avoid stale `dist/` hook behavior.
+- Dist freshness checks that gate `pnpm test:e2e` must ignore source-only test files (`*.test.*`, `*.spec.*`, `__tests__/`) so legitimate shared test edits do not block E2E preflight.
+- When `scripts/e2e-prepare.mjs --build` has already rebuilt runtime packages, the follow-up preflight may skip mtime-only dist freshness checks; no-op incremental builds do not reliably refresh `dist/` timestamps.
+- When `packages/shared/src/contracts/**` or `packages/shared/src/providers/boundaries/**` changes, rebuild `@keppo/shared` before running dependent package tests so new contract exports are available from `dist/`.
+- In prebuilt runtime mode (`KEPPO_E2E_RUNTIME_MODE=prebuilt`), keep the unified `apps/web/.vercel/output` Nitro build fresh before e2e (`pnpm e2e:prepare`); the local stack must boot that prebuilt server via `pnpm --filter @keppo/web start`, which wraps `srvx` for the generated Vercel output, not `vite preview`.
+- Run `scripts/check-e2e-preflight.mjs` before e2e to fail fast on stale shared `dist` output, brittle authoring patterns, and forbidden shared-state test patterns.
+- E2E infra log tails used in failure artifacts/startup errors must be bounded and redacted, and default stdout streaming must remain high-signal only (full stream allowed only behind `KEPPO_E2E_VERBOSE=1`).
+- Namespace identifiers used for e2e isolation must include Playwright repeat index (`testInfo.repeatEachIndex`) in addition to retry index; repeat runs (`--repeat-each`) must never share namespace keys.
+- Queue-broker control paths used by test infra must be namespace-scoped (`/reset?namespace=...`, `/state?namespace=...`, `/inject-failure` with `namespace`) and fixture/spec helpers must forward `app.namespace` so parallel tests cannot observe or purge each other's queue state.
+- PR and `main` CI must run the same full browser lane, sharded at the workflow level when needed; the only intentional difference between those workflows is the trigger metadata.
+- Provider action conformance e2e should be driven from shared scenario packs so local fake runs and nightly real-provider runs execute the same action definitions.
+- Shared provider action scenarios must include normalized golden expectations for positive output and negative error shapes; conformance runner assertions should diff normalized payloads/errors, not raw volatile envelopes.
+- Provider tool schemas exercised in conformance e2e must tolerate injected test metadata keys (for example `__e2eNamespace`); avoid strict empty-object schemas for no-arg tools.
+- Provider actions with permissive schemas (for example `z.object({})`) still require a deterministic negative path; prefer connected-state negatives (disconnect/reconnect) when invalid-input checks cannot fail.
+- For `not_connected` negative-path conformance tests, snapshot provider SDK-call logs before reconnect hooks execute; reconnect flows may emit legitimate provider calls and must not be counted as negative-path regressions.
+- For auth/scope conformance phases that begin with `disconnectProvider`, wait for a read-probe tool to fail with `auth`/`not_connected` before asserting per-tool auth outcomes; provider disconnect propagation can lag and otherwise produce flaky `not_found` errors.
+- Connectors must short-circuit disconnected contexts before scope checks when context arrives with no integration account, no tokens, and empty scopes; otherwise `not_connected` conformance paths can nondeterministically fail as `missing scopes`.
+- For approval-required write conformance flows, assert positive-path expected SDK method coverage, but avoid strict negative/idempotency "no new SDK call" invariants on writes because queued approval execution can interleave late provider calls; keep strict no-call invariants for read negative paths.
+- Provider action scenario packs are stateful: destructive writes must not invalidate fixtures required by later positive scenarios (for example, deleting a message before a reaction scenario that targets the same `ts`), or SDK retries can turn a functional mismatch into long timeout flakes.
+- Nonessential authenticated-shell data must not gate unrelated routes. Queries or mutations that power secondary chrome only (for example billing badges, auto-bootstrapped notification helpers, or provider catalogs needed only when a later mutation runs) should degrade behind isolated fallbacks or move out of always-on context/render paths so a slow local Convex call does not blank an otherwise healthy page in E2E.
+- Do not stack an always-on live query and an immediate mount-time manual refresh for the same nonessential surface. Duplicate local-Convex pressure on page load can turn slow but recoverable secondary queries into route-level flakes.
+
+## Provider coverage
+
+- Provider conformance should be driven by shared scenario packs in `tests/provider-conformance/action-matrix.ts`.
+- Fake adapters must stay signature-compatible with the real SDK paths.
+- When provider tools add new user-visible stack behavior, add the minimal E2E needed on top of conformance coverage.
+
+## Snapshot and locator hygiene
+
+- Target controls by semantic ids, labels, or names, never by visual order.
+- Avoid broad shell-wide ARIA snapshots on workspace-scoped dashboard pages. Prefer explicit assertions or focused snapshots of the changed surface so unrelated shell chrome changes do not churn baselines.
+- Page objects and helpers must not click an entire table row when that row also contains destructive controls; target a dedicated non-destructive cell or named control instead.
+- `scripts/check-e2e-authoring.mjs` must fail on `waitForTimeout`, direct `ariaSnapshot()` usage outside the shared helpers, and raw `.first()`/`.last()`/`.nth()` locators inside spec files.
+- Normalize timestamps, volatile IDs, and unrelated shell chrome before snapshotting.
+- Playwright snapshot baselines must be platform-agnostic. Keep browser/project separation when needed, but do not encode the host OS in committed snapshot paths or filenames.
+- Screenshots are for debugging and visual review only; they are not test assertions.
+- Screenshot-capture specs should wait for bounded visual readiness (`domcontentloaded` + visible shell content) rather than `networkidle`; live Convex/dashboard pages may keep background requests open indefinitely.
+- Screenshot-capture specs for usability work should assert the specific operator-facing copy or affordance that motivated the change before saving the artifact; otherwise a screenshot file can still be produced after the UI silently regresses to generic or backend-shaped text.
+- Screenshot-capture specs that need a non-empty dashboard state should seed the underlying workspace/automation data through backend helpers instead of walking unrelated setup flows such as AI-key configuration in the browser.
+- Dashboard E2E readiness helpers must wait for a settled dashboard-state marker (for example the first-time builder CTA or returning-user summary card), not just the greeting/header shell; the shell can render before async dashboard content hydrates and cause false snapshot diffs.
+- Workspace-selection E2E helpers should only prove that the browser reached the requested workspace-scoped URL. Any follow-up in-app page navigation must separately wait for the dashboard router or target navigation affordance to be ready; freshly seeded workspaces can report the new URL/local-storage scope before the shell finishes rebuilding workspace-scoped links.

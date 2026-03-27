@@ -1,0 +1,37 @@
+---
+title: Troubleshooting
+description: The first checks for auth, env, webhooks, queues, and runtime health in a self-hosted Keppo deployment.
+audience: self-hosted
+---
+
+## Start with these questions
+
+- Did the app fail at boot because a required env variable is missing?
+- Is the dashboard origin aligned with Better Auth and Convex hosts?
+- Are internal cron or queue routes returning fail-closed because their secret is missing?
+- Did a provider webhook reach the app and pass signature verification?
+
+## Common failure patterns
+
+### Auth looks broken
+
+- verify `BETTER_AUTH_SECRET`
+- verify `KEPPO_URL`
+- verify `VITE_CONVEX_SITE_URL`
+- check provider social-login env only if the failure is on the login surface
+
+### Provider appears unavailable
+
+- inspect the actual running env, not only `.env.local`
+- confirm callback hosts and feature flags
+- check that the provider remains visible with a warning instead of being removed
+
+### Internal routes fail
+
+- verify cron or queue secrets
+- confirm the path is one of the Start-owned routes Keppo expects
+- inspect health and DLQ routes for backlog or dispatch failures
+
+## Escalation path
+
+When the failure is no longer obvious, move into the repo-native runbooks in `docs/runbooks/` for provider outages, stuck runs, webhook failures, or queue issues.

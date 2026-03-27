@@ -1,0 +1,141 @@
+name: oauth-helper-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      require_signing:
+        description: "Fail if signing credentials are missing"
+        required: false
+        default: false
+        type: boolean
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    env:
+      REQUIRE_SIGNING: ${{ github.event_name == 'release' || github.event.inputs.require_signing == 'true' }}
+      APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+      - name: Build helper frontend
+        run: pnpm --filter @keppo/oauth-helper build
+      - name: Prepare Apple notarization key
+        if: env.APPLE_API_KEY_P8 != ''
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/private_keys"
+          printf '%s' "$APPLE_API_KEY_P8" > "$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8"
+          echo "APPLE_API_KEY_PATH=$RUNNER_TEMP/private_keys/AuthKey_${APPLE_API_KEY}.p8" >> "$GITHUB_ENV"
+      - name: Validate macOS signing configuration
+        if: env.REQUIRE_SIGNING == 'true'
+        shell: bash
+        run: |
+          missing=0
+          for key in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD APPLE_API_KEY APPLE_API_ISSUER APPLE_API_KEY_P8; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required secret: $key" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Build helper bundle
+        run: pnpm --filter @keppo/oauth-helper tauri build
+      - name: Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oauth-helper-macos
+          path: apps/oauth-helper/src-tauri/target/release/bundle
+
+  build-windows:
+    runs-on: windows-latest
+    env:
+      REQUIRE_SIGNING: ${{ github.event_name == 'release' || github.event.inputs.require_signing == 'true' }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+      AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ secrets.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+      AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+      AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ secrets.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install workspace deps
+        run: pnpm install --frozen-lockfile
+      - name: Build helper frontend
+        run: pnpm --filter @keppo/oauth-helper build
+      - name: Validate Windows signing configuration
+        if: env.REQUIRE_SIGNING == 'true'
+        shell: bash
+        run: |
+          missing=0
+          for key in AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TRUSTED_SIGNING_ENDPOINT AZURE_TRUSTED_SIGNING_ACCOUNT_NAME AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME; do
+            if [ -z "${!key:-}" ]; then
+              echo "Missing required secret: $key" >&2
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+      - name: Build helper bundle
+        run: pnpm --filter @keppo/oauth-helper tauri build
+      - name: Sign Windows bundles
+        if: env.AZURE_TENANT_ID != '' && env.AZURE_CLIENT_ID != '' && env.AZURE_CLIENT_SECRET != '' && env.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME != '' && env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME != ''
+        uses: azure/trusted-signing-action@v0
+        with:
+          azure-tenant-id: ${{ env.AZURE_TENANT_ID }}
+          azure-client-id: ${{ env.AZURE_CLIENT_ID }}
+          azure-client-secret: ${{ env.AZURE_CLIENT_SECRET }}
+          endpoint: ${{ env.AZURE_TRUSTED_SIGNING_ENDPOINT }}
+          trusted-signing-account-name: ${{ env.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
+          certificate-profile-name: ${{ env.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
+          files-folder: ${{ github.workspace }}\apps\oauth-helper\src-tauri\target\release\bundle
+          files-folder-filter: exe,msi
+          file-digest: SHA256
+          timestamp-rfc3161: http://timestamp.acs.microsoft.com
+          timestamp-digest: SHA256
+          exclude-workload-identity-credential: true
+          exclude-managed-identity-credential: true
+          exclude-shared-token-cache-credential: true
+          exclude-visual-studio-credential: true
+          exclude-visual-studio-code-credential: true
+          exclude-azure-cli-credential: true
+          exclude-azure-powershell-credential: true
+          exclude-azure-developer-cli-credential: true
+          exclude-interactive-browser-credential: true
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oauth-helper-windows
+          path: apps/oauth-helper/src-tauri/target/release/bundle

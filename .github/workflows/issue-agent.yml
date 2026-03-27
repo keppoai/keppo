@@ -1,0 +1,558 @@
+name: Issue Agent
+
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: issue-agent-${{ github.event.issue.number }}-${{ github.event.label.name }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  gate:
+    if: github.event.label.name == '/do-issue' || github.event.label.name == '/plan-issue'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    permissions:
+      issues: write
+    outputs:
+      should_continue: ${{ steps.gate.outputs.should_continue }}
+      action: ${{ steps.gate.outputs.action }}
+      run_claude: ${{ steps.gate.outputs.run_claude }}
+      run_codex: ${{ steps.gate.outputs.run_codex }}
+      issue_number: ${{ steps.gate.outputs.issue_number }}
+      issue_title: ${{ steps.gate.outputs.issue_title }}
+      issue_body: ${{ steps.gate.outputs.issue_body }}
+      issue_comments_json: ${{ steps.gate.outputs.issue_comments_json }}
+      branch_slug: ${{ steps.gate.outputs.branch_slug }}
+      action_key: ${{ steps.gate.outputs.action_key }}
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Determine workflow inputs
+        id: gate
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const allowedTriggerActor = 'wwwillchen';
+            const allowedIssueAuthors = new Set(['wwwillchen', 'vercel', 'keppo-bot']);
+            const allowedCommentAuthors = new Set(['wwwillchen', 'keppo-bot']);
+            const normalizeAuthorLogin = (login) => (login || '').replace(/\[bot\]$/i, '');
+            if (context.actor !== allowedTriggerActor) {
+              console.log(`Actor ${context.actor} is not allowed to trigger issue-agent`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            const issue = context.payload.issue;
+            const issueAuthor = normalizeAuthorLogin(issue.user?.login);
+            if (!allowedIssueAuthors.has(issueAuthor)) {
+              console.log(`Issue author ${issueAuthor || '<missing>'} is not allowed for issue-agent`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            const filteredComments = [];
+            let cursor = null;
+            while (true) {
+              const response = await github.graphql(
+                `query IssueAgentIssueComments($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+                  repository(owner: $owner, name: $repo) {
+                    issue(number: $number) {
+                      comments(first: 100, after: $cursor) {
+                        nodes {
+                          author {
+                            login
+                          }
+                          body
+                          createdAt
+                          isMinimized
+                        }
+                        pageInfo {
+                          endCursor
+                          hasNextPage
+                        }
+                      }
+                    }
+                  }
+                }`,
+                {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  number: issue.number,
+                  cursor,
+                },
+              );
+
+              const commentConnection = response.repository?.issue?.comments;
+              if (!commentConnection) {
+                throw new Error(`Unable to load comments for issue #${issue.number}`);
+              }
+
+              for (const comment of commentConnection.nodes || []) {
+                if (comment?.isMinimized) {
+                  continue;
+                }
+                const author = normalizeAuthorLogin(comment?.author?.login);
+                if (!allowedCommentAuthors.has(author)) {
+                  continue;
+                }
+                filteredComments.push({
+                  author,
+                  body: comment?.body || '',
+                  createdAt: comment?.createdAt || '',
+                });
+              }
+
+              if (!commentConnection.pageInfo?.hasNextPage) {
+                break;
+              }
+              cursor = commentConnection.pageInfo.endCursor;
+            }
+
+            const action = context.payload.label.name;
+            const normalizedAction = action;
+            const actionKey = normalizedAction.replace(/^\//, '');
+            const labels = new Set((issue.labels || []).map((label) => label.name));
+            const hasClaude = labels.has('?agent:claude');
+            const hasCodex = labels.has('?agent:codex');
+            const runClaude = hasClaude ? 'true' : 'false';
+            const runCodex = hasCodex || (!hasClaude && !hasCodex) ? 'true' : 'false';
+
+            const slugBase = (issue.title || `issue-${issue.number}`)
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, '-')
+              .replace(/^-+|-+$/g, '')
+              .slice(0, 50)
+              .replace(/-+$/g, '');
+            const branchSlug = slugBase || `issue-${issue.number}`;
+
+            core.setOutput('should_continue', 'true');
+            core.setOutput('action', normalizedAction);
+            core.setOutput('run_claude', runClaude);
+            core.setOutput('run_codex', runCodex);
+            core.setOutput('issue_number', String(issue.number));
+            core.setOutput('issue_title', issue.title || '');
+            core.setOutput('issue_body', issue.body || '');
+            core.setOutput('issue_comments_json', JSON.stringify(filteredComments));
+            core.setOutput('branch_slug', branchSlug);
+            core.setOutput('action_key', actionKey);
+
+  mark-pending:
+    needs: gate
+    if: needs.gate.outputs.should_continue == 'true'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    permissions:
+      issues: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Set pending labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number('${{ needs.gate.outputs.issue_number }}');
+            const action = '${{ needs.gate.outputs.action }}';
+            const actionKey = '${{ needs.gate.outputs.action_key }}';
+            const pendingLabel = `${actionKey}:pending`;
+            const doneLabel = `${actionKey}:done`;
+            const failedLabel = `${actionKey}:failed`;
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+            });
+            const currentLabels = issue.labels.map((label) => label.name);
+            const nextLabels = currentLabels.filter(
+              (label) =>
+                ![
+                  action,
+                  pendingLabel,
+                  doneLabel,
+                  failedLabel,
+                ]
+                  .filter(Boolean)
+                  .includes(label),
+            );
+
+            if (!nextLabels.includes(pendingLabel)) {
+              nextLabels.push(pendingLabel);
+            }
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              labels: nextLabels,
+            });
+
+  injection-check:
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.should_continue == 'true' && (needs.gate.outputs.action_key == 'do-issue' || needs.gate.outputs.action_key == 'plan-issue')
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 15
+    permissions:
+      issues: write
+      contents: read
+    outputs:
+      is_safe: ${{ steps.parse.outputs.is_safe }}
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-contents: read
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+
+      - name: Write untrusted issue reference
+        env:
+          ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
+          ISSUE_TITLE: ${{ needs.gate.outputs.issue_title }}
+          ISSUE_BODY: ${{ needs.gate.outputs.issue_body }}
+          ISSUE_COMMENTS_JSON: ${{ needs.gate.outputs.issue_comments_json }}
+        run: node scripts/issue-agent/write-untrusted-issue.mjs
+
+      - name: Build injection classifier prompt
+        id: injection-prompt
+        env:
+          TEMPLATE_PATH: .github/prompts/issue-agent/injection-check.txt
+          OUTPUT_PATH: tmp/issue-agent/injection-check-prompt.txt
+        run: node scripts/issue-agent/render-template.mjs
+
+      - name: Create minimal agent token
+        id: agent-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: read
+
+      - name: Run injection classifier
+        id: classify
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.agent-token.outputs.token }}
+          track_progress: false
+          show_full_output: false
+          display_report: false
+          claude_args: --model sonnet --allowedTools "Read,Write" --disallowedTools "Bash,Edit,NotebookEdit"
+          prompt: ${{ steps.injection-prompt.outputs.prompt }}
+
+      - name: Parse injection classifier result
+        id: parse
+        env:
+          CLASSIFIER_OUTCOME: ${{ steps.classify.outcome }}
+        run: |
+          set -euo pipefail
+          node <<'EOF'
+          const crypto = require('crypto');
+          const fs = require('fs');
+
+          const outputPath = 'tmp/issue-agent/injection-check.json';
+          let safe = false;
+          let reason = '';
+
+          try {
+            if (process.env.CLASSIFIER_OUTCOME !== 'success') {
+              throw new Error(`classifier step outcome was ${process.env.CLASSIFIER_OUTCOME}`);
+            }
+            if (!fs.existsSync(outputPath)) {
+              throw new Error('classifier output file was not created');
+            }
+            const raw = fs.readFileSync(outputPath, 'utf8').trim();
+            const parsed = JSON.parse(raw);
+            if (typeof parsed.safe !== 'boolean') {
+              throw new Error('classifier output missing boolean "safe" field');
+            }
+            if (!parsed.safe && typeof parsed.reason !== 'string') {
+              throw new Error('unsafe classifier output missing string "reason" field');
+            }
+            safe = parsed.safe;
+            reason = parsed.reason || '';
+          } catch (error) {
+            safe = false;
+            reason = `Injection check failed closed: ${error.message}`;
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `is_safe=${safe}\n`);
+          if (reason) {
+            const delimiter = `EOF_${crypto.randomUUID()}`;
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `reason<<${delimiter}\n${reason}\n${delimiter}\n`);
+          }
+          EOF
+
+      - name: Mark issue as unsafe
+        if: steps.parse.outputs.is_safe != 'true'
+        env:
+          INJECTION_REASON: ${{ steps.parse.outputs.reason || 'No reason provided.' }}
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number('${{ needs.gate.outputs.issue_number }}');
+            const action = '${{ needs.gate.outputs.action }}';
+            const actionKey = '${{ needs.gate.outputs.action_key }}';
+            const pendingLabel = `${actionKey}:pending`;
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+            });
+            const currentLabels = issue.labels.map((label) => label.name);
+            const nextLabels = currentLabels
+              .filter((label) => ![action, pendingLabel].includes(label))
+              .concat(currentLabels.includes('prompt-injection-risk') ? [] : ['prompt-injection-risk']);
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              labels: nextLabels,
+            });
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              body: [
+                `Blocked \`${action}\` because the prompt injection pre-check marked this issue as unsafe.`,
+                '',
+                `Reason: ${process.env.INJECTION_REASON}`,
+              ].join('\n'),
+            });
+
+  cc-do-issue:
+    needs: [gate, mark-pending, injection-check]
+    if: needs.gate.outputs.run_claude == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/issue-agent-issue-to-pr.yml
+    with:
+      agent_kind: claude
+      agent_name: Claude
+      branch_prefix: cc
+      issue_number: ${{ needs.gate.outputs.issue_number }}
+      issue_title: ${{ needs.gate.outputs.issue_title }}
+      issue_body: ${{ needs.gate.outputs.issue_body }}
+      issue_comments_json: ${{ needs.gate.outputs.issue_comments_json }}
+      branch_slug: ${{ needs.gate.outputs.branch_slug }}
+      default_branch: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
+  codex-do-issue:
+    needs: [gate, mark-pending, injection-check]
+    if: needs.gate.outputs.run_codex == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/issue-agent-issue-to-pr.yml
+    with:
+      agent_kind: codex
+      agent_name: Codex
+      branch_prefix: codex
+      issue_number: ${{ needs.gate.outputs.issue_number }}
+      issue_title: ${{ needs.gate.outputs.issue_title }}
+      issue_body: ${{ needs.gate.outputs.issue_body }}
+      issue_comments_json: ${{ needs.gate.outputs.issue_comments_json }}
+      branch_slug: ${{ needs.gate.outputs.branch_slug }}
+      default_branch: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
+  finalize-do-issue:
+    needs: [gate, mark-pending, injection-check, cc-do-issue, codex-do-issue]
+    if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    permissions:
+      issues: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Finalize issue labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number('${{ needs.gate.outputs.issue_number }}');
+            const requestedResults = [];
+            if ('${{ needs.gate.outputs.run_claude }}' === 'true') {
+              requestedResults.push({ agent: 'Claude', result: '${{ needs.cc-do-issue.result }}' });
+            }
+            if ('${{ needs.gate.outputs.run_codex }}' === 'true') {
+              requestedResults.push({ agent: 'Codex', result: '${{ needs.codex-do-issue.result }}' });
+            }
+
+            const allSucceeded = requestedResults.every((entry) => entry.result === 'success');
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+            });
+            const currentLabels = issue.labels.map((label) => label.name);
+            const nextLabels = currentLabels.filter(
+              (label) => !['do-issue:pending', 'do-issue:done', 'do-issue:failed'].includes(label),
+            );
+            nextLabels.push(allSucceeded ? 'do-issue:done' : 'do-issue:failed');
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              labels: nextLabels,
+            });
+
+            if (!allSucceeded) {
+              const summary = requestedResults.map((entry) => `- ${entry.agent}: ${entry.result}`).join('\n');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body: [
+                  'The `do-issue` workflow finished with at least one failed agent run.',
+                  '',
+                  summary,
+                  '',
+                  `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                ].join('\n'),
+              });
+            }
+
+  cc-plan-issue:
+    needs: [gate, mark-pending, injection-check]
+    if: needs.gate.outputs.run_claude == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true' && needs.injection-check.outputs.is_safe == 'true'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/issue-agent-plan.yml
+    with:
+      agent_kind: claude
+      agent_name: Claude
+      issue_number: ${{ needs.gate.outputs.issue_number }}
+      issue_title: ${{ needs.gate.outputs.issue_title }}
+      issue_body: ${{ needs.gate.outputs.issue_body }}
+      issue_comments_json: ${{ needs.gate.outputs.issue_comments_json }}
+      default_branch: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
+  codex-plan-issue:
+    needs: [gate, mark-pending, injection-check]
+    if: needs.gate.outputs.run_codex == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true' && needs.injection-check.outputs.is_safe == 'true'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/issue-agent-plan.yml
+    with:
+      agent_kind: codex
+      agent_name: Codex
+      issue_number: ${{ needs.gate.outputs.issue_number }}
+      issue_title: ${{ needs.gate.outputs.issue_title }}
+      issue_body: ${{ needs.gate.outputs.issue_body }}
+      issue_comments_json: ${{ needs.gate.outputs.issue_comments_json }}
+      default_branch: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
+  finalize-plan-issue:
+    needs:
+      [gate, mark-pending, injection-check, cc-plan-issue, codex-plan-issue]
+    if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.injection-check.outputs.is_safe == 'true'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    permissions:
+      issues: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Finalize plan labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number('${{ needs.gate.outputs.issue_number }}');
+            const requestedResults = [];
+            if ('${{ needs.gate.outputs.run_claude }}' === 'true') {
+              requestedResults.push({ agent: 'Claude', result: '${{ needs.cc-plan-issue.result }}' });
+            }
+            if ('${{ needs.gate.outputs.run_codex }}' === 'true') {
+              requestedResults.push({ agent: 'Codex', result: '${{ needs.codex-plan-issue.result }}' });
+            }
+
+            const allSucceeded = requestedResults.every((entry) => entry.result === 'success');
+            const { data: issue } = await github.rest.issues.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+            });
+            const currentLabels = issue.labels.map((label) => label.name);
+            const nextLabels = currentLabels.filter((label) => !['plan-issue:pending', 'plan-issue:done', 'plan-issue:failed'].includes(label));
+            nextLabels.push(allSucceeded ? 'plan-issue:done' : 'plan-issue:failed');
+
+            await github.rest.issues.update({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              labels: nextLabels,
+            });
+
+            if (!allSucceeded) {
+              const summary = requestedResults.map((entry) => `- ${entry.agent}: ${entry.result}`).join('\n');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body: [
+                  'The `plan-issue` workflow finished with at least one failed agent run.',
+                  '',
+                  summary,
+                  '',
+                  `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                ].join('\n'),
+              });
+            }

@@ -1,0 +1,85 @@
+- list:
+  - listitem:
+    - button "<workspace-selector>"
+- list:
+  - listitem:
+    - link "Dashboard":
+      - /url: /
+- text: Workspace
+- list:
+  - listitem:
+    - link "Automations":
+      - /url: /automations
+  - listitem:
+    - link "Integrations":
+      - /url: /integrations
+  - listitem:
+    - link "Rules & Policies":
+      - /url: /rules
+- text: Organization
+- list:
+  - listitem:
+    - button "Organization settings Billing, members, audit, and org defaults"
+- separator
+- button "Operational readiness 2 / 5" [expanded]
+- progressbar
+- paragraph: Next step
+- paragraph: Add an AI key
+- paragraph: Generated automations stay blocked until the organization has an active AI key.
+- link "Continue":
+  - /settings
+- list:
+  - listitem:
+    - button "Connect one provider Start with one real system so this workspace can see live data."
+  - listitem:
+    - button "Enable it in this workspace Choose which connected providers this workspace can actually use."
+  - listitem:
+    - link "Add an AI key Generated automations stay blocked until the organization has an active AI key.":
+      - /settings
+      - button "Add an AI key Generated automations stay blocked until the organization has an active AI key."
+  - listitem:
+    - link "Create the first automation Draft one focused automation target so the workspace can do useful work.":
+      - /url: /automations
+      - button "Create the first automation Draft one focused automation target so the workspace can do useful work."
+  - listitem:
+    - link "Run a first action Trigger one real workflow to prove approvals, runs, and logs are wired.":
+      - /url: /automations
+      - button "Run a first action Trigger one real workflow to prove approvals, runs, and logs are wired."
+- list:
+  - listitem:
+    - button "E e2e@example.com"
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Approvals" [disabled]
+  - button "Command"
+  - button "Toggle theme"
+  - heading "Approvals" [level=1]
+  - button "Test Action"
+  - tablist:
+    - tab "All"
+    - tab "Pending" [selected]
+    - tab "Approved"
+    - tab "Rejected"
+  - textbox "Search action type or payload"
+  - paragraph: Ready now
+  - paragraph: "0"
+  - paragraph: Items matching the current filters
+  - paragraph: Review first
+  - paragraph: "0"
+  - paragraph: Critical or high-risk actions in this view
+  - paragraph: After this one
+  - paragraph: "0"
+  - paragraph: 0 already resolved in this filtered view
+  - text: j/k navigate, a approve, r reject
+  - img "Illustration of a calm all-clear approvals state"
+  - text: All clear
+  - paragraph: No actions waiting for approval right now.
+  - separator
+  - paragraph: Select an action from the table
+- heading "Operator command palette" [level=2]
+- paragraph: Jump between entities, open key surfaces, run automations, and launch the guided builder.

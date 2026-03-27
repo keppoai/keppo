@@ -1,0 +1,52 @@
+- list:
+  - listitem:
+    - button "<workspace-selector>"
+- list:
+  - listitem:
+    - link "Dashboard":
+      - /url: /
+- text: Workspace
+- list:
+  - listitem:
+    - link "Automations":
+      - /url: /automations
+  - listitem:
+    - link "Integrations":
+      - /url: /integrations
+  - listitem:
+    - link "Rules":
+      - /url: /rules
+- text: Organization
+- list:
+  - listitem:
+    - button "E e2e@example.com"
+- button "Toggle Sidebar"
+- main:
+  - button "Toggle Sidebar"
+  - separator
+  - navigation "breadcrumb":
+    - list:
+      - listitem:
+        - link "Dashboard" [disabled]
+  - button "5 credits"
+  - button "Command"
+  - button "Help and support"
+  - button "Toggle theme"
+  - heading "<dashboard-greeting>" [level=1]
+  - paragraph: Create your first automation to get started.
+  - text: Automation builder What should your next automation do? Start with a short prompt. Keppo asks only the missing questions, drafts the workflow, then lets you review providers and runtime settings. Describe the automation goal
+  - textbox "Describe the automation goal":
+    - /placeholder: Every morning at 9AM, summarize new GitHub issues and email me the blockers.
+  - paragraph: Use <shortcut-modifier> + Enter to continue.
+  - button "Continue"
+  - button "Every morning at 9AM, summarize new GitHub issues and email me the blockers."
+  - button "When Stripe refunds are requested, route them to Slack with the customer context."
+  - button "Check stale pull requests every afternoon and remind the right reviewers."
+  - button "Watch for new GitHub bugs and open a matching Notion page with triage notes."
+  - button "Each Friday, assemble a short approvals digest for the operations team."
+  - paragraph: What happens next
+  - paragraph: "Step 2 of 4: Configure an AI key"
+  - paragraph: Generate the draft first. Keppo will guide provider and key setup in the next step, and nothing goes live until you review the automation.
+  - text: Done Connect a provider Up next Configure an AI key
+- heading "Operator command palette" [level=2]
+- paragraph: Jump between entities, open key surfaces, run automations, and launch the guided builder.

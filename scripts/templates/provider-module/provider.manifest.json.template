@@ -1,0 +1,40 @@
+{
+  "manifest_version": 1,
+  "provider": {
+    "id": "__PROVIDER_ID__",
+    "display_name": "__PROVIDER_TITLE__",
+    "description": "__PROVIDER_TITLE__ provider integration",
+    "documentation_url": "https://docs.example.com/providers/__PROVIDER_ID__"
+  },
+  "module": {
+    "schema_version": 1,
+    "entrypoint": "packages/shared/src/providers/__PROVIDER_ID__/module.ts"
+  },
+  "auth": {
+    "mode": "oauth2",
+    "managed": true
+  },
+  "capabilities": {
+    "read": true,
+    "write": true,
+    "refresh_credentials": false,
+    "webhook": false
+  },
+  "env": [],
+  "tools": [
+    {
+      "name": "__PROVIDER_ID__.exampleRead",
+      "capability": "read",
+      "risk_level": "low",
+      "requires_approval": false,
+      "description": "Example read tool"
+    },
+    {
+      "name": "__PROVIDER_ID__.exampleWrite",
+      "capability": "write",
+      "risk_level": "medium",
+      "requires_approval": true,
+      "description": "Example write tool"
+    }
+  ]
+}

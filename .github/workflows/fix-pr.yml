@@ -1,0 +1,598 @@
+# VERY IMPORTANT:
+# This workflow has elevated permissions (contents:write, pull-requests:write).
+# It should ONLY run on trusted maintainers' code.
+# Author allowlists are enforced in the job steps below.
+name: Fix PR
+
+on:
+  pull_request_target:
+    types: [labeled]
+
+# Restrict default permissions; the job below declares only what it needs.
+permissions: {}
+
+jobs:
+  fix-pr:
+    if: github.event_name == 'pull_request_target' && github.event.label.name == '/fix-pr'
+    # Concurrency MUST be on the job, not the workflow. Ghost pull_request_target
+    # runs (triggered by label changes like fix-pr:pending) have their job `if` evaluate
+    # to false and are skipped. Job-level concurrency avoids skipped runs acquiring
+    # the lock for a legitimate /fix-pr execution.
+    concurrency:
+      group: fix-pr-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: false
+    environment: ai-bots
+    runs-on: ubicloud-standard-4
+    env:
+      WORKFLOW_BASE_PATH: .workflow-base
+      PR_CONTEXT_PATH: tmp/pr-review-responder/context.json
+      PR_CONTEXT_SUMMARY_PATH: tmp/pr-review-responder/context-summary.md
+      PR_ACTIONS_PATH: tmp/pr-review-responder/actions.json
+      PR_PROMPT_PATH: tmp/pr-review-responder/prompt.txt
+      LOG_MARKER_PATH: tmp/pr-review-responder/session-log-marker
+      SESSION_LOG_COMMENT_PATH: tmp/pr-review-responder/session-log-comment.md
+      CODEX_HOME: tmp/pr-review-responder/codex-home
+    steps:
+      - name: Create GitHub App token for base repo
+        id: base-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-checks: read
+          # write required for GraphQL resolveReviewThread mutation
+          # see: https://github.com/orgs/community/discussions/44650
+          permission-contents: write
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Get PR info and check labels
+        id: pr-info
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.base-app-token.outputs.token }}
+          script: |
+            const normalizeLogin = (login) => (login || '').replace(/\[bot\]$/i, '');
+            let prNumber, headRepo, headBranch, prLabels, prAuthor;
+
+            // Triggered by adding /fix-pr
+            const pr = context.payload.pull_request;
+            prNumber = pr.number;
+            headRepo = pr.head.repo ? pr.head.repo.full_name : null;
+            headBranch = pr.head.ref;
+            prLabels = pr.labels;
+            prAuthor = normalizeLogin(pr.user.login);
+
+            // Check that the person who applied the label is a trusted actor
+            const actor = normalizeLogin(context.actor);
+            const allowedActors = ['wwwillchen', 'wwwillchen-root', 'vercel', 'keppo-bot'];
+            if (!allowedActors.includes(actor)) {
+              console.log(`Label applied by ${actor} who is not in the allowed actors list`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            if (!headRepo) {
+              console.log('Head repository not available');
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            // Only allow trusted authors to use this workflow
+            const allowedAuthors = ['wwwillchen', 'wwwillchen-root', 'vercel', 'keppo-bot'];
+            if (!allowedAuthors.includes(prAuthor)) {
+              console.log(`PR #${prNumber} author ${prAuthor} is not allowed to use this workflow`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            const labels = new Set((prLabels || []).map((label) => label.name));
+            const hasClaude = labels.has('?agent:claude');
+            const hasCodex = labels.has('?agent:codex');
+            if (hasClaude && hasCodex) {
+              console.log(`PR #${prNumber} has both ?agent:claude and ?agent:codex labels; fix-pr only supports one agent at a time`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            const agentKind = hasClaude ? 'claude' : 'codex';
+            const agentName = hasClaude ? 'Claude' : 'Codex';
+            if (!hasClaude && !hasCodex) {
+              console.log(`PR #${prNumber} has no agent label; defaulting to ${agentName}`);
+            }
+
+            const currentLabel = prLabels.find((label) => label.name === '/fix-pr')?.name ?? '';
+            if (!currentLabel) {
+              console.log(`PR #${prNumber} does not have a /fix-pr label`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+
+            console.log(`PR #${prNumber} has ${currentLabel} label, proceeding with single-shot fix-pr`);
+            core.setOutput('pr_number', prNumber);
+            core.setOutput('should_continue', 'true');
+            core.setOutput('current_label', currentLabel);
+            core.setOutput('head_repo', headRepo);
+            core.setOutput('head_branch', headBranch);
+            core.setOutput('agent_kind', agentKind);
+            core.setOutput('agent_name', agentName);
+            core.setOutput('ci_conclusion', '');
+
+      - name: Create GitHub App token for PR head repo
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: head-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.event.pull_request.head.repo.owner.login }}
+          repositories: ${{ github.event.pull_request.head.repo.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Checkout repository
+        if: steps.pr-info.outputs.should_continue == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ steps.pr-info.outputs.head_repo }}
+          token: ${{ steps.head-app-token.outputs.token }}
+          ref: ${{ steps.pr-info.outputs.head_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout workflow base revision
+        if: steps.pr-info.outputs.should_continue == 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.base-app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Configure push remote for fork PRs
+        if: steps.pr-info.outputs.should_continue == 'true'
+        run: |
+          # claude-code-action overwrites origin's fetch URL to point to keppoai/keppo.
+          # Setting pushurl separately ensures git push still targets the fork,
+          # because git uses pushurl over url when both are configured.
+          #
+          # We use a GitHub App token instead of GITHUB_TOKEN so that
+          # the push creates real PR events (synchronize) that trigger downstream workflows
+          # like CI. Pushes made with GITHUB_TOKEN are silently ignored by GitHub to prevent
+          # infinite loops.
+          git remote set-url --push origin "https://x-access-token:${PR_HEAD_APP_TOKEN}@github.com/${{ steps.pr-info.outputs.head_repo }}.git"
+          echo "Configured pushurl to ${{ steps.pr-info.outputs.head_repo }}"
+        env:
+          PR_HEAD_APP_TOKEN: ${{ steps.head-app-token.outputs.token }}
+
+      - name: Configure upstream remote and fetch base branch
+        if: steps.pr-info.outputs.should_continue == 'true'
+        run: |
+          git remote add upstream "https://x-access-token:${BASE_APP_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch upstream ${{ github.event.pull_request.base.ref }}
+        env:
+          BASE_APP_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Attempt rebase onto base branch
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: rebase
+        run: |
+          BASE_REF="${{ github.event.pull_request.base.ref }}"
+          MERGE_BASE=$(git merge-base HEAD "upstream/${BASE_REF}")
+          UPSTREAM_HEAD=$(git rev-parse "upstream/${BASE_REF}")
+
+          if [ "${MERGE_BASE}" = "${UPSTREAM_HEAD}" ]; then
+            echo "Branch is already up to date with upstream/${BASE_REF}"
+            echo "status=up_to_date" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if git rebase "upstream/${BASE_REF}"; then
+            echo "Rebase onto upstream/${BASE_REF} succeeded cleanly"
+            echo "status=clean" >> "$GITHUB_OUTPUT"
+          else
+            echo "Rebase had conflicts, aborting for agent to handle"
+            git rebase --abort
+            echo "status=conflicts" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Record HEAD before agent run
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: before-agent
+        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Setup pnpm
+        if: steps.pr-info.outputs.should_continue == 'true'
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        if: steps.pr-info.outputs.should_continue == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install Codex CLI
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.pr-info.outputs.agent_kind == 'codex'
+        run: npm install -g @openai/codex@latest
+
+      - name: Write Codex auth file
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.pr-info.outputs.agent_kind == 'codex'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-codex-auth.sh"
+
+      - name: Install dependencies
+        if: steps.pr-info.outputs.should_continue == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Update labels to pending
+        if: steps.pr-info.outputs.should_continue == 'true'
+        run: |
+          gh pr edit ${{ steps.pr-info.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "${{ steps.pr-info.outputs.current_label }}" --remove-label "fix-pr:done" --remove-label "fix-pr:failed" --remove-label "/sync-pr" --remove-label "sync-pr:pending" --add-label "fix-pr:pending"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Build PR context
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: context
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          PR_URL: ${{ format('https://github.com/{0}/pull/{1}', github.repository, steps.pr-info.outputs.pr_number) }}
+          CI_CONCLUSION: ${{ steps.pr-info.outputs.ci_conclusion }}
+          OUTPUT_PATH: ${{ env.PR_CONTEXT_PATH }}
+          SUMMARY_PATH: ${{ env.PR_CONTEXT_SUMMARY_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/pr-review-responder/build-context.mjs"
+
+      - name: Compute rebase instructions
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: rebase-ctx
+        env:
+          REBASE_STATUS: ${{ steps.rebase.outputs.status }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          DELIM="EOF_$(openssl rand -hex 8)"
+          if [ "${REBASE_STATUS}" = "conflicts" ]; then
+            {
+              echo "instructions<<${DELIM}"
+              echo ""
+              echo "REBASE REQUIRED — HIGHEST PRIORITY: The branch has merge conflicts with upstream/${BASE_REF}. Before addressing any review comments or CI failures, rebase the branch:"
+              echo "1. Run: git rebase upstream/${BASE_REF}"
+              echo "2. For each conflicting file, read it, understand both sides, and resolve the conflict"
+              echo "3. Stage resolved files: git add <file>"
+              echo "4. Continue: git rebase --continue"
+              echo "5. Repeat until the rebase completes"
+              echo "6. Run pnpm check to verify nothing is broken"
+              echo "Then proceed with the remaining tasks."
+              echo ""
+              echo "${DELIM}"
+            } >> "$GITHUB_OUTPUT"
+          else
+            echo "instructions=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Render agent prompt
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: prompt
+        env:
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/pr-review-responder.txt
+          OUTPUT_PATH: ${{ env.PR_PROMPT_PATH }}
+          PR_CONTEXT_PATH: ${{ env.PR_CONTEXT_PATH }}
+          PR_CONTEXT_SUMMARY_PATH: ${{ env.PR_CONTEXT_SUMMARY_PATH }}
+          PR_ACTIONS_PATH: ${{ env.PR_ACTIONS_PATH }}
+          REBASE_INSTRUCTIONS: ${{ steps.rebase-ctx.outputs.instructions }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
+
+      - name: Record session log marker
+        if: steps.pr-info.outputs.should_continue == 'true'
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${LOG_MARKER_PATH}")"
+          touch "${LOG_MARKER_PATH}"
+
+      - name: Create GitHub App token for Claude
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.pr-info.outputs.agent_kind == 'claude'
+        id: claude-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Create GitHub App token for Codex
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.pr-info.outputs.agent_kind == 'codex'
+        id: codex-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Run Claude PR responder
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.pr-info.outputs.agent_kind == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.claude-app-token.outputs.token }}
+          allowed_non_write_users: "vercel,keppo-bot"
+          claude_args: --dangerously-skip-permissions --model claude-opus-4-6
+          show_full_output: false
+          display_report: true
+          allowed_bots: "vercel,keppo-bot"
+          prompt: ${{ steps.prompt.outputs.prompt }}
+
+      - name: Run Codex PR responder
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.pr-info.outputs.agent_kind == 'codex'
+        env:
+          PROMPT_PATH: ${{ env.PR_PROMPT_PATH }}
+          GH_TOKEN: ${{ steps.codex-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.codex-app-token.outputs.token }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-codex.sh"
+
+      - name: Refresh workflow base revision
+        if: always() && steps.pr-info.outputs.should_continue == 'true'
+        # Rehydrate trusted helper scripts after the agent runs so privileged
+        # post-agent validation/export steps never execute agent-mutated copies.
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.base-app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Upload session logs
+        if: always() && steps.pr-info.outputs.should_continue == 'true'
+        continue-on-error: true
+        env:
+          AGENT_KIND: ${{ steps.pr-info.outputs.agent_kind }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODEX_HOME: ${{ env.CODEX_HOME }}
+          PULL_REQUEST_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
+
+      - name: Post session log comment
+        if: always() && steps.pr-info.outputs.should_continue == 'true'
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMENT_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+        run: |
+          if [ -n "${COMMENT_NUMBER}" ] && [ -s "${COMMENT_PATH}" ]; then
+            bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-github-comment.sh"
+          fi
+
+      - name: Validate agent output
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: validate
+        env:
+          START_SHA: ${{ steps.before-agent.outputs.sha }}
+          CONTEXT_PATH: ${{ env.PR_CONTEXT_PATH }}
+          ACTIONS_PATH: ${{ env.PR_ACTIONS_PATH }}
+          EXPECTED_CONTEXT_SHA: ${{ steps.context.outputs.context_sha }}
+          AGENT_NAME: ${{ steps.pr-info.outputs.agent_name }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "${ACTIONS_PATH}" ]; then
+            echo "::error::${AGENT_NAME} did not write ${ACTIONS_PATH}. Check the agent run step output for details." >&2
+            exit 1
+          fi
+          # If the trusted helper checkout stays inside the repo, fail closed on
+          # any nested-repo state before we trust or push Claude's commit.
+          if git diff --name-only "${START_SHA}" HEAD -- .gitmodules | grep -q .; then
+            echo ".gitmodules changed while .workflow-base was present in the repo" >&2
+            exit 1
+          fi
+
+          gitlink_paths="$(git ls-files --stage | awk '$1 == "160000" { print $4 }')"
+          if [ -n "${gitlink_paths}" ]; then
+            echo "Nested gitlink entries are not allowed:" >&2
+            echo "${gitlink_paths}" >&2
+            exit 1
+          fi
+
+          if git diff --cached --name-only -- .workflow-base | grep -q .; then
+            echo ".workflow-base must never be staged in the PR repository" >&2
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" HEAD -- .workflow-base | grep -q .; then
+            echo ".workflow-base must never appear in agent-authored commits" >&2
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" HEAD -- .gitignore | grep -q . &&
+            git diff "${START_SHA}" HEAD -- .gitignore | grep -F ".workflow-base" >/dev/null; then
+            echo ".gitignore changes that reference .workflow-base are not allowed" >&2
+            exit 1
+          fi
+
+          dirty="$(git status --short -- . ':(exclude).workflow-base')"
+          if [ -n "${dirty}" ]; then
+            echo "::warning::Uncommitted changes in workspace after ${AGENT_NAME} run — auto-committing:" >&2
+            echo "${dirty}" >&2
+            git add -u -- .
+            untracked_paths_file="$(mktemp)"
+            git ls-files --others --exclude-standard -z -- . ':(exclude).workflow-base' > "${untracked_paths_file}"
+            if [ -s "${untracked_paths_file}" ]; then
+              git add --pathspec-from-file="${untracked_paths_file}" --pathspec-file-nul
+            fi
+            rm -f "${untracked_paths_file}"
+            git commit --amend --no-verify --no-edit
+          fi
+          node "${WORKFLOW_BASE_PATH}/scripts/pr-review-responder/validate-actions.mjs"
+
+          current_sha="$(git rev-parse HEAD)"
+          if [ "${current_sha}" != "${START_SHA}" ]; then
+            echo "has_local_commits=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_local_commits=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Push branch
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.validate.outputs.has_local_commits == 'true'
+        run: git push --force-with-lease origin HEAD:${{ steps.pr-info.outputs.head_branch }}
+
+      - name: Parse PR actions
+        if: steps.pr-info.outputs.should_continue == 'true'
+        id: actions
+        env:
+          ACTIONS_PATH: ${{ env.PR_ACTIONS_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/pr-review-responder/export-actions.mjs"
+
+      - name: Apply thread actions
+        if: steps.pr-info.outputs.should_continue == 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          THREAD_ACTIONS: ${{ steps.actions.outputs.thread_actions }}
+        with:
+          github-token: ${{ steps.base-app-token.outputs.token }}
+          script: |
+            const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
+            const threadActions = JSON.parse(process.env.THREAD_ACTIONS ?? "[]");
+
+            if (!Number.isFinite(prNumber)) {
+              throw new Error("PR_NUMBER is required");
+            }
+
+            const replyToComment = async (commentId, body) => {
+              await github.request("POST /repos/{owner}/{repo}/pulls/{pull_number}/comments/{comment_id}/replies", {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+                comment_id: commentId,
+                body,
+              });
+            };
+
+            const resolveThread = async (threadId) => {
+              try {
+                await github.graphql(
+                  `mutation($threadId: ID!) {
+                    resolveReviewThread(input: { threadId: $threadId }) {
+                      thread {
+                        id
+                        isResolved
+                      }
+                    }
+                  }`,
+                  { threadId },
+                );
+              } catch (error) {
+                if (typeof error?.message === "string" && error.message.includes("already resolved")) {
+                  core.warning(`Review thread ${threadId} was already resolved`);
+                  return;
+                }
+                core.error(`resolveReviewThread failed: ${JSON.stringify(error, null, 2)}`);
+                throw error;
+              }
+            };
+
+            for (const entry of threadActions) {
+              core.info(`Applying ${entry.action} to review thread ${entry.threadId}`);
+              if (entry.action === "reply_and_resolve") {
+                await replyToComment(entry.commentId, entry.body);
+                await resolveThread(entry.threadId);
+                continue;
+              }
+
+              if (entry.action === "reply_only") {
+                await replyToComment(entry.commentId, entry.body);
+                continue;
+              }
+
+              if (entry.action === "resolve") {
+                await resolveThread(entry.threadId);
+                continue;
+              }
+
+              throw new Error(`Unsupported action type: ${entry.action}`);
+            }
+
+      - name: Post summary comment
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.actions.outputs.summary_comment != ''
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          SUMMARY_COMMENT: ${{ steps.actions.outputs.summary_comment }}
+        with:
+          github-token: ${{ steps.base-app-token.outputs.token }}
+          script: |
+            const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
+            const body = process.env.SUMMARY_COMMENT ?? "";
+
+            if (!Number.isFinite(prNumber)) {
+              throw new Error("PR_NUMBER is required");
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });
+
+      - name: Publish PR demo video
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.actions.outputs.demo_present == 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          DEMO_SUMMARY: ${{ steps.actions.outputs.demo_summary }}
+          DEMO_VIDEO_PATH: ${{ steps.actions.outputs.demo_video_path }}
+          VERCEL_DEMO_BLOB_READ_WRITE_TOKEN: ${{ secrets.VERCEL_DEMO_BLOB_READ_WRITE_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/publish-pr-demo.sh"
+
+      - name: Post single-shot follow-up comment
+        if: steps.pr-info.outputs.should_continue == 'true' && success() && steps.validate.outputs.has_local_commits == 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+        with:
+          github-token: ${{ steps.base-app-token.outputs.token }}
+          script: |
+            const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
+            if (!Number.isFinite(prNumber)) {
+              throw new Error("PR_NUMBER is required");
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body: "Single-shot `/fix-pr` mode stopped after this pass to save tokens. If you want another automated pass after the new CI results land, re-apply the `/fix-pr` label."
+            });
+
+      - name: Update labels to done
+        if: steps.pr-info.outputs.should_continue == 'true' && success()
+        run: |
+          gh pr edit ${{ steps.pr-info.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "fix-pr:pending" --add-label "fix-pr:done"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Update labels to failed
+        if: steps.pr-info.outputs.should_continue == 'true' && failure()
+        run: |
+          gh pr edit ${{ steps.pr-info.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "fix-pr:pending" --add-label "fix-pr:failed"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}

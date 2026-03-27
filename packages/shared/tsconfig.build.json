@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "files": [
+    "src/index.ts",
+    "src/contracts/index.ts",
+    "src/providers-core.ts",
+    "src/providers-ui.ts",
+    "src/providers-contracts.ts",
+    "src/subscriptions.ts",
+    "src/code-mode/index.ts",
+    "src/email/index.ts",
+    "src/sandbox.ts"
+  ]
+}

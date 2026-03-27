@@ -1,0 +1,11 @@
+name: CI (main)
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    uses: ./.github/workflows/e2e-shared.yml

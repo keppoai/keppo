@@ -1,0 +1,294 @@
+name: Issue Agent Issue To PR
+
+on:
+  workflow_call:
+    inputs:
+      agent_kind:
+        required: true
+        type: string
+      agent_name:
+        required: true
+        type: string
+      issue_number:
+        required: true
+        type: string
+      issue_title:
+        required: true
+        type: string
+      issue_body:
+        required: true
+        type: string
+      issue_comments_json:
+        required: true
+        type: string
+      branch_slug:
+        required: true
+        type: string
+      branch_prefix:
+        required: true
+        type: string
+      default_branch:
+        required: true
+        type: string
+
+jobs:
+  run:
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 60
+    permissions:
+      actions: read
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      ISSUE_BRANCH: ${{ format('{0}/issue-{1}/{2}', inputs.branch_prefix, inputs.issue_number, inputs.branch_slug) }}
+      PR_METADATA_PATH: tmp/issue-agent/pr-metadata.json
+      PROMPT_PATH: tmp/issue-agent/agent-prompt.txt
+      LOG_MARKER_PATH: tmp/issue-agent/session-log-marker
+      SESSION_LOG_COMMENT_PATH: tmp/issue-agent/session-log-comment.md
+      CODEX_HOME: tmp/issue-agent/codex-home
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Checkout workflow base revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install Codex CLI
+        if: inputs.agent_kind == 'codex'
+        run: npm install -g @openai/codex@latest
+
+      - name: Write Codex auth file
+        if: inputs.agent_kind == 'codex'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-codex-auth.sh"
+
+      - name: Prepare branch
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/prepare-branch.sh"
+
+      - name: Record starting commit
+        id: start-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Write untrusted issue reference
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ inputs.issue_title }}
+          ISSUE_BODY: ${{ inputs.issue_body }}
+          ISSUE_COMMENTS_JSON: ${{ inputs.issue_comments_json }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-untrusted-issue.mjs"
+
+      - name: Render prompt
+        id: prompt
+        env:
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/issue-agent/issue-to-pr.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          BRANCH_NAME: ${{ env.ISSUE_BRANCH }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          PR_METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
+
+      - name: Record session log marker
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${LOG_MARKER_PATH}")"
+          touch "${LOG_MARKER_PATH}"
+
+      - name: Create minimal agent token
+        if: inputs.agent_kind == 'claude'
+        id: agent-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Run Claude Code
+        if: inputs.agent_kind == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.agent-token.outputs.token }}
+          track_progress: false
+          show_full_output: false
+          display_report: false
+          claude_args: --dangerously-skip-permissions --model opus
+          prompt: ${{ steps.prompt.outputs.prompt }}
+
+      - name: Run Codex
+        if: inputs.agent_kind == 'codex'
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-codex.sh"
+
+      - name: Validate agent commit state
+        env:
+          START_SHA: ${{ steps.start-sha.outputs.sha }}
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: |
+          set -euo pipefail
+          if [ ! -f "${METADATA_PATH}" ]; then
+            echo "::error::Missing PR metadata file at ${METADATA_PATH}"
+            exit 1
+          fi
+
+          current_sha="$(git rev-parse HEAD)"
+          if [ "${current_sha}" = "${START_SHA}" ]; then
+            echo "::error::Agent did not create a commit. HEAD is still ${START_SHA}"
+            exit 1
+          fi
+
+          dirty_status="$(git status --short)"
+          if [ -n "${dirty_status}" ]; then
+            echo "::error::Agent left uncommitted changes in the workspace"
+            printf '%s\n' "${dirty_status}"
+            exit 1
+          fi
+
+      - name: Refresh workflow base revision
+        if: always()
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Upload session logs
+        if: always()
+        continue-on-error: true
+        env:
+          AGENT_KIND: ${{ inputs.agent_kind }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODEX_HOME: ${{ env.CODEX_HOME }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
+
+      - name: Validate PR metadata
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/validate-pr-metadata.mjs"
+
+      - name: Parse PR metadata
+        id: pr
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/export-pr-metadata.mjs"
+
+      - name: Push branch
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/push-branch.sh"
+
+      - name: Create or update PR
+        id: pr-create
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
+          PR_TITLE: ${{ steps.pr.outputs.title }}
+          PR_BODY: ${{ steps.pr.outputs.body }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/create-or-update-pr.sh"
+
+      - name: Post session log comment
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMENT_NUMBER: ${{ steps.pr-create.outputs.pr_number }}
+          COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+        run: |
+          if [ -n "${COMMENT_NUMBER}" ] && [ -s "${COMMENT_PATH}" ]; then
+            bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-github-comment.sh"
+          fi
+
+      - name: Publish PR demo video
+        if: steps.pr.outputs.demo_present == 'true'
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.pr-create.outputs.pr_number }}
+          DEMO_SUMMARY: ${{ steps.pr.outputs.demo_summary }}
+          DEMO_VIDEO_PATH: ${{ steps.pr.outputs.demo_video_path }}
+          VERCEL_DEMO_BLOB_READ_WRITE_TOKEN: ${{ secrets.VERCEL_DEMO_BLOB_READ_WRITE_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/publish-pr-demo.sh"
+
+      - name: Set failure labels and comment
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number('${{ inputs.issue_number }}');
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body: [
+                  `The ${{ inputs.agent_name }} \`do-issue\` run failed before it could finish opening or updating a PR.`,
+                  '',
+                  `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                ].join('\n'),
+              });
+            } catch (error) {
+              if (error.status === 403 && /issue is locked/i.test(error.message || '')) {
+                core.warning('Skipping failure comment because the issue is locked.');
+                return;
+              }
+              throw error;
+            }

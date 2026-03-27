@@ -1,0 +1,409 @@
+# PR Watcher — evaluate PR state after reviews and CI complete, then apply
+# terminal labels or trigger /fix-pr to drive the PR toward a mergeable state.
+#
+# Terminal labels: pr=ready-to-merge, pr=needs-human-review, pr=max-auto-fix
+#
+# See docs/specs/pr-workflow.md for the full state machine.
+name: PR Watcher
+
+on:
+  workflow_run:
+    workflows:
+      - "PR Review"
+      - "CI (PR)"
+    types: [completed]
+
+permissions: {}
+
+# Only one evaluation per PR at a time. A second trigger while the first is
+# running will queue (cancel-in-progress: false) so we don't miss signals.
+concurrency:
+  group: pr-watcher-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  evaluate:
+    if: github.event.workflow_run.conclusion != 'cancelled'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      pull-requests: write
+      checks: read
+    env:
+      CONTEXT_OUTPUT_PATH: tmp/pr-watcher/context.json
+      CLAUDE_DECISION_PATH: tmp/pr-watcher/decision.json
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+          permission-checks: read
+
+      - name: Find PR for this workflow run
+        id: find-pr
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const headBranch = context.payload.workflow_run.head_branch;
+            if (!headBranch) {
+              core.info('No head branch on workflow_run — skipping');
+              core.setOutput('found', 'false');
+              return;
+            }
+            const { data: prs } = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${headBranch}`,
+              state: 'open',
+              per_page: 5,
+            });
+            if (prs.length === 0) {
+              core.info(`No open PR found for branch ${headBranch}`);
+              core.setOutput('found', 'false');
+              return;
+            }
+            const pr = prs[0];
+            core.setOutput('found', 'true');
+            core.setOutput('pr_number', pr.number.toString());
+            const normalizeLogin = (login) => (login || '').replace(/\[bot\]$/i, '');
+            const author = normalizeLogin(pr.user.login);
+            const allowedAuthors = ['wwwillchen', 'wwwillchen-bot', 'vercel', 'keppo-bot'];
+            if (!allowedAuthors.includes(author)) {
+              core.info(`PR author ${author} not allowed — skipping`);
+              core.setOutput('found', 'false');
+              return;
+            }
+            core.info(`Found PR #${pr.number} by ${author}`);
+
+      - name: Check sibling workflow completion
+        if: steps.find-pr.outputs.found == 'true'
+        id: sibling-check
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const headSha = context.payload.workflow_run.head_sha;
+            const triggeringWorkflow = context.payload.workflow_run.name;
+            const workflowMap = {
+              'PR Review': 'pr-review.yml',
+              'CI (PR)': 'ci-pr.yml',
+            };
+            const siblingName = Object.keys(workflowMap).find(w => w !== triggeringWorkflow);
+            if (!siblingName) {
+              core.setOutput('ready', 'false');
+              return;
+            }
+            // Filter by workflow file to avoid missing the sibling in a busy repo
+            const { data: runs } = await github.rest.actions.listWorkflowRuns({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: workflowMap[siblingName],
+              head_sha: headSha,
+              per_page: 10,
+            });
+            const siblingRun = runs.workflow_runs.find(
+              r => r.status === 'completed'
+            );
+            if (!siblingRun) {
+              core.info(`Sibling "${siblingName}" not complete for ${headSha}`);
+              core.setOutput('ready', 'false');
+              return;
+            }
+            core.info(`Both workflows completed for ${headSha}`);
+            core.setOutput('ready', 'true');
+
+      - name: Checkout trusted workflow repo
+        if: steps.find-pr.outputs.found == 'true' && steps.sibling-check.outputs.ready == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        if: steps.find-pr.outputs.found == 'true' && steps.sibling-check.outputs.ready == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Pass 1: Collect all signals. Deterministic exits for clear cases
+      # (draft, closed, terminal label, fix-pr:failed, max attempts).
+      # Otherwise writes context file and outputs action=needs-evaluation.
+      - name: Collect PR signals
+        if: steps.find-pr.outputs.found == 'true' && steps.sibling-check.outputs.ready == 'true'
+        id: collect
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+          CONTEXT_OUTPUT_PATH: ${{ env.CONTEXT_OUTPUT_PATH }}
+        run: node scripts/pr-watcher/collect.mjs
+
+      # Claude evaluates ALL signals: review comments, CI status, unresolved
+      # threads. It is the sole decision-maker — no heuristic parsing.
+      - name: Evaluate with Claude
+        if: steps.collect.outputs.action == 'needs-evaluation'
+        uses: anthropics/claude-code-action@v1
+        env:
+          CLAUDE_CODE_MAX_OUTPUT_TOKENS: 4000
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.app-token.outputs.token }}
+          track_progress: false
+          show_full_output: false
+          direct_prompt: |
+            You are the PR Watcher decision engine. Read tmp/pr-watcher/context.json and decide what action to take.
+
+            The context contains:
+            - claudeReview / codexReview: Review comment bodies from keppo-bot. Each has a `truncated` flag — if true, the review was cut at 4000 chars and may be missing important issues. Treat truncated reviews conservatively (default to human-review if you cannot confirm no HIGH issues exist).
+            - checksPassing: Whether CI/E2E checks are green
+            - failedChecks: Names of any failed check runs
+            - unresolvedThreads: Unresolved, non-outdated PR review threads (capped at 50). If `unresolvedThreadsTruncated` is true, more threads exist — default to human-review.
+            - fixPrCount: How many times /fix-pr has been applied
+
+            ## Decision Rules
+
+            **Only HIGH severity issues block merge.** MEDIUM and LOW are informational.
+
+            For each review comment and unresolved thread, assess severity:
+            - HIGH: Security vulnerabilities, data loss, broken functionality, access control bypasses, crashes, critical correctness bugs
+            - MEDIUM/LOW: Code quality, style, minor bugs, suggestions, refactoring, naming, performance concerns
+
+            Then decide:
+
+            1. If checks are failing OR any issue is HIGH and mechanically fixable (code bugs, missing validation, broken tests, type errors):
+               → action: "fix-pr" (an agent can fix these)
+
+            2. If any issue is HIGH but requires human judgment (architecture, product direction, security policy, ambiguous requirements):
+               → action: "label", label: "pr=needs-human-review"
+
+            3. If both Claude and Codex reviews exist, neither has HIGH issues, checks pass, and no unresolved threads have HIGH issues:
+               → action: "label", label: "pr=ready-to-merge"
+
+            4. If only one review exists and it has no HIGH issues, checks pass, no HIGH unresolved threads:
+               → action: "label", label: "pr=ready-to-merge" (one review is sufficient)
+
+            5. If reviews are missing or inconclusive:
+               → action: "label", label: "pr=needs-human-review"
+
+            Priority: auto-fixable issues first (fix-pr), then human-review, then ready-to-merge.
+
+            ## Output
+
+            Write tmp/pr-watcher/decision.json with this exact shape:
+            {
+              "action": "fix-pr" | "label",
+              "label": "pr=ready-to-merge" | "pr=needs-human-review" | "/fix-pr",
+              "reason": "concise explanation of the decision"
+            }
+
+            For action "fix-pr", set label to "/fix-pr".
+
+            IMPORTANT: Only write the JSON file. Do not post comments or modify anything else.
+          claude_args: |
+            --dangerously-skip-permissions --model claude-sonnet-4-6 --allowedTools "Read,Write"
+
+      # Refresh trusted scripts after Claude runs to prevent agent tampering.
+      # See docs/rules/github-security.md: "Never execute privileged post-agent
+      # scripts from a path the agent may have modified earlier in the same job."
+      - name: Refresh trusted scripts (post-agent)
+        if: steps.collect.outputs.action == 'needs-evaluation'
+        run: git checkout ${{ github.sha }} -- scripts/pr-watcher/apply-decision.mjs
+
+      # Pass 2: Read Claude's decision and output it as step outputs.
+      - name: Read Claude decision
+        if: steps.collect.outputs.action == 'needs-evaluation'
+        id: decision
+        env:
+          CLAUDE_DECISION_PATH: ${{ env.CLAUDE_DECISION_PATH }}
+        run: node scripts/pr-watcher/apply-decision.mjs
+
+      # Resolve final outputs — use decision step if it ran, otherwise collect step.
+      - name: Resolve final decision
+        if: steps.find-pr.outputs.found == 'true' && steps.sibling-check.outputs.ready == 'true'
+        id: final
+        run: |
+          if [ -n "$DECISION_ACTION" ] && [ "$DECISION_ACTION" != "" ]; then
+            echo "action=$DECISION_ACTION" >> "$GITHUB_OUTPUT"
+            echo "label=$DECISION_LABEL" >> "$GITHUB_OUTPUT"
+            echo "reason=$DECISION_REASON" >> "$GITHUB_OUTPUT"
+          else
+            echo "action=$COLLECT_ACTION" >> "$GITHUB_OUTPUT"
+            echo "label=$COLLECT_LABEL" >> "$GITHUB_OUTPUT"
+            echo "reason=$COLLECT_REASON" >> "$GITHUB_OUTPUT"
+          fi
+        env:
+          COLLECT_ACTION: ${{ steps.collect.outputs.action }}
+          COLLECT_LABEL: ${{ steps.collect.outputs.label }}
+          COLLECT_REASON: ${{ steps.collect.outputs.reason }}
+          DECISION_ACTION: ${{ steps.decision.outputs.action }}
+          DECISION_LABEL: ${{ steps.decision.outputs.label }}
+          DECISION_REASON: ${{ steps.decision.outputs.reason }}
+
+      - name: Apply terminal label
+        if: steps.final.outputs.action == 'label'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+          LABEL: ${{ steps.final.outputs.label }}
+          REASON: ${{ steps.final.outputs.reason }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const label = process.env.LABEL;
+            const reason = process.env.REASON;
+
+            const terminalLabels = ['pr=ready-to-merge', 'pr=needs-human-review', 'pr=max-auto-fix'];
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const currentLabels = pr.labels.map(l => l.name);
+
+            for (const tl of terminalLabels) {
+              if (currentLabels.includes(tl) && tl !== label) {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  name: tl,
+                }).catch(() => {});
+              }
+            }
+
+            if (label === 'pr=needs-human-review' && currentLabels.includes('fix-pr:failed')) {
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: 'fix-pr:failed',
+              }).catch(() => {});
+            }
+
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: [label],
+            });
+            core.info(`Applied "${label}" to PR #${prNumber}: ${reason}`);
+
+      - name: Apply /fix-pr label
+        if: steps.final.outputs.action == 'fix-pr'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+          REASON: ${{ steps.final.outputs.reason }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const reason = process.env.REASON;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              labels: ['/fix-pr'],
+            });
+            core.info(`Applied /fix-pr to PR #${prNumber}: ${reason}`);
+
+      - name: Post PR comment explaining decision
+        if: |
+          steps.final.outputs.action == 'label' ||
+          steps.final.outputs.action == 'fix-pr' ||
+          steps.final.outputs.action == 'skip-notify'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.find-pr.outputs.pr_number }}
+          ACTION: ${{ steps.final.outputs.action }}
+          LABEL: ${{ steps.final.outputs.label }}
+          REASON: ${{ steps.final.outputs.reason }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = parseInt(process.env.PR_NUMBER, 10);
+            const action = process.env.ACTION;
+            const label = process.env.LABEL || '/fix-pr';
+            const reason = process.env.REASON;
+
+            // skip-notify has no label — use action as key
+            const key = action === 'skip-notify' ? 'skip-notify' : label;
+
+            const emoji = {
+              'pr=ready-to-merge': ':white_check_mark:',
+              'pr=needs-human-review': ':eyes:',
+              'pr=max-auto-fix': ':warning:',
+              '/fix-pr': ':wrench:',
+              'skip-notify': ':grey_question:',
+            }[key] || ':robot:';
+
+            const title = {
+              'pr=ready-to-merge': 'Ready to merge',
+              'pr=needs-human-review': 'Needs human review',
+              'pr=max-auto-fix': 'Max auto-fix attempts reached',
+              '/fix-pr': 'Auto-fix triggered',
+              'skip-notify': 'Waiting for reviews',
+            }[key] || key;
+
+            const nextSteps = {
+              'pr=ready-to-merge': 'This PR can be merged. Verify the final diff and merge when ready.',
+              'pr=needs-human-review': 'A teammate needs to review the flagged issues and approve or request changes.',
+              'pr=max-auto-fix': 'The automated fix loop has been exhausted. Please review outstanding issues manually.',
+              '/fix-pr': 'An automated fix is in progress. The PR will be re-evaluated after the fix is pushed.',
+              'skip-notify': 'The PR Watcher will re-evaluate automatically once reviews are posted.',
+            }[key] || '';
+
+            const body = [
+              `<!-- pr-watcher -->`,
+              `${emoji} **PR Watcher: ${title}**`,
+              '',
+              reason,
+              '',
+              `**Next steps:** ${nextSteps}`,
+            ].join('\n');
+
+            // Upsert: find existing pr-watcher comment. GitHub issues.listComments
+            // does not support direction param, so we search forward (up to 3 pages).
+            // The watcher comment is typically within the last batch of comments.
+            let existing = null;
+            let page = 1;
+            while (!existing && page <= 10) {
+              const { data: comments } = await github.rest.issues.listComments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100,
+                page,
+              });
+              if (comments.length === 0) break;
+              existing = comments.find(
+                c => c.user?.type === 'Bot' && c.body?.includes('<!-- pr-watcher -->')
+              );
+              page++;
+            }
+
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                body,
+              });
+            }

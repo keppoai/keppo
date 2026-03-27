@@ -1,0 +1,27 @@
+---
+title: Architecture
+description: The high-level runtime boundaries that matter when you change the Keppo codebase.
+audience: contributors
+---
+
+## Core runtime picture
+
+Keppo is intentionally Convex-first with a unified web runtime:
+
+- `apps/web` owns the user-facing app shell, public routes, TanStack router, and live HTTP surface
+- `convex/` owns the active data and function runtime
+- `cloud/` carries shared runtime modules such as billing and sandbox orchestration
+- `packages/shared` holds reusable contracts, provider definitions, and cross-runtime types
+
+## Why the boundaries matter
+
+The repo is designed so contributors do not casually re-implement contracts or duplicate domain logic at the wrong layer. When a change crosses behavior, API, schema, or runtime boundaries, the corresponding spec must change too.
+
+## Public docs in the runtime
+
+The public docs surface now lives inside `apps/web` at `/docs`, with Start-owned search at `/api/search`. That means docs are part of the same product runtime rather than a detached site.
+
+## Related docs
+
+- [Security and Runtime](/docs/contributors/security-and-runtime)
+- [Testing](/docs/contributors/testing)

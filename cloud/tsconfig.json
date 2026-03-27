@@ -1,0 +1,11 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "..",
+    "outDir": "dist",
+    "declaration": true,
+    "declarationMap": true
+  },
+  "include": ["index.ts", "api/**/*.ts", "convex/**/*.ts", "shared/**/*.ts"],
+  "exclude": ["dist"]
+}

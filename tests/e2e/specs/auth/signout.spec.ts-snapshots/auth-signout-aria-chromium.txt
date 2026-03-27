@@ -1,0 +1,17 @@
+- img "Keppo"
+- heading "Keppo" [level=1]
+- paragraph: Sign in or create an account
+- text: Email
+- textbox "Email":
+  - /placeholder: Enter your email
+  - text: test@test.com
+- paragraph: Local test sign-in
+- button "Hide"
+- text: Password
+- textbox "Password": test1234
+- button "Sign in with email and password"
+- button "Send magic link"
+- separator
+- text: or continue with
+- separator
+- button "Continue with Google"

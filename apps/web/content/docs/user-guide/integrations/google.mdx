@@ -1,0 +1,33 @@
+---
+title: Google
+description: Use Google OAuth for Gmail-centric automation flows.
+audience: user-guide
+---
+
+## Best fit
+
+Use Google when the workflow begins or ends in email:
+
+- triaging unread threads
+- drafting replies
+- applying labels
+- starting automation triggers from inbox activity
+
+## Operator expectations
+
+- Google integration setup should happen before you rely on inbox-driven automations.
+- Sending mail remains a write action and should stay approval-gated until the reviewer is comfortable with the automation’s behavior.
+- Trigger lifecycle health matters. When Keppo reports watch, poll, or sync issues, treat that as an operational problem instead of assuming the automation itself broke.
+
+## Common first flow
+
+1. Connect Google in the workspace.
+2. Generate an automation for inbound support or sales triage.
+3. Keep reply actions manual at first.
+4. Review the prompt and message templates against a few real threads.
+
+## Related docs
+
+- [Building Automations](/docs/user-guide/automations/building-automations)
+- [Notifications](/docs/user-guide/notifications)
+- [Google provider setup for self-hosted deployments](/docs/self-hosted/providers)

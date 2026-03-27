@@ -1,0 +1,4 @@
+interface:
+  display_name: "Green E2E"
+  short_description: "Run pnpm test:e2e and iterate on root-cause fixes"
+  default_prompt: "Use when user asks to run full e2e and fix failing tests."

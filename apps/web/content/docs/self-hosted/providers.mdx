@@ -1,0 +1,33 @@
+---
+title: Providers
+description: Provider-specific setup expectations for hosted and self-hosted Keppo deployments.
+audience: self-hosted
+---
+
+## Google
+
+- Configure OAuth client credentials.
+- Keep callback hosts aligned with the active deployment origin.
+- For Gmail trigger flows, verify watch or polling prerequisites before treating inbox automations as healthy.
+
+## GitHub
+
+- Configure OAuth client credentials and webhook secrets.
+- Keep repository access explicit.
+- Separate login credentials from integration credentials; signing in with GitHub is not the same as connecting the GitHub provider for automation.
+
+## Stripe
+
+- Configure OAuth client credentials and billing webhook secrets.
+- Enable the billing webhook events your deployment expects, including subscription lifecycle updates.
+- Treat billing writes as high-signal approval surfaces until the team is comfortable automating them.
+
+## Custom and other providers
+
+- Keep catalog-backed providers visible even when env is incomplete.
+- For custom or private integrations, document the action surface and network expectations before rollout.
+
+## Related docs
+
+- [User Guide: Integrations](/docs/user-guide/integrations)
+- [Contributors: Providers and Integrations](/docs/contributors/providers-and-integrations)

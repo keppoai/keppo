@@ -1,0 +1,81 @@
+import {
+  createActionFromDecision,
+  createRun,
+  createToolCall,
+  setActionStatus,
+  touchRun,
+  updateToolCall,
+  closeRunBySession,
+} from "./mcp/mutations.js";
+import {
+  expirePendingActions,
+  runSecurityMaintenance,
+  timeoutInactiveRuns,
+} from "./mcp/mutations_maintenance.js";
+import { updateIntegrationCredential } from "./mcp/mutations_integrations.js";
+import { createAuditEvent } from "./mcp/mutations_audit.js";
+import { authenticateCredential, markCredentialUsed } from "./mcp/mutations_auth.js";
+import {
+  findActionByIdempotency,
+  getActionState,
+  getRunBySession,
+  getToolCall,
+  getWorkspaceCodeModeContext,
+  listActionsByStatus,
+  listApprovedActionDispatches,
+  listPendingActionsForWorkspace,
+  loadConnectorContext,
+  loadGatingData,
+} from "./mcp/queries.js";
+import { recordPollAttempt, updatePendingPollTracker } from "./mcp/poll_trackers.js";
+import {
+  createWorkspaceForOrg,
+  findNotificationEndpointForTesting,
+  findWorkspaceForOrgForTesting,
+  getAuthOrganizationForTesting,
+  getAuthUserForTesting,
+  getActionForTesting,
+  getDbSnapshot,
+  rotateWorkspaceCredentialForTesting,
+  seedUserOrg,
+  setWorkspaceIntegrationsForTesting,
+} from "./mcp/testing_support.js";
+
+export {
+  authenticateCredential,
+  closeRunBySession,
+  createActionFromDecision,
+  createAuditEvent,
+  createRun,
+  createToolCall,
+  createWorkspaceForOrg,
+  expirePendingActions,
+  findActionByIdempotency,
+  findNotificationEndpointForTesting,
+  findWorkspaceForOrgForTesting,
+  getActionForTesting,
+  getActionState,
+  getAuthOrganizationForTesting,
+  getAuthUserForTesting,
+  getDbSnapshot,
+  getRunBySession,
+  getToolCall,
+  getWorkspaceCodeModeContext,
+  listActionsByStatus,
+  listApprovedActionDispatches,
+  listPendingActionsForWorkspace,
+  loadConnectorContext,
+  loadGatingData,
+  markCredentialUsed,
+  recordPollAttempt,
+  rotateWorkspaceCredentialForTesting,
+  runSecurityMaintenance,
+  seedUserOrg,
+  setActionStatus,
+  setWorkspaceIntegrationsForTesting,
+  timeoutInactiveRuns,
+  touchRun,
+  updateIntegrationCredential,
+  updatePendingPollTracker,
+  updateToolCall,
+};

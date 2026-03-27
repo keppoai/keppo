@@ -1,0 +1,69 @@
+import type {
+  ProviderAuthExchangeRequest,
+  ProviderAuthRequest,
+  ProviderCredentialBundle,
+  ProviderExecuteToolRequest,
+  ProviderModule,
+  ProviderRuntimeContext,
+} from "../../providers.js";
+
+const unsupported = (hook: string): never => {
+  throw new Error(`__PROVIDER_ID__.${hook} is not implemented.`);
+};
+
+const buildAuthRequest = async (
+  _request: ProviderAuthRequest,
+  _runtime: ProviderRuntimeContext,
+): Promise<Record<string, unknown>> => unsupported("buildAuthRequest");
+
+const exchangeCredentials = async (
+  _request: ProviderAuthExchangeRequest,
+  _runtime: ProviderRuntimeContext,
+): Promise<ProviderCredentialBundle> => unsupported("exchangeCredentials");
+
+const executeTool = async (
+  _request: ProviderExecuteToolRequest,
+  _runtime: ProviderRuntimeContext,
+): Promise<Record<string, unknown>> => unsupported("executeTool");
+
+export const __PROVIDER_PASCAL___MODULE: ProviderModule = {
+  schemaVersion: 1,
+  metadata: {
+    providerId: "__PROVIDER_ID__",
+    auth: { mode: "oauth2", managed: true },
+    capabilities: {
+      read: true,
+      write: true,
+      refreshCredentials: false,
+      webhook: false,
+    },
+    featureGate: "KEPPO_FEATURE_INTEGRATIONS___PROVIDER_ENV_KEY___FULL",
+    riskClass: "medium",
+    envRequirements: [],
+    display: {
+      label: "__PROVIDER_TITLE__",
+      description: "__PROVIDER_TITLE__ integration",
+      icon: "__PROVIDER_ID__",
+    },
+    toolOwnership: [
+      "__PROVIDER_ID__.exampleRead",
+      "__PROVIDER_ID__.exampleWrite",
+    ],
+    legacyAliases: [],
+  },
+  hooks: {
+    buildAuthRequest,
+    exchangeCredentials,
+    executeTool,
+    healthcheck: async () => ({ ok: true, detail: "__PROVIDER_ID__ scaffold module loaded" }),
+  },
+  // Replace with real connector when this module is registered.
+  connector: {
+    provider: "__PROVIDER_ID__",
+    listTools: () => [],
+    executeRead: async () => unsupported("connector.executeRead"),
+    prepareWrite: async () => unsupported("connector.prepareWrite"),
+    executeWrite: async () => unsupported("connector.executeWrite"),
+    redact: (_toolName, payload) => payload,
+  },
+};

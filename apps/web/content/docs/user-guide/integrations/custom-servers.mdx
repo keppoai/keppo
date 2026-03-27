@@ -1,0 +1,29 @@
+---
+title: Custom Servers
+description: Connect private APIs and internal tools when Keppo’s first-party provider catalog is not enough.
+audience: user-guide
+---
+
+## When to use custom servers
+
+Use a custom server when:
+
+- the system you need is internal-only
+- the workflow depends on a private API contract
+- you want Keppo approvals and execution tracing around a proprietary action surface
+
+## What to design for
+
+- Stable, explicit tool contracts
+- Clear approval descriptions for write actions
+- Replayable or reversible operations where possible
+- A documented owner for the underlying API
+
+## Keep the boundary honest
+
+Custom integrations should not become a vague tunnel for arbitrary writes. Describe the action surface clearly, scope permissions to the minimum needed, and keep the operator-facing behavior readable.
+
+## Related docs
+
+- [Contributors: Providers and Integrations](/docs/contributors/providers-and-integrations)
+- [Security and Runtime](/docs/contributors/security-and-runtime)

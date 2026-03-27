@@ -1,0 +1,60 @@
+name: E2E Meta
+
+on:
+  schedule:
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-meta-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  CONVEX_AGENT_MODE: anonymous
+  E2E_WORKERS: "1"
+  E2E_FLAKE_BUDGET: "2"
+  KEPPO_E2E_STRICT_HANDLES: "1"
+  BETTER_AUTH_SECRET: "keppo-ci-better-auth-secret-0123456789"
+  KEPPO_CALLBACK_HMAC_SECRET: "keppo-ci-callback-hmac-secret-0123456789"
+  KEPPO_CRON_SECRET: "keppo-ci-cron-secret-0123456789"
+  KEPPO_MASTER_KEY: "keppo-ci-master-key-0123456789"
+  KEPPO_OAUTH_STATE_SECRET: "keppo-ci-oauth-state-secret-0123456789"
+  OPENAI_API_KEY: "sk-keppo-ci-openai"
+  GOOGLE_CLIENT_SECRET: "fake-google-client-secret"
+  STRIPE_SECRET_KEY: "sk_test_e2e_billing"
+  STRIPE_WEBHOOK_SECRET: "whsec_e2e_billing"
+  GITHUB_CLIENT_SECRET: "fake-github-client-secret"
+
+jobs:
+  e2e-meta:
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 180
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Workspace Export Packages
+        run: pnpm run build:workspace-exports
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run E2E Meta Checks
+        run: pnpm run test:e2e:meta

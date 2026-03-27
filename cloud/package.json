@@ -1,0 +1,53 @@
+{
+  "name": "@keppo/cloud",
+  "version": "0.1.0",
+  "private": true,
+  "license": "FSL-1.1-Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./api/billing": {
+      "types": "./dist/cloud/api/billing.d.ts",
+      "default": "./dist/cloud/api/billing.js"
+    },
+    "./api/sandbox/vercel": {
+      "types": "./dist/cloud/api/sandbox/vercel.d.ts",
+      "default": "./dist/cloud/api/sandbox/vercel.js"
+    },
+    "./convex/automation_scheduler": {
+      "types": "./dist/cloud/convex/automation_scheduler.d.ts",
+      "default": "./dist/cloud/convex/automation_scheduler.js"
+    },
+    "./convex/automation_triggers": {
+      "types": "./dist/cloud/convex/automation_triggers.d.ts",
+      "default": "./dist/cloud/convex/automation_triggers.js"
+    },
+    "./convex/billing": {
+      "types": "./dist/cloud/convex/billing.d.ts",
+      "default": "./dist/cloud/convex/billing.js"
+    },
+    "./convex/billing/shared": {
+      "types": "./dist/cloud/convex/billing/shared.d.ts",
+      "default": "./dist/cloud/convex/billing/shared.js"
+    },
+    "./convex/billing/subscriptions": {
+      "types": "./dist/cloud/convex/billing/subscriptions.d.ts",
+      "default": "./dist/cloud/convex/billing/subscriptions.js"
+    },
+    "./convex/billing/usage": {
+      "types": "./dist/cloud/convex/billing/usage.d.ts",
+      "default": "./dist/cloud/convex/billing/usage.js"
+    }
+  },
+  "scripts": {
+    "build": "tsgo -p tsconfig.json",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "lint": "pnpm run typecheck"
+  },
+  "dependencies": {
+    "@keppo/shared": "workspace:*",
+    "@vercel/sandbox": "^1.8.0",
+    "convex": "^1.33.0",
+    "stripe": "^20.4.0",
+    "zod": "^4.1.12"
+  }
+}

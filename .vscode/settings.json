@@ -1,0 +1,9 @@
+{
+  "files.associations": {
+    "*.txt": "plaintext"
+  },
+  "[plaintext]": {
+    "editor.formatOnSave": false,
+    "editor.defaultFormatter": null
+  }
+}

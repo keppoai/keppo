@@ -1,0 +1,9 @@
+import { describe, expect, it } from "vitest";
+import { __PROVIDER_PASCAL___MODULE } from "./module.js";
+
+describe("__PROVIDER_ID__ provider module scaffold", () => {
+  it("declares required metadata", () => {
+    expect(__PROVIDER_PASCAL___MODULE.metadata.providerId).toBe("__PROVIDER_ID__");
+    expect(__PROVIDER_PASCAL___MODULE.metadata.toolOwnership.length).toBeGreaterThan(0);
+  });
+});

@@ -1,0 +1,4508 @@
+{
+  "snapshotVersion": 1,
+  "providers": [
+    {
+      "providerId": "custom",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "custom",
+        "managed": false
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": false,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_CUSTOM_FULL",
+      "riskClass": "high",
+      "display": {
+        "label": "Custom",
+        "description": "Custom integration passthrough tools",
+        "icon": "custom"
+      },
+      "envRequirements": [],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "custom.callRead",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "custom_read",
+          "provider": "custom"
+        },
+        {
+          "name": "custom.callWrite",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "custom_write",
+          "provider": "custom"
+        }
+      ]
+    },
+    {
+      "providerId": "github",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": true,
+        "webhook": true
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_GITHUB_FULL",
+      "riskClass": "medium",
+      "display": {
+        "label": "GitHub",
+        "description": "GitHub issue and repository actions",
+        "icon": "github"
+      },
+      "envRequirements": [
+        "GITHUB_CLIENT_ID",
+        "GITHUB_CLIENT_SECRET",
+        "GITHUB_WEBHOOK_SECRET"
+      ],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "github.addAssignees",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "add_assignees",
+          "provider": "github"
+        },
+        {
+          "name": "github.addLabels",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "add_labels",
+          "provider": "github"
+        },
+        {
+          "name": "github.cancelWorkflowRun",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "cancel_workflow_run",
+          "provider": "github"
+        },
+        {
+          "name": "github.commentIssue",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "comment_issue",
+          "provider": "github"
+        },
+        {
+          "name": "github.compareCommits",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "compare_commits",
+          "provider": "github"
+        },
+        {
+          "name": "github.createDispatchEvent",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_dispatch_event",
+          "provider": "github"
+        },
+        {
+          "name": "github.createIssue",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_issue",
+          "provider": "github"
+        },
+        {
+          "name": "github.createLabel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_label",
+          "provider": "github"
+        },
+        {
+          "name": "github.createMilestone",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_milestone",
+          "provider": "github"
+        },
+        {
+          "name": "github.createOrUpdateFile",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_or_update_file",
+          "provider": "github"
+        },
+        {
+          "name": "github.createPullRequest",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_pull_request",
+          "provider": "github"
+        },
+        {
+          "name": "github.createReaction",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_reaction",
+          "provider": "github"
+        },
+        {
+          "name": "github.createRelease",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_release",
+          "provider": "github"
+        },
+        {
+          "name": "github.createReview",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_review",
+          "provider": "github"
+        },
+        {
+          "name": "github.createReviewComment",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_review_comment",
+          "provider": "github"
+        },
+        {
+          "name": "github.deleteComment",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_comment",
+          "provider": "github"
+        },
+        {
+          "name": "github.deleteReaction",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "delete_reaction",
+          "provider": "github"
+        },
+        {
+          "name": "github.dismissReview",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "dismiss_review",
+          "provider": "github"
+        },
+        {
+          "name": "github.generateReleaseNotes",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "generate_release_notes",
+          "provider": "github"
+        },
+        {
+          "name": "github.getCommitStatus",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_commit_status",
+          "provider": "github"
+        },
+        {
+          "name": "github.getFileContents",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_file_contents",
+          "provider": "github"
+        },
+        {
+          "name": "github.getIssue",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_issue",
+          "provider": "github"
+        },
+        {
+          "name": "github.getLatestRelease",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_latest_release",
+          "provider": "github"
+        },
+        {
+          "name": "github.getPullRequest",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_pull_request",
+          "provider": "github"
+        },
+        {
+          "name": "github.getRepo",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_repo",
+          "provider": "github"
+        },
+        {
+          "name": "github.getWorkflowJobLogs",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_workflow_job_logs",
+          "provider": "github"
+        },
+        {
+          "name": "github.getWorkflowRun",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_workflow_run",
+          "provider": "github"
+        },
+        {
+          "name": "github.listBranches",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_branches",
+          "provider": "github"
+        },
+        {
+          "name": "github.listCheckRuns",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_check_runs",
+          "provider": "github"
+        },
+        {
+          "name": "github.listCommits",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_commits",
+          "provider": "github"
+        },
+        {
+          "name": "github.listIssueComments",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_issue_comments",
+          "provider": "github"
+        },
+        {
+          "name": "github.listIssueEvents",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_issue_events",
+          "provider": "github"
+        },
+        {
+          "name": "github.listIssues",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_issues",
+          "provider": "github"
+        },
+        {
+          "name": "github.listIssueTimeline",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_issue_timeline",
+          "provider": "github"
+        },
+        {
+          "name": "github.listLabels",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_labels",
+          "provider": "github"
+        },
+        {
+          "name": "github.listMilestones",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_milestones",
+          "provider": "github"
+        },
+        {
+          "name": "github.listNotifications",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_notifications",
+          "provider": "github"
+        },
+        {
+          "name": "github.listOrgRepos",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_org_repos",
+          "provider": "github"
+        },
+        {
+          "name": "github.listPRCommits",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_pr_commits",
+          "provider": "github"
+        },
+        {
+          "name": "github.listPRFiles",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_pr_files",
+          "provider": "github"
+        },
+        {
+          "name": "github.listPullRequests",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_pull_requests",
+          "provider": "github"
+        },
+        {
+          "name": "github.listReleases",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_releases",
+          "provider": "github"
+        },
+        {
+          "name": "github.listReviews",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_reviews",
+          "provider": "github"
+        },
+        {
+          "name": "github.listWorkflowRuns",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_workflow_runs",
+          "provider": "github"
+        },
+        {
+          "name": "github.lockIssue",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "lock_issue",
+          "provider": "github"
+        },
+        {
+          "name": "github.markNotificationsRead",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "mark_notifications_read",
+          "provider": "github"
+        },
+        {
+          "name": "github.mergePullRequest",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "merge_pull_request",
+          "provider": "github"
+        },
+        {
+          "name": "github.removeAssignees",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_assignees",
+          "provider": "github"
+        },
+        {
+          "name": "github.removeLabel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_label",
+          "provider": "github"
+        },
+        {
+          "name": "github.removeReviewers",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_reviewers",
+          "provider": "github"
+        },
+        {
+          "name": "github.requestReviewers",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "request_reviewers",
+          "provider": "github"
+        },
+        {
+          "name": "github.rerunFailedJobs",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "rerun_failed_jobs",
+          "provider": "github"
+        },
+        {
+          "name": "github.rerunWorkflow",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "rerun_workflow",
+          "provider": "github"
+        },
+        {
+          "name": "github.searchCode",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_code",
+          "provider": "github"
+        },
+        {
+          "name": "github.searchIssues",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_issues",
+          "provider": "github"
+        },
+        {
+          "name": "github.searchRepositories",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_repositories",
+          "provider": "github"
+        },
+        {
+          "name": "github.triggerWorkflow",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "trigger_workflow",
+          "provider": "github"
+        },
+        {
+          "name": "github.unlockIssue",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unlock_issue",
+          "provider": "github"
+        },
+        {
+          "name": "github.updateComment",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_comment",
+          "provider": "github"
+        },
+        {
+          "name": "github.updateIssue",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_issue",
+          "provider": "github"
+        },
+        {
+          "name": "github.updateMilestone",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "update_milestone",
+          "provider": "github"
+        },
+        {
+          "name": "github.updatePRBranch",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_pr_branch",
+          "provider": "github"
+        },
+        {
+          "name": "github.updatePullRequest",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_pull_request",
+          "provider": "github"
+        },
+        {
+          "name": "github.updateRelease",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_release",
+          "provider": "github"
+        }
+      ]
+    },
+    {
+      "providerId": "google",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": true,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_GOOGLE_FULL",
+      "riskClass": "high",
+      "display": {
+        "label": "Google",
+        "description": "Google OAuth for Gmail tools",
+        "icon": "google"
+      },
+      "envRequirements": [
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET"
+      ],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "gmail.applyLabel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "apply_label",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.archive",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "archive_thread",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.batchModifyMessages",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "batch_modify_messages",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.createDraft",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_draft",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.createFilter",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_filter",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.createLabel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_label",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.deleteDraft",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "delete_draft",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.deleteFilter",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_filter",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.deleteLabel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_label",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.downloadAttachment",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "download_attachment",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.fetchAttachmentsMetadata",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "fetch_attachments",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.fetchMessageBody",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "fetch_message",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getDraft",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "get_draft",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getFilter",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_filter",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getLabel",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_label",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getProfile",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_profile",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getSendAsAlias",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_send_as_alias",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getThread",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "get_thread",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.getVacation",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_vacation",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.listDrafts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_drafts",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.listFilters",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_filters",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.listHistory",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_history",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.listLabels",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_labels",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.listSendAsAliases",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_send_as_aliases",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.listUnread",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_unread",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.removeLabel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_label",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.replyToThread",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "reply_email",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.searchThreads",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_threads",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.sendDraft",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "send_draft",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.sendEmail",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "send_email",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.stopWatch",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "stop_watch",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.trashMessage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "trash_message",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.trashThread",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "trash_thread",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.untrashMessage",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "untrash_message",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.untrashThread",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "untrash_thread",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.updateDraft",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_draft",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.updateLabel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "update_label",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.updateSendAsAlias",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_send_as_alias",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.updateVacation",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_vacation",
+          "provider": "google"
+        },
+        {
+          "name": "gmail.watch",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "watch_mailbox",
+          "provider": "google"
+        }
+      ]
+    },
+    {
+      "providerId": "notion",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": false,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_NOTION_FULL",
+      "riskClass": "medium",
+      "display": {
+        "label": "Notion",
+        "description": "Notion page and content actions",
+        "icon": "notion"
+      },
+      "envRequirements": [],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "notion.appendBlockChildren",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "append_block_children",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.createComment",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_comment",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.createDatabase",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_database",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.createPage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_page",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.deleteBlock",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_block",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getBlock",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_block",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getBlockChildren",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_block_children",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getBotUser",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_bot_user",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getComment",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_comment",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getDatabase",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_database",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getPage",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_page",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getPageAsMarkdown",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_page_as_markdown",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getPageProperty",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_page_property",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.getUser",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.listComments",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_comments",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.listUsers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_users",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.movePage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "move_page",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.queryDatabase",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "query_database",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.searchPages",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_pages",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.updateBlock",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_block",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.updateDatabase",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_database",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.updatePage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_page",
+          "provider": "notion"
+        },
+        {
+          "name": "notion.updatePageMarkdown",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_page_markdown",
+          "provider": "notion"
+        }
+      ]
+    },
+    {
+      "providerId": "reddit",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": false,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_REDDIT_FULL",
+      "riskClass": "medium",
+      "display": {
+        "label": "Reddit",
+        "description": "Reddit actions plus native polling triggers for mentions and unread inbox mail",
+        "icon": "reddit"
+      },
+      "envRequirements": [
+        "REDDIT_CLIENT_ID",
+        "REDDIT_CLIENT_SECRET"
+      ],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "reddit.approve",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "approve",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.composeMessage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "compose_message",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.createComment",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_comment",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.createPost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.deletePost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.distinguish",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "distinguish",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.editPost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "edit_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getInfo",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_info",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getMe",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_me",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getModLog",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_mod_log",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getModmail",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_modmail",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getModQueue",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_mod_queue",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getPostComments",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_post_comments",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getReports",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_reports",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getSubredditInfo",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_subreddit_info",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getSubredditRules",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_subreddit_rules",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getUserAbout",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_about",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.getUserOverview",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_overview",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.hidePost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "hide_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listControversial",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_controversial",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listHot",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_hot",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listInbox",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_inbox",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listMentions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_mentions",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listModmail",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_modmail",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listNew",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_new",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listRising",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_rising",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listSentMessages",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_sent_messages",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listTop",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_top",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.listUnreadMessages",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_unread_messages",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.lockPost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "lock_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.markNsfw",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "mark_nsfw",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.readAllMessages",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "read_all_messages",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.readMessage",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "read_message",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.removeContent",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "remove_content",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.replyModmail",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "reply_modmail",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.reportContent",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "report_content",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.savePost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "save_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.searchPosts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_posts",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.searchSubreddits",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_subreddits",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.selectFlair",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "select_flair",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.spoiler",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "spoiler",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.stickyPost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "sticky_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.subscribe",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "subscribe",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.unhidePost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unhide_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.unlockPost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unlock_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.unmarkNsfw",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unmark_nsfw",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.unsavePost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unsave_post",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.unspoiler",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unspoiler",
+          "provider": "reddit"
+        },
+        {
+          "name": "reddit.vote",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "vote",
+          "provider": "reddit"
+        }
+      ]
+    },
+    {
+      "providerId": "slack",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": false,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_SLACK_FULL",
+      "riskClass": "medium",
+      "display": {
+        "label": "Slack",
+        "description": "Slack channel and message actions",
+        "icon": "slack"
+      },
+      "envRequirements": [],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "slack.addBookmark",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "add_bookmark",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.addReaction",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "add_reaction",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.addReminder",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "add_reminder",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.archiveChannel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "archive_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.closeDM",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "close_dm",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.createChannel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.deleteFile",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_file",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.deleteMessage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.deleteReminder",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "delete_reminder",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.deleteScheduledMessage",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "delete_scheduled_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.editBookmark",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "edit_bookmark",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getChannelHistory",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_channel_history",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getChannelInfo",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_channel_info",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getFileInfo",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_file_info",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getPermalink",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_permalink",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getReactions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_reactions",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getThreadReplies",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_thread_replies",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getUserInfo",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_info",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getUserPresence",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_presence",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.getUserProfile",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_profile",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.inviteToChannel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "invite_to_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.joinChannel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "join_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.kickFromChannel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "kick_from_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.leaveChannel",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "leave_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listBookmarks",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_bookmarks",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listChannelMembers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_channel_members",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listChannels",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_channels",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listFiles",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_files",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listPins",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_pins",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listReactions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_reactions",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listReminders",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_reminders",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listScheduledMessages",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_scheduled_messages",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listUserGroupMembers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_user_group_members",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listUserGroups",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_user_groups",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.listUsers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_users",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.markChannelRead",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "mark_channel_read",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.meMessage",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "me_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.openDM",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "open_dm",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.pinMessage",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "pin_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.postEphemeral",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "post_ephemeral",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.postMessage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "post_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.removeBookmark",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_bookmark",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.removeReaction",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_reaction",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.renameChannel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "rename_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.scheduleMessage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "schedule_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.searchFiles",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_files",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.searchMessages",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_messages",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.setChannelPurpose",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "set_channel_purpose",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.setChannelTopic",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "set_channel_topic",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.unarchiveChannel",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "unarchive_channel",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.unpinMessage",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unpin_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.updateMessage",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_message",
+          "provider": "slack"
+        },
+        {
+          "name": "slack.uploadFile",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "upload_file",
+          "provider": "slack"
+        }
+      ]
+    },
+    {
+      "providerId": "stripe",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": true,
+        "webhook": true
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_STRIPE_FULL",
+      "riskClass": "high",
+      "display": {
+        "label": "Stripe",
+        "description": "Stripe customer and billing actions",
+        "icon": "stripe"
+      },
+      "envRequirements": [
+        "STRIPE_CLIENT_ID",
+        "STRIPE_PROVIDER_WEBHOOK_SECRET",
+        "STRIPE_SECRET_KEY"
+      ],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "stripe.adjustBalance",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "adjust_credits",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.cancelRefund",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "cancel_refund",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.cancelSubscription",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "cancel_subscription",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.cancelSubscriptionSchedule",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "cancel_subscription_schedule",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.closeDispute",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "close_dispute",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createCheckoutSession",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_checkout_session",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createCoupon",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_coupon",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createCreditNote",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "create_credit_note",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createCustomerTaxId",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_customer_tax_id",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createInvoice",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "create_invoice",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createInvoiceItem",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_invoice_item",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createPortalSession",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_portal_session",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createPromotionCode",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_promotion_code",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createSetupIntent",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_setup_intent",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createSubscription",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "create_subscription",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.createSubscriptionItem",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "create_subscription_item",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.deleteCustomerDiscount",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_customer_discount",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.deleteCustomerTaxId",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_customer_tax_id",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.deleteInvoiceItem",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_invoice_item",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.deleteSubscriptionDiscount",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_subscription_discount",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.deleteSubscriptionItem",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "delete_subscription_item",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.detachPaymentMethod",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "detach_payment_method",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.finalizeInvoice",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "finalize_invoice",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getBalanceTransaction",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_balance_transaction",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getCharge",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_charge",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getCheckoutSession",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_checkout_session",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getCoupon",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_coupon",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getCreditNote",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_credit_note",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getDispute",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_dispute",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getEvent",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_event",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getInvoice",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_invoice",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getPaymentIntent",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_payment_intent",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getPrice",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_price",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getProduct",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_product",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getPromotionCode",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_promotion_code",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getRefund",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_refund",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getSubscription",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_subscription",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.getSubscriptionSchedule",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_subscription_schedule",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.invoiceHistory",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "invoice_history",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.issueRefund",
+          "capability": "write",
+          "risk_level": "critical",
+          "requires_approval": true,
+          "action_type": "refund",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listBalanceTransactions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_balance_transactions",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listCharges",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "list_charges",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listCoupons",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_coupons",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listCreditNotes",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_credit_notes",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listCustomerTaxIds",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_customer_tax_ids",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listDisputes",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_disputes",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listEvents",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_events",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listGlobalBalanceTransactions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_global_balance_transactions",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listPaymentIntents",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_payment_intents",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listPaymentMethods",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_payment_methods",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listPrices",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_prices",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listProducts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_products",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listPromotionCodes",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_promotion_codes",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listRefunds",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_refunds",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listSubscriptionItems",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_subscription_items",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listSubscriptions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_subscriptions",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.listSubscriptionSchedules",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "list_subscription_schedules",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.lookupCustomer",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "lookup_customer",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.markUncollectible",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "mark_uncollectible",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.payInvoice",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "pay_invoice",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.previewCreditNote",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "preview_credit_note",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.previewInvoice",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "preview_invoice",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.resumeSubscription",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "resume_subscription",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.searchCharges",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_charges",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.searchCustomers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_customers",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.searchInvoices",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_invoices",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.searchPaymentIntents",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_payment_intents",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.searchSubscriptions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_subscriptions",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.sendInvoice",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "send_invoice",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateCharge",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "update_charge",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateCustomer",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "update_customer",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateDispute",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "update_dispute",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateRefund",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "update_refund",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateSubscription",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "update_subscription",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateSubscriptionItem",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "update_subscription_item",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.updateSubscriptionSchedule",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "update_subscription_schedule",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.voidCreditNote",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "void_credit_note",
+          "provider": "stripe"
+        },
+        {
+          "name": "stripe.voidInvoice",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "void_invoice",
+          "provider": "stripe"
+        }
+      ]
+    },
+    {
+      "providerId": "x",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": false,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_X_FULL",
+      "riskClass": "medium",
+      "display": {
+        "label": "X",
+        "description": "X actions plus native polling triggers for mentions",
+        "icon": "x"
+      },
+      "envRequirements": [
+        "X_CLIENT_ID",
+        "X_CLIENT_SECRET"
+      ],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "x.addListMember",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "add_list_member",
+          "provider": "x"
+        },
+        {
+          "name": "x.blockUser",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "block_user",
+          "provider": "x"
+        },
+        {
+          "name": "x.createBookmark",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_bookmark",
+          "provider": "x"
+        },
+        {
+          "name": "x.createDMConversation",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_dm_conversation",
+          "provider": "x"
+        },
+        {
+          "name": "x.createList",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "create_list",
+          "provider": "x"
+        },
+        {
+          "name": "x.createPost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "create_post",
+          "provider": "x"
+        },
+        {
+          "name": "x.deleteBookmark",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "delete_bookmark",
+          "provider": "x"
+        },
+        {
+          "name": "x.deleteList",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "delete_list",
+          "provider": "x"
+        },
+        {
+          "name": "x.deletePost",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "delete_post",
+          "provider": "x"
+        },
+        {
+          "name": "x.followUser",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "follow_user",
+          "provider": "x"
+        },
+        {
+          "name": "x.getBlockedUsers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_blocked_users",
+          "provider": "x"
+        },
+        {
+          "name": "x.getBookmarks",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_bookmarks",
+          "provider": "x"
+        },
+        {
+          "name": "x.getDMEvents",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_dm_events",
+          "provider": "x"
+        },
+        {
+          "name": "x.getFollowers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_followers",
+          "provider": "x"
+        },
+        {
+          "name": "x.getFollowing",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_following",
+          "provider": "x"
+        },
+        {
+          "name": "x.getHomeTimeline",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_home_timeline",
+          "provider": "x"
+        },
+        {
+          "name": "x.getLikedPosts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_liked_posts",
+          "provider": "x"
+        },
+        {
+          "name": "x.getLikingUsers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_liking_users",
+          "provider": "x"
+        },
+        {
+          "name": "x.getList",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_list",
+          "provider": "x"
+        },
+        {
+          "name": "x.getListMembers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_list_members",
+          "provider": "x"
+        },
+        {
+          "name": "x.getListTweets",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_list_tweets",
+          "provider": "x"
+        },
+        {
+          "name": "x.getMe",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_me",
+          "provider": "x"
+        },
+        {
+          "name": "x.getMutedUsers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_muted_users",
+          "provider": "x"
+        },
+        {
+          "name": "x.getOwnedLists",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_owned_lists",
+          "provider": "x"
+        },
+        {
+          "name": "x.getPost",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_post",
+          "provider": "x"
+        },
+        {
+          "name": "x.getPostCounts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_post_counts",
+          "provider": "x"
+        },
+        {
+          "name": "x.getPosts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_posts",
+          "provider": "x"
+        },
+        {
+          "name": "x.getQuoteTweets",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_quote_tweets",
+          "provider": "x"
+        },
+        {
+          "name": "x.getRepostedBy",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_reposted_by",
+          "provider": "x"
+        },
+        {
+          "name": "x.getUserById",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_by_id",
+          "provider": "x"
+        },
+        {
+          "name": "x.getUserByUsername",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_by_username",
+          "provider": "x"
+        },
+        {
+          "name": "x.getUserMentions",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_mentions",
+          "provider": "x"
+        },
+        {
+          "name": "x.getUsersByUsernames",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_users_by_usernames",
+          "provider": "x"
+        },
+        {
+          "name": "x.getUserTimeline",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_user_timeline",
+          "provider": "x"
+        },
+        {
+          "name": "x.likePost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "like_post",
+          "provider": "x"
+        },
+        {
+          "name": "x.muteUser",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "mute_user",
+          "provider": "x"
+        },
+        {
+          "name": "x.removeListMember",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "remove_list_member",
+          "provider": "x"
+        },
+        {
+          "name": "x.repost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "repost",
+          "provider": "x"
+        },
+        {
+          "name": "x.searchAllPosts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_all_posts",
+          "provider": "x"
+        },
+        {
+          "name": "x.searchPosts",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_posts",
+          "provider": "x"
+        },
+        {
+          "name": "x.searchUsers",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "search_users",
+          "provider": "x"
+        },
+        {
+          "name": "x.sendDM",
+          "capability": "write",
+          "risk_level": "medium",
+          "requires_approval": true,
+          "action_type": "send_dm",
+          "provider": "x"
+        },
+        {
+          "name": "x.unblockUser",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unblock_user",
+          "provider": "x"
+        },
+        {
+          "name": "x.undoRepost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "undo_repost",
+          "provider": "x"
+        },
+        {
+          "name": "x.unfollowUser",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unfollow_user",
+          "provider": "x"
+        },
+        {
+          "name": "x.unlikePost",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unlike_post",
+          "provider": "x"
+        },
+        {
+          "name": "x.unmuteUser",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "unmute_user",
+          "provider": "x"
+        },
+        {
+          "name": "x.updateList",
+          "capability": "write",
+          "risk_level": "low",
+          "requires_approval": true,
+          "action_type": "update_list",
+          "provider": "x"
+        }
+      ]
+    }
+  ],
+  "toolOwners": [
+    {
+      "name": "custom.callRead",
+      "providerId": "custom"
+    },
+    {
+      "name": "custom.callWrite",
+      "providerId": "custom"
+    },
+    {
+      "name": "github.addAssignees",
+      "providerId": "github"
+    },
+    {
+      "name": "github.addLabels",
+      "providerId": "github"
+    },
+    {
+      "name": "github.cancelWorkflowRun",
+      "providerId": "github"
+    },
+    {
+      "name": "github.commentIssue",
+      "providerId": "github"
+    },
+    {
+      "name": "github.compareCommits",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createDispatchEvent",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createIssue",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createLabel",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createMilestone",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createOrUpdateFile",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createPullRequest",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createReaction",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createRelease",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createReview",
+      "providerId": "github"
+    },
+    {
+      "name": "github.createReviewComment",
+      "providerId": "github"
+    },
+    {
+      "name": "github.deleteComment",
+      "providerId": "github"
+    },
+    {
+      "name": "github.deleteReaction",
+      "providerId": "github"
+    },
+    {
+      "name": "github.dismissReview",
+      "providerId": "github"
+    },
+    {
+      "name": "github.generateReleaseNotes",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getCommitStatus",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getFileContents",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getIssue",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getLatestRelease",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getPullRequest",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getRepo",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getWorkflowJobLogs",
+      "providerId": "github"
+    },
+    {
+      "name": "github.getWorkflowRun",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listBranches",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listCheckRuns",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listCommits",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listIssueComments",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listIssueEvents",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listIssues",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listIssueTimeline",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listLabels",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listMilestones",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listNotifications",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listOrgRepos",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listPRCommits",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listPRFiles",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listPullRequests",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listReleases",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listReviews",
+      "providerId": "github"
+    },
+    {
+      "name": "github.listWorkflowRuns",
+      "providerId": "github"
+    },
+    {
+      "name": "github.lockIssue",
+      "providerId": "github"
+    },
+    {
+      "name": "github.markNotificationsRead",
+      "providerId": "github"
+    },
+    {
+      "name": "github.mergePullRequest",
+      "providerId": "github"
+    },
+    {
+      "name": "github.removeAssignees",
+      "providerId": "github"
+    },
+    {
+      "name": "github.removeLabel",
+      "providerId": "github"
+    },
+    {
+      "name": "github.removeReviewers",
+      "providerId": "github"
+    },
+    {
+      "name": "github.requestReviewers",
+      "providerId": "github"
+    },
+    {
+      "name": "github.rerunFailedJobs",
+      "providerId": "github"
+    },
+    {
+      "name": "github.rerunWorkflow",
+      "providerId": "github"
+    },
+    {
+      "name": "github.searchCode",
+      "providerId": "github"
+    },
+    {
+      "name": "github.searchIssues",
+      "providerId": "github"
+    },
+    {
+      "name": "github.searchRepositories",
+      "providerId": "github"
+    },
+    {
+      "name": "github.triggerWorkflow",
+      "providerId": "github"
+    },
+    {
+      "name": "github.unlockIssue",
+      "providerId": "github"
+    },
+    {
+      "name": "github.updateComment",
+      "providerId": "github"
+    },
+    {
+      "name": "github.updateIssue",
+      "providerId": "github"
+    },
+    {
+      "name": "github.updateMilestone",
+      "providerId": "github"
+    },
+    {
+      "name": "github.updatePRBranch",
+      "providerId": "github"
+    },
+    {
+      "name": "github.updatePullRequest",
+      "providerId": "github"
+    },
+    {
+      "name": "github.updateRelease",
+      "providerId": "github"
+    },
+    {
+      "name": "gmail.applyLabel",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.archive",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.batchModifyMessages",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.createDraft",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.createFilter",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.createLabel",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.deleteDraft",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.deleteFilter",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.deleteLabel",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.downloadAttachment",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.fetchAttachmentsMetadata",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.fetchMessageBody",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getDraft",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getFilter",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getLabel",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getProfile",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getSendAsAlias",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getThread",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.getVacation",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.listDrafts",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.listFilters",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.listHistory",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.listLabels",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.listSendAsAliases",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.listUnread",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.removeLabel",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.replyToThread",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.searchThreads",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.sendDraft",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.sendEmail",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.stopWatch",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.trashMessage",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.trashThread",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.untrashMessage",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.untrashThread",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.updateDraft",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.updateLabel",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.updateSendAsAlias",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.updateVacation",
+      "providerId": "google"
+    },
+    {
+      "name": "gmail.watch",
+      "providerId": "google"
+    },
+    {
+      "name": "notion.appendBlockChildren",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.createComment",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.createDatabase",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.createPage",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.deleteBlock",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getBlock",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getBlockChildren",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getBotUser",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getComment",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getDatabase",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getPage",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getPageAsMarkdown",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getPageProperty",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.getUser",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.listComments",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.listUsers",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.movePage",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.queryDatabase",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.searchPages",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.updateBlock",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.updateDatabase",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.updatePage",
+      "providerId": "notion"
+    },
+    {
+      "name": "notion.updatePageMarkdown",
+      "providerId": "notion"
+    },
+    {
+      "name": "reddit.approve",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.composeMessage",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.createComment",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.createPost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.deletePost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.distinguish",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.editPost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getInfo",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getMe",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getModLog",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getModmail",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getModQueue",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getPostComments",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getReports",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getSubredditInfo",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getSubredditRules",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getUserAbout",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.getUserOverview",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.hidePost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listControversial",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listHot",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listInbox",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listMentions",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listModmail",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listNew",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listRising",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listSentMessages",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listTop",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.listUnreadMessages",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.lockPost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.markNsfw",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.readAllMessages",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.readMessage",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.removeContent",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.replyModmail",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.reportContent",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.savePost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.searchPosts",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.searchSubreddits",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.selectFlair",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.spoiler",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.stickyPost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.subscribe",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.unhidePost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.unlockPost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.unmarkNsfw",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.unsavePost",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.unspoiler",
+      "providerId": "reddit"
+    },
+    {
+      "name": "reddit.vote",
+      "providerId": "reddit"
+    },
+    {
+      "name": "slack.addBookmark",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.addReaction",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.addReminder",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.archiveChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.closeDM",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.createChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.deleteFile",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.deleteMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.deleteReminder",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.deleteScheduledMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.editBookmark",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getChannelHistory",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getChannelInfo",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getFileInfo",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getPermalink",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getReactions",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getThreadReplies",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getUserInfo",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getUserPresence",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.getUserProfile",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.inviteToChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.joinChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.kickFromChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.leaveChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listBookmarks",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listChannelMembers",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listChannels",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listFiles",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listPins",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listReactions",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listReminders",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listScheduledMessages",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listUserGroupMembers",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listUserGroups",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.listUsers",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.markChannelRead",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.meMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.openDM",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.pinMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.postEphemeral",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.postMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.removeBookmark",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.removeReaction",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.renameChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.scheduleMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.searchFiles",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.searchMessages",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.setChannelPurpose",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.setChannelTopic",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.unarchiveChannel",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.unpinMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.updateMessage",
+      "providerId": "slack"
+    },
+    {
+      "name": "slack.uploadFile",
+      "providerId": "slack"
+    },
+    {
+      "name": "stripe.adjustBalance",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.cancelRefund",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.cancelSubscription",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.cancelSubscriptionSchedule",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.closeDispute",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createCheckoutSession",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createCoupon",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createCreditNote",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createCustomerTaxId",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createInvoiceItem",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createPortalSession",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createPromotionCode",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createSetupIntent",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createSubscription",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.createSubscriptionItem",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.deleteCustomerDiscount",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.deleteCustomerTaxId",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.deleteInvoiceItem",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.deleteSubscriptionDiscount",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.deleteSubscriptionItem",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.detachPaymentMethod",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.finalizeInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getBalanceTransaction",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getCharge",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getCheckoutSession",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getCoupon",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getCreditNote",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getDispute",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getEvent",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getPaymentIntent",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getPrice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getProduct",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getPromotionCode",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getRefund",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getSubscription",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.getSubscriptionSchedule",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.invoiceHistory",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.issueRefund",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listBalanceTransactions",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listCharges",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listCoupons",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listCreditNotes",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listCustomerTaxIds",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listDisputes",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listEvents",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listGlobalBalanceTransactions",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listPaymentIntents",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listPaymentMethods",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listPrices",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listProducts",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listPromotionCodes",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listRefunds",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listSubscriptionItems",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listSubscriptions",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.listSubscriptionSchedules",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.lookupCustomer",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.markUncollectible",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.payInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.previewCreditNote",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.previewInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.resumeSubscription",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.searchCharges",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.searchCustomers",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.searchInvoices",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.searchPaymentIntents",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.searchSubscriptions",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.sendInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateCharge",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateCustomer",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateDispute",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateRefund",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateSubscription",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateSubscriptionItem",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.updateSubscriptionSchedule",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.voidCreditNote",
+      "providerId": "stripe"
+    },
+    {
+      "name": "stripe.voidInvoice",
+      "providerId": "stripe"
+    },
+    {
+      "name": "x.addListMember",
+      "providerId": "x"
+    },
+    {
+      "name": "x.blockUser",
+      "providerId": "x"
+    },
+    {
+      "name": "x.createBookmark",
+      "providerId": "x"
+    },
+    {
+      "name": "x.createDMConversation",
+      "providerId": "x"
+    },
+    {
+      "name": "x.createList",
+      "providerId": "x"
+    },
+    {
+      "name": "x.createPost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.deleteBookmark",
+      "providerId": "x"
+    },
+    {
+      "name": "x.deleteList",
+      "providerId": "x"
+    },
+    {
+      "name": "x.deletePost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.followUser",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getBlockedUsers",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getBookmarks",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getDMEvents",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getFollowers",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getFollowing",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getHomeTimeline",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getLikedPosts",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getLikingUsers",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getList",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getListMembers",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getListTweets",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getMe",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getMutedUsers",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getOwnedLists",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getPost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getPostCounts",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getPosts",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getQuoteTweets",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getRepostedBy",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getUserById",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getUserByUsername",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getUserMentions",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getUsersByUsernames",
+      "providerId": "x"
+    },
+    {
+      "name": "x.getUserTimeline",
+      "providerId": "x"
+    },
+    {
+      "name": "x.likePost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.muteUser",
+      "providerId": "x"
+    },
+    {
+      "name": "x.removeListMember",
+      "providerId": "x"
+    },
+    {
+      "name": "x.repost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.searchAllPosts",
+      "providerId": "x"
+    },
+    {
+      "name": "x.searchPosts",
+      "providerId": "x"
+    },
+    {
+      "name": "x.searchUsers",
+      "providerId": "x"
+    },
+    {
+      "name": "x.sendDM",
+      "providerId": "x"
+    },
+    {
+      "name": "x.unblockUser",
+      "providerId": "x"
+    },
+    {
+      "name": "x.undoRepost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.unfollowUser",
+      "providerId": "x"
+    },
+    {
+      "name": "x.unlikePost",
+      "providerId": "x"
+    },
+    {
+      "name": "x.unmuteUser",
+      "providerId": "x"
+    },
+    {
+      "name": "x.updateList",
+      "providerId": "x"
+    }
+  ]
+}

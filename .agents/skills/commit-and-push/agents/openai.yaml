@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit and Push"
+  short_description: "Commit all changes and push to the current git branch"
+  default_prompt: "Use when user asks to commit and push local changes."

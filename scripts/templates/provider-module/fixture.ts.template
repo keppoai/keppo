@@ -1,0 +1,7 @@
+export const __PROVIDER_PASCAL___FIXTURE = {
+  authCode: "__PROVIDER_ID___fake_auth_code",
+  accessToken: "__PROVIDER_ID___fake_access_token",
+  refreshToken: "__PROVIDER_ID___fake_refresh_token",
+  externalAccountId: "__PROVIDER_ID___acct_123",
+  scopes: ["__PROVIDER_ID__.read", "__PROVIDER_ID__.write"],
+} as const;

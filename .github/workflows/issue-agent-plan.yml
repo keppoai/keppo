@@ -1,0 +1,208 @@
+name: Issue Agent Plan Issue
+
+on:
+  workflow_call:
+    inputs:
+      agent_kind:
+        required: true
+        type: string
+      agent_name:
+        required: true
+        type: string
+      issue_number:
+        required: true
+        type: string
+      issue_title:
+        required: true
+        type: string
+      issue_body:
+        required: true
+        type: string
+      issue_comments_json:
+        required: true
+        type: string
+      default_branch:
+        required: true
+        type: string
+
+jobs:
+  run:
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    env:
+      PLAN_COMMENT_PATH: tmp/issue-agent/plan-comment.md
+      PROMPT_PATH: tmp/issue-agent/agent-plan-prompt.txt
+      LOG_MARKER_PATH: tmp/issue-agent/session-log-marker
+      SESSION_LOG_COMMENT_PATH: tmp/issue-agent/session-log-comment.md
+      CODEX_HOME: tmp/issue-agent/codex-home
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: write
+
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Checkout workflow base revision
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Install Codex CLI
+        if: inputs.agent_kind == 'codex'
+        run: npm install -g @openai/codex@latest
+
+      - name: Write Codex auth file
+        if: inputs.agent_kind == 'codex'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-codex-auth.sh"
+
+      - name: Write untrusted issue reference
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          ISSUE_TITLE: ${{ inputs.issue_title }}
+          ISSUE_BODY: ${{ inputs.issue_body }}
+          ISSUE_COMMENTS_JSON: ${{ inputs.issue_comments_json }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-untrusted-issue.mjs"
+
+      - name: Render prompt
+        id: prompt
+        env:
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/issue-agent/plan-issue.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          PLAN_COMMENT_PATH: ${{ env.PLAN_COMMENT_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
+
+      - name: Record session log marker
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${LOG_MARKER_PATH}")"
+          touch "${LOG_MARKER_PATH}"
+
+      - name: Create minimal agent token
+        if: inputs.agent_kind == 'claude'
+        id: agent-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: read
+          permission-contents: read
+
+      - name: Run Claude plan generation
+        if: inputs.agent_kind == 'claude'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ steps.agent-token.outputs.token }}
+          track_progress: false
+          show_full_output: false
+          display_report: false
+          claude_args: --dangerously-skip-permissions --model opus
+          prompt: ${{ steps.prompt.outputs.prompt }}
+
+      - name: Run Codex plan generation
+        if: inputs.agent_kind == 'codex'
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-codex.sh"
+
+      - name: Refresh workflow base revision
+        if: always()
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Upload session logs
+        if: always()
+        continue-on-error: true
+        env:
+          AGENT_KIND: ${{ inputs.agent_kind }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODEX_HOME: ${{ env.CODEX_HOME }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
+
+      - name: Post session log comment
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          COMMENT_NUMBER: ${{ inputs.issue_number }}
+          COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+        run: |
+          if [ -s "${COMMENT_PATH}" ]; then
+            bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-github-comment.sh"
+          fi
+
+      - name: Post plan comment
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          COMMENT_PATH: ${{ env.PLAN_COMMENT_PATH }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-issue-comment.sh"
+
+      - name: Set failure labels and comment
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number('${{ inputs.issue_number }}');
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body: [
+                  `The ${{ inputs.agent_name }} \`plan-issue\` run failed before it could post a plan comment.`,
+                  '',
+                  `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+                ].join('\n'),
+              });
+            } catch (error) {
+              if (error.status === 403 && /issue is locked/i.test(error.message || '')) {
+                core.warning('Skipping failure comment because the issue is locked.');
+                return;
+              }
+              throw error;
+            }

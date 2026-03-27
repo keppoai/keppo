@@ -1,0 +1,111 @@
+name: CI (PR)
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  pull-requests: write
+
+jobs:
+  check-changes:
+    name: Check changes
+    runs-on: ubicloud-standard-2
+    outputs:
+      run-e2e: ${{ steps.check.outputs.run-e2e }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect docs/CI-only changes
+        id: check
+        env:
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+        run: |
+          # Always run on workflow_dispatch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "run-e2e=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch — running E2E"
+            exit 0
+          fi
+
+          # Check if all changed files are docs-only or CI config
+          CHANGED=$(git diff --name-only "origin/${BASE_REF}...HEAD" --)
+
+          if [[ -z "$CHANGED" ]]; then
+            echo "run-e2e=true" >> "$GITHUB_OUTPUT"
+            echo "No changed files detected — running E2E as safety fallback"
+            exit 0
+          fi
+
+          # Skip patterns — E2E is skipped when ALL changed files match:
+          #   *.md          — markdown docs (README, CLAUDE.md, etc.)
+          #   docs/*        — documentation directory
+          #   .github/ISSUE_TEMPLATE/*, .github/CODEOWNERS, .github/*.md — non-workflow GitHub config
+          #   .github/workflows/*, .github/prompts/* — CI workflows and agent prompts
+          #   .agents/*     — agent config
+          #   scripts/*     — dev/CI scripts
+          #   .claude/*     — Claude config
+          #   plans/*       — implementation plans
+          #   artifacts/*   — design artifacts
+          #   .vscode/*     — editor settings
+          #   .husky/*      — git hooks config
+          #   LICENSE       — license file
+          SKIP=true
+          while IFS= read -r file; do
+            [[ -z "$file" ]] && continue
+            case "$file" in
+              *.md|docs/*|.github/ISSUE_TEMPLATE/*|.github/CODEOWNERS|.github/*.md|.github/workflows/*|.github/prompts/*|.agents/*|scripts/*|.claude/*|plans/*|artifacts/*|.vscode/*|.husky/*|LICENSE)
+                echo "  skip: $file"
+                ;;
+              *)
+                echo "  code: $file"
+                SKIP=false
+                break
+                ;;
+            esac
+          done <<< "$CHANGED"
+
+          if [[ "$SKIP" == "true" ]]; then
+            echo "run-e2e=false" >> "$GITHUB_OUTPUT"
+            echo "Only docs/CI changes — skipping E2E"
+          else
+            echo "run-e2e=true" >> "$GITHUB_OUTPUT"
+            echo "Code changes detected — running E2E"
+          fi
+
+  e2e:
+    needs: check-changes
+    if: needs.check-changes.outputs.run-e2e == 'true'
+    uses: ./.github/workflows/e2e-shared.yml
+
+  # Gate job for branch protection — succeeds when E2E passed OR was
+  # intentionally skipped for docs/CI-only changes.
+  # Set this as the required status check instead of individual E2E jobs.
+  ci-result:
+    name: CI Result
+    if: always()
+    needs: [check-changes, e2e]
+    runs-on: ubicloud-standard-2
+    steps:
+      - name: Evaluate result
+        run: |
+          if [[ "${{ needs.check-changes.result }}" != "success" ]]; then
+            echo "✗ Check changes failed (result: ${{ needs.check-changes.result }})"
+            exit 1
+          fi
+          if [[ "${{ needs.check-changes.outputs.run-e2e }}" == "false" ]]; then
+            echo "✓ E2E intentionally skipped (docs/CI-only changes)"
+            exit 0
+          fi
+          if [[ "${{ needs.e2e.result }}" == "success" ]]; then
+            echo "✓ E2E passed"
+            exit 0
+          fi
+          echo "✗ E2E failed (result: ${{ needs.e2e.result }})"
+          exit 1

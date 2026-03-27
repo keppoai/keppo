@@ -1,0 +1,211 @@
+import { useMemo } from "react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyIllustration,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { getRiskBadgeVariant } from "@/lib/action-badges";
+import { relativeTime, fullTimestamp } from "@/lib/format";
+import type { Action } from "@/lib/types";
+
+interface ApprovalsTableProps {
+  actions: Action[];
+  selectedActionId: string | null;
+  onSelect: (id: string) => void;
+  selectedActionIds: string[];
+  onToggleAction: (id: string, checked: boolean) => void;
+  onToggleAllVisible: (checked: boolean) => void;
+  allVisibleSelected: boolean;
+  onApprove: (id: string) => Promise<void> | void;
+  onRequestReject: (ids: string[]) => void;
+  canApprove: boolean;
+  busyActionId?: string | null;
+  emptyTitle?: string;
+  emptyDescription?: string;
+}
+
+export function ApprovalsTable({
+  actions,
+  selectedActionId,
+  onSelect,
+  selectedActionIds,
+  onToggleAction,
+  onToggleAllVisible,
+  allVisibleSelected,
+  onApprove,
+  onRequestReject,
+  canApprove,
+  busyActionId = null,
+  emptyTitle = "All clear",
+  emptyDescription = "No actions waiting for approval right now.",
+}: ApprovalsTableProps) {
+  const selectedIdSet = useMemo(() => new Set(selectedActionIds), [selectedActionIds]);
+  const rowToneClass = (riskLevel: Action["risk_level"], isSelected: boolean): string => {
+    switch (riskLevel) {
+      case "critical":
+        return isSelected
+          ? "border-l-4 border-l-red-700 bg-red-500/12 ring-1 ring-red-500/25"
+          : "border-l-4 border-l-red-600 bg-red-500/5";
+      case "high":
+        return isSelected
+          ? "border-l-4 border-l-red-600 bg-red-500/10 ring-1 ring-red-500/20"
+          : "border-l-4 border-l-red-500";
+      case "medium":
+        return isSelected
+          ? "border-l-4 border-l-amber-600 bg-amber-500/10 ring-1 ring-amber-500/20"
+          : "border-l-4 border-l-amber-500";
+      default:
+        return isSelected
+          ? "border-l-4 border-l-emerald-600 bg-emerald-500/10 ring-1 ring-emerald-500/20"
+          : "border-l-4 border-l-emerald-500";
+    }
+  };
+
+  if (actions.length === 0) {
+    return (
+      <Empty className="rounded-lg border py-10">
+        <EmptyHeader>
+          <EmptyIllustration
+            src="/illustrations/empty-approvals.png"
+            alt="Illustration of a calm all-clear approvals state"
+            className="w-[160px]"
+          />
+          <EmptyTitle>{emptyTitle}</EmptyTitle>
+          <EmptyDescription>{emptyDescription}</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    );
+  }
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <TableHead className="w-10">
+            <Checkbox
+              aria-label="Select visible approvals"
+              checked={allVisibleSelected}
+              onCheckedChange={(checked) => {
+                onToggleAllVisible(checked === true);
+              }}
+            />
+          </TableHead>
+          <TableHead>Action Type</TableHead>
+          <TableHead>Risk Level</TableHead>
+          <TableHead>Status</TableHead>
+          <TableHead>Created</TableHead>
+          <TableHead className="text-right">Actions</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {actions.map((action) => (
+          <TableRow
+            key={action.id}
+            data-testid="approval-row"
+            data-action-id={action.id}
+            data-action-type={action.action_type}
+            className={`${rowToneClass(action.risk_level, selectedActionId === action.id)} ${
+              selectedActionId === action.id ? "shadow-sm" : ""
+            } cursor-pointer ${action.risk_level === "critical" ? "animate-pulse" : ""}`}
+            onClick={() => onSelect(action.id)}
+          >
+            <TableCell>
+              <Checkbox
+                aria-label={`Select ${action.action_type}`}
+                checked={selectedIdSet.has(action.id)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                }}
+                onCheckedChange={(checked) => {
+                  onToggleAction(action.id, checked === true);
+                }}
+              />
+            </TableCell>
+            <TableCell className="font-medium" data-testid="approval-row-action-type">
+              <button
+                type="button"
+                data-testid="approval-row-select"
+                className="w-full cursor-pointer text-left"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onSelect(action.id);
+                }}
+              >
+                <span
+                  className={selectedActionId === action.id ? "font-semibold text-foreground" : ""}
+                >
+                  {action.action_type}
+                </span>
+                <span className="mt-0.5 block font-mono text-[10px] text-muted-foreground/60">
+                  {action.id.slice(0, 8)}
+                </span>
+              </button>
+            </TableCell>
+            <TableCell>
+              <Badge variant={getRiskBadgeVariant(action.risk_level)}>{action.risk_level}</Badge>
+            </TableCell>
+            <TableCell>
+              <Badge
+                variant={
+                  action.status === "approved"
+                    ? "default"
+                    : action.status === "rejected"
+                      ? "destructive"
+                      : "secondary"
+                }
+              >
+                {action.status}
+              </Badge>
+            </TableCell>
+            <TableCell title={fullTimestamp(action.created_at)}>
+              {relativeTime(action.created_at)}
+            </TableCell>
+            <TableCell className="text-right">
+              {canApprove ? (
+                <div className="flex items-center justify-end gap-2">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    onClick={async (e) => {
+                      e.stopPropagation();
+                      await Promise.resolve(onApprove(action.id));
+                    }}
+                    disabled={action.status !== "pending" || busyActionId === action.id}
+                  >
+                    {busyActionId === action.id ? "Working..." : "Approve"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onRequestReject([action.id]);
+                    }}
+                    disabled={action.status !== "pending" || busyActionId === action.id}
+                  >
+                    Reject
+                  </Button>
+                </div>
+              ) : (
+                <span className="text-xs text-muted-foreground">Viewer role</span>
+              )}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}

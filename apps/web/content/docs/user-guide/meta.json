@@ -1,0 +1,15 @@
+{
+  "title": "User Guide",
+  "root": true,
+  "pages": [
+    "index",
+    "getting-started",
+    "workspaces",
+    "integrations",
+    "automations",
+    "approvals-and-rules",
+    "notifications",
+    "billing",
+    "releases"
+  ]
+}

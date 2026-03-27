@@ -1,0 +1,92 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "globalPassThroughEnv": [
+    "KEPPO_ENVIRONMENT",
+    "KEPPO_MASTER_KEY",
+    "CONVEX_URL",
+    "KEPPO_CONVEX_ADMIN_KEY",
+    "BETTER_AUTH_SECRET",
+    "KEPPO_URL",
+    "GOOGLE_CLIENT_ID",
+    "GOOGLE_CLIENT_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET"
+  ],
+  "globalDependencies": [
+    "pnpm-lock.yaml",
+    "package.json",
+    "apps/*/package.json",
+    "cloud/package.json",
+    "packages/*/package.json"
+  ],
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": ["dist/**"]
+    },
+    "test": {
+      "dependsOn": ["^test"]
+    },
+    "test:layer3": {
+      "cache": false
+    },
+    "test:layer4": {
+      "dependsOn": ["^test"],
+      "cache": false
+    },
+    "test:layer7": {
+      "cache": false
+    },
+    "test:e2e": {
+      "cache": false
+    },
+    "test:e2e:convex": {
+      "cache": false
+    },
+    "test:e2e:update": {
+      "cache": false
+    },
+    "test:e2e:headed": {
+      "cache": false
+    },
+    "test:nightly": {
+      "cache": false
+    },
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "fmt": {
+      "cache": false
+    },
+    "fmt:check": {
+      "cache": false
+    },
+    "free-dev-ports": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "dependsOn": ["free-dev-ports", "convex:dev", "dev:web"],
+      "persistent": true
+    },
+    "dev:all": {
+      "cache": false,
+      "dependsOn": ["dev:web"],
+      "persistent": true
+    },
+    "dev:web": {
+      "cache": false,
+      "persistent": true
+    },
+    "convex:dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "convex:init": {
+      "cache": false
+    },
+    "convex:push:local": {
+      "cache": false
+    }
+  }
+}

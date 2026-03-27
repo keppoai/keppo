@@ -1,0 +1,38 @@
+---
+title: Quickstart
+description: The shortest local path to running Keppo with the supported app/runtime layout.
+audience: self-hosted
+---
+
+## Prerequisites
+
+- Node.js 22
+- `pnpm`
+- Convex CLI
+- Docker when validating the local sandbox deployment path
+- env management via `dotenvx`
+
+## Local dev flow
+
+```bash
+cp .env.example .env.local
+pnpm install
+pnpm run dev
+```
+
+This boots local Convex and the TanStack Start app on port `3000`.
+
+## Required local checks
+
+Before pushing meaningful changes, run:
+
+```bash
+pnpm run typecheck
+pnpm run check:security
+pnpm run check:sdk-type-compat
+```
+
+## What to read next
+
+- [Deployment](/docs/self-hosted/deployment) for production-like boot rules
+- [Providers](/docs/self-hosted/providers) for OAuth callbacks and env setup

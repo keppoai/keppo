@@ -1,0 +1,1142 @@
+import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useMutation, useQuery } from "convex/react";
+import { makeFunctionReference } from "convex/server";
+import { AUTOMATION_SUBSCRIPTION_AUTH_FEATURE_FLAG } from "@keppo/shared/feature-flags";
+import {
+  completeOpenAiOauth,
+  getOpenAiHelperSession,
+  startBillingCreditsCheckout,
+} from "@/lib/server-functions/internal-api";
+import { buildBillingReturnUrl } from "@/lib/billing-redirects";
+import { getRuntimeBetterAuthCookieHeader } from "@/lib/better-auth-cookie";
+import { useDashboardRuntime } from "@/lib/dashboard-runtime";
+import { useGlobalFeatureFlag } from "@/hooks/use-feature-flags";
+import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
+import { Badge } from "@/components/ui/badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Textarea } from "@/components/ui/textarea";
+import { parseAiCreditBalance, parseOrgAiKeys, type OrgAiKey } from "@/lib/automations-view-model";
+import { fullTimestamp } from "@/lib/format";
+import { UserFacingErrorView } from "@/components/ui/user-facing-error";
+
+type AiKeyManagerProps = {
+  orgId: string | null;
+  userEmail: string | null;
+};
+
+type CreditPurchase = {
+  id: string;
+  credits: number;
+  credits_remaining: number;
+  purchased_at: string;
+  expires_at: string;
+  status: "active" | "expired" | "depleted";
+};
+
+type AutomationKeyUsage = {
+  provider: "openai" | "anthropic";
+  key_mode: "byok" | "bundled" | "subscription_token";
+  count: number;
+};
+
+type OpenAiHelperPlatform = "macos" | "windows";
+
+type OpenAiHelperArtifact = {
+  platform: OpenAiHelperPlatform;
+  label: string;
+  filename: string;
+  download_url: string;
+};
+
+type OpenAiHelperSession = {
+  helper_session_id: string;
+  helper_session_token: string;
+  helper_launch_url: string;
+  helper_callback_url: string;
+  oauth_start_url: string;
+  localhost_redirect_uri: string;
+  expires_at: string;
+  download_artifacts: OpenAiHelperArtifact[];
+};
+
+const OPENAI_LOCALHOST_HELPER_COMMAND =
+  `node --input-type=module --eval 'import http from "node:http";` +
+  `const PORT=1455,HOST="127.0.0.1",SUCCESS="<!doctype html><html><body><p>Callback captured. Return to Keppo and paste the full localhost callback URL.</p></body></html>";` +
+  `http.createServer((req,res)=>{try{const url=new URL(req.url||"/",\`http://\${HOST}:\${PORT}\`);` +
+  `if(url.pathname!=="/auth/callback"){res.statusCode=404;res.end("Not found");return}` +
+  `const fullUrl=\`http://\${HOST}:\${PORT}\${url.pathname}\${url.search}\`;` +
+  `process.stdout.write("\\nCaptured localhost callback URL:\\n"+fullUrl+"\\n\\nPaste that full URL into Keppo and then press Ctrl+C here.\\n");` +
+  `res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(SUCCESS)}` +
+  `catch{res.statusCode=500;res.end("Internal error")}}).listen(PORT,HOST,()=>process.stdout.write(\`Listening for OpenAI OAuth callback on http://\${HOST}:\${PORT}/auth/callback\\n\`));'`;
+
+const parseCreditPurchases = (value: unknown): CreditPurchase[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const row = item as Record<string, unknown>;
+      const status = row.status;
+      if (status !== "active" && status !== "expired" && status !== "depleted") {
+        return null;
+      }
+      return {
+        id: typeof row.id === "string" ? row.id : "",
+        credits: typeof row.credits === "number" ? row.credits : 0,
+        credits_remaining: typeof row.credits_remaining === "number" ? row.credits_remaining : 0,
+        purchased_at: typeof row.purchased_at === "string" ? row.purchased_at : "",
+        expires_at: typeof row.expires_at === "string" ? row.expires_at : "",
+        status,
+      };
+    })
+    .filter((purchase): purchase is CreditPurchase => purchase !== null);
+};
+
+const parseUsage = (value: unknown): AutomationKeyUsage[] => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => {
+      if (!item || typeof item !== "object") {
+        return null;
+      }
+      const row = item as Record<string, unknown>;
+      const provider = row.provider;
+      const keyMode = row.key_mode;
+      if (
+        (provider !== "openai" && provider !== "anthropic") ||
+        (keyMode !== "byok" && keyMode !== "bundled" && keyMode !== "subscription_token")
+      ) {
+        return null;
+      }
+      return {
+        provider,
+        key_mode: keyMode,
+        count: typeof row.count === "number" ? row.count : 0,
+      };
+    })
+    .filter((entry): entry is AutomationKeyUsage => entry !== null);
+};
+
+const parseOpenAiHelperSession = (value: unknown): OpenAiHelperSession => {
+  if (!value || typeof value !== "object") {
+    throw new Error("Invalid OpenAI helper session response.");
+  }
+  const record = value as Record<string, unknown>;
+  const downloadArtifacts = Array.isArray(record.download_artifacts)
+    ? record.download_artifacts
+        .map((item) => {
+          if (!item || typeof item !== "object") {
+            return null;
+          }
+          const artifact = item as Record<string, unknown>;
+          const platform = artifact.platform;
+          if (platform !== "macos" && platform !== "windows") {
+            return null;
+          }
+          return {
+            platform,
+            label: typeof artifact.label === "string" ? artifact.label : "",
+            filename: typeof artifact.filename === "string" ? artifact.filename : "",
+            download_url: typeof artifact.download_url === "string" ? artifact.download_url : "",
+          } satisfies OpenAiHelperArtifact;
+        })
+        .filter((artifact): artifact is OpenAiHelperArtifact => artifact !== null)
+    : [];
+
+  const helperSessionId =
+    typeof record.helper_session_id === "string" ? record.helper_session_id : "";
+  const helperSessionToken =
+    typeof record.helper_session_token === "string" ? record.helper_session_token : "";
+  const oauthStartUrl = typeof record.oauth_start_url === "string" ? record.oauth_start_url : "";
+  const helperCallbackUrl =
+    typeof record.helper_callback_url === "string" ? record.helper_callback_url : "";
+  const helperLaunchUrl =
+    typeof record.helper_launch_url === "string" ? record.helper_launch_url : "";
+  const localhostRedirectUri =
+    typeof record.localhost_redirect_uri === "string" ? record.localhost_redirect_uri : "";
+  const expiresAt = typeof record.expires_at === "string" ? record.expires_at : "";
+
+  if (
+    !helperSessionId ||
+    !helperSessionToken ||
+    !oauthStartUrl ||
+    !helperCallbackUrl ||
+    !helperLaunchUrl ||
+    !localhostRedirectUri ||
+    !expiresAt
+  ) {
+    throw new Error("OpenAI helper session response is missing required launch metadata.");
+  }
+
+  return {
+    helper_session_id: helperSessionId,
+    helper_session_token: helperSessionToken,
+    oauth_start_url: oauthStartUrl,
+    helper_callback_url: helperCallbackUrl,
+    helper_launch_url: helperLaunchUrl,
+    localhost_redirect_uri: localhostRedirectUri,
+    expires_at: expiresAt,
+    download_artifacts: downloadArtifacts,
+  };
+};
+
+const resolveOpenAiHelperPlatform = (): OpenAiHelperPlatform | null => {
+  if (typeof navigator === "undefined") {
+    return null;
+  }
+  const platform = [
+    navigator.userAgent,
+    // `navigator.platform` is deprecated but still the simplest low-friction fallback here.
+    navigator.platform,
+  ]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  if (platform.includes("mac")) {
+    return "macos";
+  }
+  if (platform.includes("win")) {
+    return "windows";
+  }
+  return null;
+};
+
+const sortOrgAiKeys = (keys: OrgAiKey[]): OrgAiKey[] =>
+  [...keys].sort((left, right) => right.updated_at.localeCompare(left.updated_at));
+
+const formatKeyModeLabel = (
+  keyMode: OrgAiKey["key_mode"] | AutomationKeyUsage["key_mode"],
+): string => {
+  switch (keyMode) {
+    case "bundled":
+      return "Bundled";
+    case "subscription_token":
+      return "Subscription login (legacy)";
+    default:
+      return "Bring your own key";
+  }
+};
+
+const applyLocalKeyUpsert = (keys: OrgAiKey[], nextKey: OrgAiKey): OrgAiKey[] =>
+  sortOrgAiKeys([
+    nextKey,
+    ...keys
+      .filter((key) => key.id !== nextKey.id)
+      .map((key) =>
+        key.provider === nextKey.provider &&
+        key.key_mode === nextKey.key_mode &&
+        key.is_active &&
+        nextKey.is_active
+          ? {
+              ...key,
+              is_active: false,
+              updated_at: nextKey.updated_at,
+            }
+          : key,
+      ),
+  ]);
+
+const applyLocalKeyDelete = (keys: OrgAiKey[], keyId: string): OrgAiKey[] =>
+  sortOrgAiKeys(keys.filter((key) => key.id !== keyId));
+
+const hasServerCaughtUp = (serverKeys: OrgAiKey[], optimisticKeys: OrgAiKey[]): boolean => {
+  const serverKeyById = new Map(serverKeys.map((key) => [key.id, key]));
+  return optimisticKeys.every((optimisticKey) => {
+    const serverKey = serverKeyById.get(optimisticKey.id);
+    return (
+      serverKey &&
+      serverKey.updated_at >= optimisticKey.updated_at &&
+      serverKey.is_active === optimisticKey.is_active &&
+      serverKey.key_version >= optimisticKey.key_version &&
+      serverKey.key_hint === optimisticKey.key_hint
+    );
+  });
+};
+
+export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
+  const runtime = useDashboardRuntime();
+  const subscriptionAuthEnabled = useGlobalFeatureFlag(AUTOMATION_SUBSCRIPTION_AUTH_FEATURE_FLAG);
+  const [provider, setProvider] = useState<"openai" | "anthropic">("openai");
+  const [keyMode, setKeyMode] = useState<"byok" | "subscription_token">("byok");
+  const [rawKey, setRawKey] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isBuying, setIsBuying] = useState<number | null>(null);
+  const [error, setError] = useState<UserFacingError | null>(null);
+  const [isStartingOpenAiHelper, setIsStartingOpenAiHelper] = useState(false);
+  const [openAiHelperSession, setOpenAiHelperSession] = useState<OpenAiHelperSession | null>(null);
+  const [openAiOauthCallbackUrl, setOpenAiOauthCallbackUrl] = useState("");
+  const [isCompletingOpenAiOauth, setIsCompletingOpenAiOauth] = useState(false);
+  const [copiedHelperScript, setCopiedHelperScript] = useState(false);
+  const [copiedHelperLaunchUrl, setCopiedHelperLaunchUrl] = useState(false);
+  const [optimisticKeys, setOptimisticKeys] = useState<OrgAiKey[] | null>(null);
+
+  const keysRaw = useQuery(
+    makeFunctionReference<"query">("org_ai_keys:listOrgAiKeys"),
+    orgId ? { org_id: orgId } : "skip",
+  );
+  const creditsRaw = useQuery(
+    makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
+    orgId ? { org_id: orgId } : "skip",
+  );
+  const purchasesRaw = useQuery(
+    makeFunctionReference<"query">("ai_credits:listAiCreditPurchases"),
+    orgId ? { org_id: orgId } : "skip",
+  );
+  const usageRaw = useQuery(
+    makeFunctionReference<"query">("automations:listOrgAutomationKeyUsage"),
+    orgId ? { org_id: orgId } : "skip",
+  );
+
+  const upsertMutation = useMutation(
+    makeFunctionReference<"mutation">("org_ai_keys:upsertOrgAiKey"),
+  );
+  const deleteMutation = useMutation(
+    makeFunctionReference<"mutation">("org_ai_keys:deleteOrgAiKey"),
+  );
+
+  const serverKeys = useMemo(() => parseOrgAiKeys(keysRaw), [keysRaw]);
+  const keys = optimisticKeys ?? serverKeys;
+  const balance = useMemo(() => parseAiCreditBalance(creditsRaw), [creditsRaw]);
+  const purchases = useMemo(() => parseCreditPurchases(purchasesRaw), [purchasesRaw]);
+  const usage = useMemo(() => parseUsage(usageRaw), [usageRaw]);
+  const needsOpenAiOauth = provider === "openai" && keyMode === "subscription_token";
+  const showLegacySubscriptionMode = keyMode === "subscription_token" && !subscriptionAuthEnabled;
+  const bundledKeyRows = useMemo(
+    () => keys.filter((key) => key.key_mode === "bundled" && key.is_active),
+    [keys],
+  );
+  const bundledRuntimeAvailable = balance?.bundled_runtime_enabled ?? false;
+  const activeOpenAiOauthKey = useMemo(
+    () =>
+      keys.find(
+        (key) =>
+          key.provider === "openai" &&
+          key.key_mode === "subscription_token" &&
+          key.credential_kind === "openai_oauth" &&
+          key.is_active,
+      ) ?? null,
+    [keys],
+  );
+  const helperPlatform = useMemo(() => resolveOpenAiHelperPlatform(), []);
+  const recommendedHelperArtifact = useMemo(
+    () =>
+      openAiHelperSession && helperPlatform
+        ? (openAiHelperSession.download_artifacts.find(
+            (artifact) => artifact.platform === helperPlatform,
+          ) ?? null)
+        : null,
+    [helperPlatform, openAiHelperSession],
+  );
+
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const status = url.searchParams.get("ai_key_status");
+    const providerParam = url.searchParams.get("ai_key_provider");
+    if (providerParam !== "openai" || !status) {
+      return;
+    }
+    if (status === "connected") {
+      setError(null);
+      setOpenAiHelperSession(null);
+    } else if (status === "error") {
+      setError(
+        toUserFacingError(
+          new Error(url.searchParams.get("ai_key_error") ?? "OpenAI OAuth connection failed."),
+          {
+            fallback: "OpenAI OAuth connection failed.",
+          },
+        ),
+      );
+    }
+    url.searchParams.delete("ai_key_status");
+    url.searchParams.delete("ai_key_provider");
+    url.searchParams.delete("ai_key_mode");
+    url.searchParams.delete("ai_key_error");
+    window.history.replaceState({}, "", url.toString());
+  }, []);
+
+  useEffect(() => {
+    if (!activeOpenAiOauthKey) {
+      return;
+    }
+    setOpenAiHelperSession(null);
+    setOpenAiOauthCallbackUrl("");
+    setError(null);
+  }, [activeOpenAiOauthKey]);
+
+  useEffect(() => {
+    if (!optimisticKeys || !hasServerCaughtUp(serverKeys, optimisticKeys)) {
+      return;
+    }
+    setOptimisticKeys(null);
+  }, [optimisticKeys, serverKeys]);
+
+  useEffect(() => {
+    if (!optimisticKeys) {
+      return;
+    }
+    const timeout = window.setTimeout(() => {
+      setOptimisticKeys(null);
+    }, 5_000);
+    return () => window.clearTimeout(timeout);
+  }, [optimisticKeys]);
+
+  if (!orgId) {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Keys and Credits</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <p className="text-muted-foreground text-sm">Organization context is unavailable.</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError(null);
+    setIsSaving(true);
+    try {
+      const savedKey = await upsertMutation({
+        org_id: orgId,
+        provider,
+        key_mode: keyMode,
+        raw_key: rawKey,
+      });
+      setOptimisticKeys((currentKeys) => applyLocalKeyUpsert(currentKeys ?? serverKeys, savedKey));
+      setRawKey("");
+    } catch (caught) {
+      setError(toUserFacingError(caught, { fallback: "Failed to save key." }));
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (keyId: string) => {
+    setError(null);
+    try {
+      await deleteMutation({ key_id: keyId });
+      setOptimisticKeys((currentKeys) => applyLocalKeyDelete(currentKeys ?? serverKeys, keyId));
+    } catch (caught) {
+      setError(toUserFacingError(caught, { fallback: "Failed to remove key." }));
+    }
+  };
+
+  const handleBuyCredits = async (packageIndex: number) => {
+    setError(null);
+    setIsBuying(packageIndex);
+    try {
+      const successUrl = buildBillingReturnUrl(window.location.href, "creditCheckout", "success");
+      const cancelUrl = buildBillingReturnUrl(window.location.href, "creditCheckout", "cancel");
+      const result = await startBillingCreditsCheckout({
+        orgId,
+        packageIndex,
+        customerEmail: userEmail ?? undefined,
+        successUrl,
+        cancelUrl,
+        betterAuthCookie: getRuntimeBetterAuthCookieHeader(),
+      });
+      const record = result as Record<string, unknown>;
+      const checkoutUrl = typeof record.checkout_url === "string" ? record.checkout_url : "";
+      if (!checkoutUrl) {
+        throw new Error("Missing checkout URL from API response.");
+      }
+      window.location.assign(checkoutUrl);
+    } catch (caught) {
+      setError(
+        toUserFacingError(caught, {
+          fallback: "Failed to start credit checkout.",
+        }),
+      );
+    } finally {
+      setIsBuying(null);
+    }
+  };
+
+  const handleOpenInstalledHelper = (session: OpenAiHelperSession) => {
+    window.location.assign(session.helper_launch_url);
+  };
+
+  const handleStartOpenAiHelper = async () => {
+    const returnTo = `${window.location.pathname}${window.location.search || ""}`;
+    setError(null);
+    setIsStartingOpenAiHelper(true);
+    try {
+      const session = parseOpenAiHelperSession(
+        await getOpenAiHelperSession({
+          return_to: returnTo || "/settings",
+          betterAuthCookie: getRuntimeBetterAuthCookieHeader(),
+        }),
+      );
+      setOpenAiHelperSession(session);
+      handleOpenInstalledHelper(session);
+    } catch (caught) {
+      setError(
+        toUserFacingError(caught, {
+          fallback: "Failed to start the OpenAI helper.",
+        }),
+      );
+    } finally {
+      setIsStartingOpenAiHelper(false);
+    }
+  };
+
+  const handleCompleteOpenAi = async () => {
+    setError(null);
+    setIsCompletingOpenAiOauth(true);
+    try {
+      await completeOpenAiOauth({
+        callback_url: openAiOauthCallbackUrl,
+        betterAuthCookie: getRuntimeBetterAuthCookieHeader(),
+      });
+      setOpenAiOauthCallbackUrl("");
+      setOpenAiHelperSession(null);
+    } catch (caught) {
+      setError(
+        toUserFacingError(caught, {
+          fallback: "Failed to complete OpenAI OAuth.",
+        }),
+      );
+    } finally {
+      setIsCompletingOpenAiOauth(false);
+    }
+  };
+
+  const handleCopyOpenAiHelperScript = async () => {
+    try {
+      await navigator.clipboard.writeText(OPENAI_LOCALHOST_HELPER_COMMAND);
+      setCopiedHelperScript(true);
+      window.setTimeout(() => setCopiedHelperScript(false), 1500);
+    } catch (caught) {
+      setError(
+        toUserFacingError(caught, {
+          fallback: "Failed to copy helper script.",
+        }),
+      );
+    }
+  };
+
+  const handleCopyHelperLaunchUrl = async () => {
+    if (!openAiHelperSession) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(openAiHelperSession.helper_launch_url);
+      setCopiedHelperLaunchUrl(true);
+      window.setTimeout(() => setCopiedHelperLaunchUrl(false), 1500);
+    } catch (caught) {
+      setError(
+        toUserFacingError(caught, {
+          fallback: "Failed to copy helper launch link.",
+        }),
+      );
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Configuration</CardTitle>
+          <CardDescription>
+            Manage bundled access, BYO keys, and legacy subscription login.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,1.45fr)_20rem]">
+            <div className="rounded-2xl border p-5">
+              <div className="space-y-1">
+                <p className="text-muted-foreground text-[11px] font-semibold uppercase tracking-[0.18em]">
+                  Step 1
+                </p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-base font-semibold text-foreground">
+                    Choose how this org authenticates AI runs
+                  </p>
+                  <Badge variant={bundledRuntimeAvailable ? "outline" : "secondary"}>
+                    {bundledRuntimeAvailable ? "Bundled available" : "Paid plans only"}
+                  </Badge>
+                </div>
+                <p className="max-w-3xl text-sm leading-6 text-foreground/75">
+                  {bundledRuntimeAvailable
+                    ? "Paid plans can run automations with Keppo-managed gateway credentials. Add a BYO key here only if you want a fallback path when bundled credits run out."
+                    : "Free keeps 5 included credits for prompt generation only. Add a BYO key for automation runtime, or upgrade to Starter or Pro to unlock bundled execution."}
+                </p>
+              </div>
+
+              <div className="mt-4 rounded-xl border bg-muted/30 p-4 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="font-medium text-foreground">Bundled runtime</p>
+                  <span className="text-muted-foreground text-xs">Billing-managed credentials</span>
+                </div>
+                <p className="mt-2 text-foreground/75">
+                  {bundledRuntimeAvailable
+                    ? "Keppo provisions and rotates bundled gateway credentials automatically. You do not edit bundled keys here."
+                    : "Bundled execution is locked on free. This settings form only manages BYO and legacy subscription credentials until the org upgrades."}
+                </p>
+                <p className="mt-2 text-xs text-foreground/65">
+                  {bundledKeyRows.length > 0
+                    ? `Billing currently manages ${bundledKeyRows.length} active bundled credential${bundledKeyRows.length === 1 ? "" : "s"} for this org.`
+                    : bundledRuntimeAvailable
+                      ? "Billing reconciliation provisions bundled credentials automatically when the org is eligible."
+                      : "Upgrade to Starter or Pro to unlock billing-managed bundled credentials."}
+                </p>
+              </div>
+
+              <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+                <div className="space-y-1">
+                  <Label htmlFor="ai-key-provider">Provider</Label>
+                  <NativeSelect
+                    className="w-full"
+                    id="ai-key-provider"
+                    value={provider}
+                    onChange={(event) =>
+                      setProvider(
+                        event.currentTarget.value === "anthropic" ? "anthropic" : "openai",
+                      )
+                    }
+                  >
+                    <option value="openai">OpenAI</option>
+                    <option value="anthropic">Anthropic</option>
+                  </NativeSelect>
+                </div>
+                <div className="space-y-1">
+                  <Label htmlFor="ai-key-mode">Mode</Label>
+                  <NativeSelect
+                    className="w-full"
+                    id="ai-key-mode"
+                    value={keyMode}
+                    onChange={(event) =>
+                      setKeyMode(
+                        event.currentTarget.value === "subscription_token"
+                          ? "subscription_token"
+                          : "byok",
+                      )
+                    }
+                  >
+                    <option value="byok">Bring your own key</option>
+                    {subscriptionAuthEnabled ? (
+                      <option value="subscription_token">Subscription login (legacy)</option>
+                    ) : null}
+                    {showLegacySubscriptionMode ? (
+                      <option value="subscription_token">Subscription login (disabled)</option>
+                    ) : null}
+                  </NativeSelect>
+                </div>
+                <div className="rounded-lg border bg-background/80 p-3 text-xs leading-5 text-foreground/70 md:col-span-2">
+                  Bundled credentials are billing-managed. Use this form only for BYO fallback keys
+                  or legacy OpenAI subscription login.
+                </div>
+                {needsOpenAiOauth ? (
+                  <div className="space-y-3 md:col-span-2">
+                    <Label>OpenAI Subscription</Label>
+                    <div className="space-y-4 rounded-2xl border border-primary/20 bg-[linear-gradient(180deg,rgba(95,140,90,0.14),rgba(95,140,90,0.03))] p-5 text-sm shadow-sm">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2 text-xs">
+                            <Badge variant="secondary">Recommended</Badge>
+                            <span className="rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 font-medium text-foreground">
+                              Helper-first ChatGPT connection
+                            </span>
+                          </div>
+                          <div className="space-y-1">
+                            <p className="text-lg font-semibold tracking-tight">
+                              Connect OpenAI without copying localhost callback URLs.
+                            </p>
+                            <p className="max-w-3xl text-[13px] leading-6 text-foreground/80">
+                              Keppo prepares a short-lived helper session, opens the desktop helper,
+                              and waits for it to capture the OpenAI callback on{" "}
+                              <span className="font-mono text-xs">127.0.0.1:1455</span>. After
+                              sign-in, the helper sends the callback back to Keppo automatically and
+                              the credential refreshes server-side.
+                            </p>
+                          </div>
+                        </div>
+                        <div className="min-w-44 rounded-xl border border-primary/15 bg-background/85 p-3 text-xs">
+                          <p className="font-medium text-foreground">What happens next</p>
+                          <ol className="mt-2 space-y-1.5 text-foreground/75">
+                            <li>1. Start or install the desktop helper.</li>
+                            <li>2. Finish ChatGPT sign-in in your browser.</li>
+                            <li>3. Return here after Keppo reconnects automatically.</li>
+                          </ol>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 rounded-xl border border-primary/15 bg-background/85 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                        <div className="space-y-1">
+                          <p className="font-medium text-foreground">
+                            {!helperPlatform
+                              ? "Install the helper on macOS or Windows"
+                              : helperPlatform === "macos"
+                                ? "Primary path: macOS helper"
+                                : "Primary path: Windows helper"}
+                          </p>
+                          <p className="text-[13px] leading-6 text-foreground/75">
+                            The primary action issues a signed helper session and tries the custom
+                            protocol handoff immediately. If the helper is not installed yet,
+                            download the platform build first.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="lg"
+                            onClick={() => {
+                              void handleStartOpenAiHelper();
+                            }}
+                            disabled={isStartingOpenAiHelper}
+                          >
+                            {isStartingOpenAiHelper
+                              ? "Preparing helper..."
+                              : openAiHelperSession
+                                ? "Open Helper Again"
+                                : "Start in Helper"}
+                          </Button>
+                          {recommendedHelperArtifact ? (
+                            <button
+                              type="button"
+                              className={buttonVariants({
+                                variant: "outline",
+                                size: "lg",
+                              })}
+                              onClick={() => {
+                                window.open(
+                                  recommendedHelperArtifact.download_url,
+                                  "_blank",
+                                  "noopener,noreferrer",
+                                );
+                              }}
+                            >
+                              {helperPlatform === "macos"
+                                ? "Download macOS Helper"
+                                : helperPlatform === "windows"
+                                  ? "Download Windows Helper"
+                                  : recommendedHelperArtifact.label}
+                            </button>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      {openAiHelperSession ? (
+                        <div className="grid gap-3 rounded-xl border border-border/80 bg-background/75 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                          <div className="space-y-2">
+                            <p className="font-medium text-foreground">Helper session is ready</p>
+                            <p className="text-[13px] leading-6 text-foreground/75">
+                              Use the helper within this short window. If the browser blocked the
+                              custom protocol prompt, you can re-open the installed app or copy the
+                              launch URL from the fallback section below.
+                            </p>
+                            <div className="space-y-1 text-xs text-foreground/65">
+                              <p>
+                                Session expires: {fullTimestamp(openAiHelperSession.expires_at)}
+                              </p>
+                              <p className="break-all">
+                                Helper callback: {openAiHelperSession.helper_callback_url}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                handleOpenInstalledHelper(openAiHelperSession);
+                              }}
+                            >
+                              Open Installed Helper
+                            </Button>
+                            {(openAiHelperSession.download_artifacts ?? []).map((artifact) => (
+                              <button
+                                key={artifact.platform}
+                                type="button"
+                                className={buttonVariants({
+                                  variant: "ghost",
+                                })}
+                                onClick={() => {
+                                  window.open(
+                                    artifact.download_url,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                }}
+                              >
+                                {artifact.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <details className="group rounded-xl border border-dashed bg-background/70 p-4">
+                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-foreground marker:hidden">
+                          <span>Manual fallback</span>
+                          <span className="text-xs text-foreground/60 group-open:hidden">
+                            Having trouble?
+                          </span>
+                          <span className="hidden text-xs text-foreground/60 group-open:inline">
+                            Hide fallback steps
+                          </span>
+                        </summary>
+                        <p className="mt-2 text-[13px] leading-6 text-foreground/75">
+                          Keep this for blocked custom protocols or local debugging. Start the
+                          helper session first so Keppo can mint the signed OpenAI auth metadata,
+                          then use the fallback steps below if launch handoff fails.
+                        </p>
+                        {openAiHelperSession ? (
+                          <div className="mt-4 space-y-3 text-sm">
+                            <div className="space-y-2 rounded-lg border bg-background/80 p-3">
+                              <div className="flex items-center justify-between gap-3">
+                                <p className="font-medium">1. Retry the signed helper handoff</p>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    void handleCopyHelperLaunchUrl();
+                                  }}
+                                >
+                                  {copiedHelperLaunchUrl ? "Copied" : "Copy Launch Link"}
+                                </Button>
+                              </div>
+                              <p className="text-muted-foreground">
+                                If the browser blocked the custom protocol, copy the launch URL and
+                                open it directly after installing the helper.
+                              </p>
+                            </div>
+                            <div className="space-y-2 rounded-lg border bg-background/80 p-3">
+                              <p className="font-medium">2. Open the ChatGPT auth URL manually</p>
+                              <a
+                                className="text-primary break-all underline-offset-4 hover:underline"
+                                href={openAiHelperSession.oauth_start_url}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                {openAiHelperSession.oauth_start_url}
+                              </a>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="mt-3 text-sm text-foreground/70">
+                            Press <span className="font-medium">Start in Helper</span> first to
+                            prepare a short-lived OpenAI helper session.
+                          </p>
+                        )}
+                      </details>
+                    </div>
+                    {openAiHelperSession ? (
+                      <div className="space-y-3 rounded-md border border-dashed p-3 text-sm">
+                        <div>
+                          <div className="flex items-center justify-between gap-3">
+                            <p className="font-medium">1. Run the localhost callback one-liner</p>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                void handleCopyOpenAiHelperScript();
+                              }}
+                            >
+                              {copiedHelperScript ? "Copied" : "Copy Script"}
+                            </Button>
+                          </div>
+                          <p className="text-muted-foreground mt-1">
+                            Run this in another terminal before finishing the browser auth flow.
+                          </p>
+                          <pre className="mt-2 max-h-72 overflow-auto rounded bg-muted px-3 py-2 text-xs">
+                            <code>{OPENAI_LOCALHOST_HELPER_COMMAND}</code>
+                          </pre>
+                        </div>
+                        <div>
+                          <p className="font-medium">2. Open the ChatGPT auth URL</p>
+                          <p className="text-muted-foreground mt-1 break-all">
+                            {openAiHelperSession.oauth_start_url}
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="openai-callback-url">
+                            3. Paste the final localhost callback URL
+                          </Label>
+                          <Textarea
+                            id="openai-callback-url"
+                            className="min-h-24 font-mono text-xs"
+                            value={openAiOauthCallbackUrl}
+                            onChange={(event) =>
+                              setOpenAiOauthCallbackUrl(event.currentTarget.value)
+                            }
+                            placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                          />
+                          <Button
+                            type="button"
+                            disabled={
+                              isCompletingOpenAiOauth || openAiOauthCallbackUrl.trim().length === 0
+                            }
+                            onClick={() => {
+                              void handleCompleteOpenAi();
+                            }}
+                          >
+                            {isCompletingOpenAiOauth
+                              ? "Completing..."
+                              : "Complete Manual Connection"}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-1 md:col-span-2">
+                      <Label htmlFor="ai-raw-key">API key</Label>
+                      <Input
+                        id="ai-raw-key"
+                        type="password"
+                        value={rawKey}
+                        onChange={(event) => setRawKey(event.currentTarget.value)}
+                        placeholder="Paste API key"
+                        required
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        Used only for BYO runs or as fallback when bundled runtime is unavailable.
+                      </p>
+                    </div>
+                    <div className="flex flex-col gap-2 md:col-span-2 md:flex-row md:items-center md:justify-between">
+                      <p className="text-muted-foreground text-xs leading-5">
+                        Add a BYO key only if you want a fallback path outside bundled access.
+                      </p>
+                      <Button
+                        type="submit"
+                        size="lg"
+                        className="w-full md:w-auto"
+                        disabled={isSaving}
+                      >
+                        {isSaving ? "Saving..." : "Save Key"}
+                      </Button>
+                    </div>
+                  </>
+                )}
+              </form>
+            </div>
+
+            <div className="space-y-3">
+              <div className="rounded-2xl border bg-card p-4">
+                <p className="text-muted-foreground text-[11px] font-semibold uppercase tracking-[0.18em]">
+                  Current credit pool
+                </p>
+                <div className="mt-3 space-y-1">
+                  <div>
+                    <p className="text-2xl font-semibold tracking-tight text-foreground">
+                      {balance ? balance.total_available : "-"}
+                    </p>
+                    <p className="text-muted-foreground text-sm">credits available now</p>
+                  </div>
+                  <p className="text-muted-foreground text-xs">
+                    {bundledRuntimeAvailable ? "Bundled runtime enabled" : "Generation only"}
+                  </p>
+                </div>
+                <dl className="mt-4 space-y-3 text-sm">
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted-foreground">Included credits</dt>
+                    <dd className="font-medium text-foreground">
+                      {balance
+                        ? `${balance.allowance_used} / ${balance.allowance_total} used`
+                        : "-"}
+                    </dd>
+                  </div>
+                  <div className="flex items-center justify-between gap-3">
+                    <dt className="text-muted-foreground">Purchased credits</dt>
+                    <dd className="font-medium text-foreground">
+                      {balance ? `${balance.purchased_remaining} remaining` : "-"}
+                    </dd>
+                  </div>
+                </dl>
+              </div>
+
+              <div className="rounded-xl bg-muted/20 p-4 text-sm">
+                <p className="font-medium text-foreground">What this means</p>
+                <p className="mt-2 text-foreground/75">
+                  {bundledRuntimeAvailable
+                    ? "Bundled runs spend from this shared credit pool. If credits run out, automations can still use any active BYO key you configure."
+                    : "Free credits cover prompt generation only. Add a BYO key for runtime, or upgrade to Starter or Pro for bundled access."}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {keys.length === 0 ? (
+              needsOpenAiOauth ? (
+                <div className="rounded-xl border border-primary/15 bg-primary/5 p-4 text-sm">
+                  <div className="space-y-2">
+                    <p className="font-medium text-foreground">
+                      Waiting for your first OpenAI helper connection
+                    </p>
+                    <p className="max-w-2xl text-[13px] leading-6 text-foreground/75">
+                      Start the helper flow above. After you finish ChatGPT sign-in, this section
+                      will switch from setup guidance to an active credential record with validation
+                      and expiry details.
+                    </p>
+                  </div>
+                  <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
+                    <div className="rounded-lg border bg-background/80 p-3">
+                      <p className="font-medium text-foreground">Launch helper</p>
+                      <p className="mt-1 text-foreground/65">
+                        Keppo prepares a short-lived handoff for the desktop app.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-background/80 p-3">
+                      <p className="font-medium text-foreground">Approve in ChatGPT</p>
+                      <p className="mt-1 text-foreground/65">
+                        The helper listens on localhost and captures the callback automatically.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border bg-background/80 p-3">
+                      <p className="font-medium text-foreground">Return connected</p>
+                      <p className="mt-1 text-foreground/65">
+                        Keppo refreshes the credential server-side and shows the active key here.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-muted-foreground text-sm">
+                  No BYO or legacy subscription credentials configured yet.
+                </p>
+              )
+            ) : (
+              keys.map((key) => (
+                <div
+                  key={key.id}
+                  data-testid="ai-key-row"
+                  data-ai-key-id={key.id}
+                  data-ai-key-provider={key.provider}
+                  data-ai-key-mode={key.key_mode}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded border p-3"
+                >
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Badge variant={key.is_active ? "default" : "outline"}>
+                        {key.is_active ? "Active" : "Inactive"}
+                      </Badge>
+                      <span className="font-medium capitalize">{key.provider}</span>
+                      <span className="text-muted-foreground text-sm">
+                        {formatKeyModeLabel(key.key_mode)}
+                      </span>
+                    </div>
+                    <div className="text-muted-foreground text-xs">
+                      {key.key_hint}
+                      {key.last_validated_at
+                        ? ` · Validated ${fullTimestamp(key.last_validated_at)}`
+                        : ""}
+                      {key.token_expires_at
+                        ? ` · Expires ${fullTimestamp(key.token_expires_at)}`
+                        : ""}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      void handleDelete(key.id);
+                    }}
+                    disabled={!key.is_active || key.key_mode === "bundled"}
+                  >
+                    {key.key_mode === "bundled" ? "Billing-managed" : "Remove"}
+                  </Button>
+                </div>
+              ))
+            )}
+          </div>
+
+          {usage.length > 0 ? (
+            <div className="rounded-md border p-3 text-sm">
+              <p className="mb-2 font-medium">Automation key mode usage</p>
+              <ul className="space-y-1">
+                {usage.map((entry) => (
+                  <li key={`${entry.provider}:${entry.key_mode}`}>
+                    <span className="capitalize">{entry.provider}</span> /{" "}
+                    {formatKeyModeLabel(entry.key_mode)}: {entry.count} automation
+                    {entry.count === 1 ? "" : "s"}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>AI Credits</CardTitle>
+          <CardDescription>Monthly allowance plus purchased credit packs</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+            <dt className="text-muted-foreground">Allowance</dt>
+            <dd>{balance ? `${balance.allowance_used} / ${balance.allowance_total} used` : "-"}</dd>
+            <dt className="text-muted-foreground">Purchased</dt>
+            <dd>{balance ? `${balance.purchased_remaining} credits remaining` : "-"}</dd>
+            <dt className="text-muted-foreground">Total available</dt>
+            <dd>{balance ? balance.total_available : "-"}</dd>
+          </dl>
+
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                void handleBuyCredits(0);
+              }}
+              disabled={isBuying !== null}
+            >
+              {isBuying === 0 ? "Opening..." : "Buy 100 credits ($10)"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void handleBuyCredits(1);
+              }}
+              disabled={isBuying !== null}
+            >
+              {isBuying === 1 ? "Opening..." : "Buy 250 credits ($25)"}
+            </Button>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-medium">Purchase history</p>
+            {purchases.length === 0 ? (
+              <p className="text-muted-foreground text-sm">No purchases recorded.</p>
+            ) : (
+              purchases.map((purchase) => (
+                <div key={purchase.id} className="rounded border p-3 text-sm">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant={purchase.status === "active" ? "default" : "outline"}>
+                      {purchase.status}
+                    </Badge>
+                    <span>
+                      {purchase.credits_remaining} / {purchase.credits} credits remaining
+                    </span>
+                  </div>
+                  <div className="text-muted-foreground mt-1 text-xs">
+                    Purchased: {fullTimestamp(purchase.purchased_at)} · Expires:{" "}
+                    {fullTimestamp(purchase.expires_at)}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
+      {error ? <UserFacingErrorView error={error} /> : null}
+    </div>
+  );
+}

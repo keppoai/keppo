@@ -1,0 +1,161 @@
+version: 2
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "automerge"
+      - "minor-patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      npm-minor-and-patch:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:00"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "major"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    groups:
+      npm-major:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:05"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "automerge"
+      - "minor-patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      api-minor-and-patch:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:05"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "major"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    groups:
+      api-major:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/shared"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:15"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "automerge"
+      - "minor-patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      shared-minor-and-patch:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/packages/shared"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:15"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "major"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    groups:
+      shared-major:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:20"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "automerge"
+      - "minor-patch"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+    groups:
+      actions-minor-and-patch:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:20"
+      timezone: "America/Los_Angeles"
+    labels:
+      - "dependencies"
+      - "major"
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+    groups:
+      actions-major:
+        patterns:
+          - "*"

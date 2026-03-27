@@ -1,0 +1,12 @@
+{
+  "title": "Contributors",
+  "root": true,
+  "pages": [
+    "index",
+    "local-development",
+    "architecture",
+    "testing",
+    "providers-and-integrations",
+    "security-and-runtime"
+  ]
+}

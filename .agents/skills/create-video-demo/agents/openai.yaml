@@ -1,0 +1,4 @@
+interface:
+  display_name: "Create Video Demo"
+  short_description: "Record a short Playwright product demo."
+  default_prompt: "Use $create-video-demo to record a sub-minute Playwright demo for this UI or product change."

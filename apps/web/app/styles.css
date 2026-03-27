@@ -1,0 +1,60 @@
+@import "tailwindcss";
+@import "@fontsource-variable/plus-jakarta-sans";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";
+@import "@fontsource/ibm-plex-mono/600.css";
+
+:root {
+  color-scheme: light;
+  font-family:
+    "Plus Jakarta Sans Variable",
+    system-ui,
+    -apple-system,
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", monospace;
+  --background: oklch(0.985 0.004 90);
+  --foreground: oklch(0.2 0.012 60);
+  --muted: oklch(0.965 0.004 90);
+  --muted-foreground: oklch(0.55 0.015 60);
+  --border: oklch(0.92 0.008 75);
+  --card: oklch(0.985 0.004 90 / 0.88);
+  --primary: oklch(0.55 0.1 145);
+  --secondary: oklch(0.65 0.18 70);
+  --shadow-lg: 0 24px 60px oklch(0.2 0.012 60 / 0.1);
+}
+
+.dark {
+  color-scheme: dark;
+  --background: oklch(0.17 0.008 60);
+  --foreground: oklch(0.92 0.008 75);
+  --muted: oklch(0.22 0.008 60);
+  --muted-foreground: oklch(0.65 0.01 60);
+  --border: oklch(0.35 0.01 60);
+  --card: oklch(0.22 0.008 60 / 0.92);
+  --primary: oklch(0.68 0.1 145);
+  --secondary: oklch(0.7 0.16 70);
+  --shadow-lg: 0 24px 60px oklch(0 0 0 / 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(circle at top left, oklch(0.92 0.035 145 / 0.45), transparent 28%),
+    radial-gradient(circle at top right, oklch(0.9 0.05 70 / 0.35), transparent 22%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--background) 94%, white) 0%,
+      var(--background) 100%
+    );
+  color: var(--foreground);
+}

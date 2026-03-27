@@ -1,0 +1,40 @@
+/*
+ * Fumadocs theme, animations, typography plugin, and source scanning directives.
+ *
+ * We import neutral.css + preset.css directly instead of the full
+ * fumadocs-ui/style.css because style.css re-imports tailwindcss (duplicate)
+ * and applies `body { flex flex-col min-h-screen }` which breaks the
+ * dashboard sidebar layout.
+ *
+ * The base.css body/border overrides that come through preset.css are
+ * harmless because our own @layer base rules in styles.css run later
+ * and take precedence.
+ */
+@import "fumadocs-ui/css/neutral.css";
+@import "fumadocs-ui/css/preset.css";
+
+/* ── Public docs polish ── */
+
+.fd-layout,
+.fd-page {
+  --fd-primary: var(--primary);
+  --fd-muted: var(--muted);
+  --fd-muted-foreground: var(--muted-foreground);
+}
+
+.fd-layout .fd-sidebar,
+.fd-layout .fd-toc {
+  background: color-mix(in srgb, var(--card) 88%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+.fd-page article {
+  line-height: 1.75;
+}
+
+.fd-page h1,
+.fd-page h2,
+.fd-page h3,
+.fd-page h4 {
+  letter-spacing: -0.02em;
+}

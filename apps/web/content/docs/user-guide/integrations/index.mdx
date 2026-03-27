@@ -1,0 +1,33 @@
+---
+title: Integrations
+description: Choose the providers that belong in your automation flow and understand what each one is best at.
+audience: user-guide
+---
+
+<ProviderMatrix />
+
+## How to choose providers
+
+Pick providers based on the write surface you actually need, not the number of tools you can connect.
+
+- **Google** is strong for Gmail intake and outbound messaging.
+- **GitHub** fits engineering and support flows that end in issue, PR, or CI actions.
+- **Stripe** is useful when billing follow-up or subscription management is part of the automation.
+- **Custom** exists for internal tools that do not have a first-party connector yet.
+
+## Connection principles
+
+- Keep provider access scoped to the workspace that owns the workflow.
+- Start with approvals on for write actions.
+- Prefer provider-native metadata and settings over undocumented conventions inside prompts.
+
+<Callout title="Environment warnings are not the same as missing providers" tone="info">
+In self-hosted environments, providers should remain visible even when env configuration is incomplete. Keppo surfaces the configuration problem instead of silently hiding the integration.
+</Callout>
+
+## Provider guides
+
+- [Google](/docs/user-guide/integrations/google)
+- [GitHub](/docs/user-guide/integrations/github)
+- [Stripe](/docs/user-guide/integrations/stripe)
+- [Custom Servers](/docs/user-guide/integrations/custom-servers)

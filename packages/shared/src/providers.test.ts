@@ -1,0 +1,143 @@
+import { describe, expect, it } from "vitest";
+import { allTools } from "./tooling.js";
+import {
+  CANONICAL_PROVIDER_IDS,
+  providerRegistry,
+  resolveProvider,
+  type CanonicalProviderId,
+  type ProviderRuntimeContext,
+} from "./providers.js";
+
+const runtimeContext = (params?: {
+  httpClient?: ProviderRuntimeContext["httpClient"];
+  now?: number;
+  secrets?: Record<string, string | undefined>;
+}): ProviderRuntimeContext => ({
+  httpClient:
+    params?.httpClient ??
+    (async () => {
+      throw new Error("Missing test httpClient");
+    }),
+  clock: {
+    now: () => params?.now ?? 1_700_000_000_000,
+    nowIso: () => new Date(params?.now ?? 1_700_000_000_000).toISOString(),
+  },
+  idGenerator: {
+    randomId: (prefix) => `${prefix}_test`,
+  },
+  logger: {
+    debug: () => {},
+    info: () => {},
+    warn: () => {},
+    error: () => {},
+  },
+  secrets: {
+    KEPPO_FAKE_EXTERNAL_BASE_URL: "http://127.0.0.1:9911",
+    ...params?.secrets,
+  },
+  featureFlags: {},
+});
+
+describe("provider registry", () => {
+  it("resolves canonical providers", () => {
+    const resolved = resolveProvider("google");
+    expect(resolved.providerId).toBe("google");
+    expect(resolved.usedAlias).toBe(false);
+  });
+
+  it("rejects non-canonical aliases", () => {
+    expect(() => resolveProvider("gmail")).toThrow(/Non-canonical provider id/i);
+    expect(() => resolveProvider("gmail", { allowAliases: false })).toThrow(
+      /Non-canonical provider id/i,
+    );
+  });
+
+  it("registers one module for every canonical provider", () => {
+    const registered = providerRegistry
+      .listProviders()
+      .map((module) => module.metadata.providerId)
+      .sort();
+    const canonical = [...CANONICAL_PROVIDER_IDS].sort();
+    expect(registered).toEqual(canonical);
+  });
+
+  it("assigns every non-internal tool to exactly one provider module", () => {
+    const expectedTools = allTools
+      .filter((tool) => tool.provider !== "keppo")
+      .map((tool) => tool.name)
+      .sort();
+
+    const actualTools = providerRegistry
+      .listProviders()
+      .flatMap((module) => providerRegistry.getProviderTools(module.metadata.providerId))
+      .map((tool) => tool.name)
+      .sort();
+
+    expect(actualTools).toEqual(expectedTools);
+  });
+
+  it("enforces declared capabilities", () => {
+    const webhookProviders: Array<CanonicalProviderId> = ["stripe", "github"];
+    for (const providerId of webhookProviders) {
+      expect(
+        providerRegistry.assertProviderSupports(providerId, "webhook").metadata.providerId,
+      ).toBe(providerId);
+    }
+
+    expect(() => providerRegistry.assertProviderSupports("google", "webhook")).toThrow(
+      /does not support webhook/i,
+    );
+
+    expect(
+      providerRegistry.assertProviderSupports("google", "automation_triggers").metadata.providerId,
+    ).toBe("google");
+    expect(() => providerRegistry.assertProviderSupports("github", "automation_triggers")).toThrow(
+      /does not support automation triggers/i,
+    );
+  });
+
+  it("refreshCredentials uses injected runtime http client and clock", async () => {
+    const refresh = providerRegistry.getProviderModule("google").hooks.refreshCredentials;
+    expect(refresh).toBeDefined();
+    const bundle = await refresh!(
+      "refresh_legacy",
+      runtimeContext({
+        now: 1_700_000_000_000,
+        httpClient: async (url, init) => {
+          expect(url).toBe("http://127.0.0.1:9911/gmail/oauth/token");
+          expect(init?.method).toBe("POST");
+          return new Response(
+            JSON.stringify({
+              access_token: "access_rotated",
+              refresh_token: "refresh_rotated",
+              expires_in: 120,
+              scope:
+                "https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.send",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        },
+      }),
+    );
+
+    expect(bundle).toEqual({
+      accessToken: "access_rotated",
+      refreshToken: "refresh_rotated",
+      expiresAt: new Date(1_700_000_000_000 + 120_000).toISOString(),
+      scopes: ["gmail.readonly", "gmail.send"],
+      externalAccountId: null,
+    });
+  });
+
+  it("refreshCredentials bubbles provider token endpoint failures", async () => {
+    const refresh = providerRegistry.getProviderModule("stripe").hooks.refreshCredentials;
+    await expect(
+      refresh!(
+        "refresh_missing",
+        runtimeContext({
+          httpClient: async () => new Response("invalid_refresh_token", { status: 401 }),
+        }),
+      ),
+    ).rejects.toThrow(/invalid_refresh_token/i);
+  });
+});

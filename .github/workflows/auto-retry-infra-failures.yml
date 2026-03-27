@@ -1,0 +1,120 @@
+name: Auto-retry infrastructure failures
+
+on:
+  workflow_run:
+    workflows:
+      - "CI (PR)"
+      - "CI (main)"
+      - "oauth-helper-release"
+      - "Label PRs needing rebase"
+      - "BugBot Trigger"
+      - "PR Comment Guard"
+      - "Docs Review"
+    types: [completed]
+
+permissions: {}
+
+jobs:
+  analyze-and-retry:
+    if: github.event.workflow_run.conclusion == 'failure'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-actions: write
+
+      - name: Analyze failure and retry if infrastructure-related
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          RUN_NAME: ${{ github.event.workflow_run.name }}
+          RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+
+          # ── Only retry the first attempt ──
+          if [[ "${RUN_ATTEMPT}" -gt 1 ]]; then
+            echo "Run ${RUN_ID} is already attempt ${RUN_ATTEMPT}; not retrying again."
+            exit 0
+          fi
+
+          # ── Fetch failed jobs ──
+          FAILED_JOBS=$(gh api "repos/${REPO}/actions/runs/${RUN_ID}/jobs?filter=latest" \
+            --jq '[.jobs[] | select(.conclusion == "failure")] | length')
+
+          if [[ "${FAILED_JOBS}" -eq 0 ]]; then
+            echo "No failed jobs found in run ${RUN_ID}."
+            exit 0
+          fi
+
+          echo "Found ${FAILED_JOBS} failed job(s) in '${RUN_NAME}' (run ${RUN_ID}). Downloading logs..."
+
+          # ── Download and analyze logs (cap at 2 MB) ──
+          LOGS_DIR=$(mktemp -d)
+          gh run view "${RUN_ID}" --repo "${REPO}" --log-failed 2>/dev/null | head -c 2M > "${LOGS_DIR}/failed.log" || true
+
+          if [[ ! -s "${LOGS_DIR}/failed.log" ]]; then
+            echo "::warning::Failed to download logs for run ${RUN_ID}. Skipping retry."
+            rm -rf "${LOGS_DIR}"
+            exit 0
+          fi
+
+          # Literal patterns matched with grep -Fi (fixed-string, case-insensitive)
+          INFRA_LITERAL_PATTERNS=(
+            "The runner has received a shutdown signal"
+            "The operation was canceled"
+            "Runner lost communication"
+            "lost communication with the server"
+            "The hosted runner encountered an error"
+            "Process completed with exit code 143"
+            "RUNNER_TRACKING_ID"
+            "Unable to connect to the server"
+            "session is not valid"
+          )
+
+          # Regex patterns matched with grep -Ei
+          INFRA_REGEX_PATTERNS=(
+            "The self-hosted runner: .* lost communication with the server"
+          )
+
+          INFRA_HIT=false
+          for pattern in "${INFRA_LITERAL_PATTERNS[@]}"; do
+            if grep -qFi "${pattern}" "${LOGS_DIR}/failed.log" 2>/dev/null; then
+              MATCHED_LINE=$(grep -Fi "${pattern}" "${LOGS_DIR}/failed.log" | head -1)
+              echo "Infrastructure failure detected: ${MATCHED_LINE}"
+              INFRA_HIT=true
+              break
+            fi
+          done
+
+          if [[ "${INFRA_HIT}" != "true" ]]; then
+            for pattern in "${INFRA_REGEX_PATTERNS[@]}"; do
+              if grep -qEi "${pattern}" "${LOGS_DIR}/failed.log" 2>/dev/null; then
+                MATCHED_LINE=$(grep -Ei "${pattern}" "${LOGS_DIR}/failed.log" | head -1)
+                echo "Infrastructure failure detected: ${MATCHED_LINE}"
+                INFRA_HIT=true
+                break
+              fi
+            done
+          fi
+
+          rm -rf "${LOGS_DIR}"
+
+          if [[ "${INFRA_HIT}" != "true" ]]; then
+            echo "No infrastructure failure patterns found in '${RUN_NAME}' (run ${RUN_ID}). Not retrying."
+            exit 0
+          fi
+
+          # ── Re-run only the failed jobs ──
+          echo "Re-running failed jobs for '${RUN_NAME}' (run ${RUN_ID})..."
+          gh run rerun "${RUN_ID}" --repo "${REPO}" --failed
+          echo "Successfully triggered retry for run ${RUN_ID}."

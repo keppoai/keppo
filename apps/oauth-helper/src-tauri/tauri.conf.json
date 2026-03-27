@@ -1,0 +1,24 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Keppo OAuth Helper",
+  "version": "0.1.0",
+  "identifier": "dev.keppo.oauth-helper",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1456"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Keppo OAuth Helper",
+        "width": 520,
+        "height": 560,
+        "resizable": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["dmg", "msi"]
+  }
+}

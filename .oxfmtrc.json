@@ -1,0 +1,3 @@
+{
+  "ignorePatterns": ["**/*-snapshots/*.json", "**/_generated/**", "**/*.gen.ts"]
+}

@@ -1,0 +1,47 @@
+---
+title: Workspaces
+description: How Keppo scopes automations, integrations, and approvals so teams do not step on each other.
+audience: user-guide
+---
+
+## Why workspaces exist
+
+Keppo uses workspaces as the main operating boundary. A workspace owns:
+
+- Automation drafts and active automations
+- Provider connections enabled for that scope
+- Approval queues and run history
+- Workspace-level behavior such as default approval preferences
+
+This keeps one team’s experiments from leaking into another team’s production flow.
+
+## Good workspace boundaries
+
+Prefer a workspace when any of the following differs:
+
+- The team reviewing approvals
+- The provider credentials or external accounts
+- The operational purpose
+- The reporting or billing owner
+
+Common patterns:
+
+- `support`
+- `finance`
+- `growth`
+- `engineering-ops`
+
+## What to avoid
+
+- One workspace for every tiny automation if the same operators review them all.
+- One shared workspace for unrelated teams that need different provider credentials.
+- Treating workspaces as folders only. In Keppo they also define approval and connection scope.
+
+## Switching and bootstrap behavior
+
+Keppo keeps the last useful workspace in view so the dashboard does not drop operators into a blank frame during auth or workspace restoration. If you create a workspace from the browser, wait until the URL and shell both resolve to the new workspace before treating setup as complete.
+
+## Next steps
+
+- Go to [Integrations](/docs/user-guide/integrations) to connect providers inside the right workspace.
+- See [Notifications](/docs/user-guide/notifications) if you need approval reviewers to stay in the loop.

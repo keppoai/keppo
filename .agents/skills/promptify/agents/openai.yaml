@@ -1,0 +1,4 @@
+interface:
+  display_name: "Promptify"
+  short_description: "Turn bugs and feature asks into concise implementation prompts"
+  default_prompt: "Use $promptify to turn this bug report or feature request into a concise implementation prompt with exact file references and the precise changes to make."

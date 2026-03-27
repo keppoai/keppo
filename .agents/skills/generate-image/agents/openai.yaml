@@ -1,0 +1,4 @@
+interface:
+  display_name: "Generate Image"
+  short_description: "Generate an AI image from a text prompt via the Dyad engine"
+  default_prompt: "Use when user asks to generate, create, or make an image."

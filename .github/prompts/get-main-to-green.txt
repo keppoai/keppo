@@ -1,0 +1,10 @@
+Use the workflow-generated main-branch failure context in `{{MAIN_FAILURE_CONTEXT_PATH}}` and the human-readable summary in `{{MAIN_FAILURE_SUMMARY_PATH}}` to repair the selected `CI (main)` run at `{{RUN_URL}}`.
+
+Requirements:
+1. Work on the existing branch `{{BRANCH_NAME}}`, which is already based on commit `{{TARGET_SHA}}`.
+2. Treat `{{MAIN_FAILURE_CONTEXT_PATH}}` and `{{MAIN_FAILURE_SUMMARY_PATH}}` as the authoritative run-selection input for this job. You may use `gh` for read-only operations such as viewing workflow runs, workflow jobs, failed logs, commit metadata, and artifacts, but do not use it to write or mutate any GitHub state.
+3. Fix all failures reported for the selected run. If the selected run is already green or does not expose actionable failures, leave the repository unchanged and do not write PR metadata.
+4. Follow the repo rules in `AGENTS.md`, especially the GitHub workflow security rules and the E2E guidance. Do not run the full E2E suite locally. If E2E validation is needed, run only the most relevant targeted spec files.
+5. Run the most relevant local verification for the failures you fix, create a local git commit with a Conventional Commit message, and stop after the local commit.
+6. If you make a fix, write PR metadata to `{{PR_METADATA_PATH}}` as exactly one JSON object with this shape: `{"title":"Conventional Commit style title","summary":"short purpose-driven summary","rationale":"reviewer context that names the selected run and the repaired failures"}`.
+7. Do not push, and do not open or edit pull requests.

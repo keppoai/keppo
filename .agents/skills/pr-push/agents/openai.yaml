@@ -1,0 +1,4 @@
+interface:
+  display_name: "PR Push"
+  short_description: "Create a branch if needed, then commit, push, and open a PR"
+  default_prompt: "Use $pr-push to create a feature branch from main if needed, commit current changes, push them, and open a GitHub pull request."

@@ -1,0 +1,223 @@
+name: Codex Rebase
+
+on:
+  pull_request_target:
+    types: [labeled, closed]
+
+# Restrict default permissions; the job below declares only what it needs.
+permissions: {}
+
+concurrency:
+  # Keep duplicate /sync-pr requests mutually exclusive, but do not let the
+  # workflow's own sync-pr:pending label update cancel the active rebase run.
+  group: codex-rebase-${{ github.event.pull_request.number }}-${{ github.event.action }}-${{ github.event.label.name || 'none' }}
+  cancel-in-progress: true
+
+jobs:
+  cleanup-closed-pr:
+    if: github.event.action == 'closed'
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Create GitHub App token for base repo
+        id: base-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Remove rebasing labels from closed PR
+        run: |
+          gh pr edit ${{ github.event.pull_request.number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending" --remove-label "/sync-pr"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+  rebase:
+    environment: ai-bots
+    if: >-
+      github.event.action == 'labeled' &&
+      github.event.label.name == '/sync-pr' &&
+      !contains(github.event.pull_request.labels.*.name, '/fix-pr') &&
+      !contains(github.event.pull_request.labels.*.name, 'fix-pr:pending')
+    runs-on: ubicloud-standard-2
+    env:
+      CODEX_HOME: tmp/sync-pr/codex-home
+      PROMPT_PATH: tmp/sync-pr/agent-prompt.txt
+      WORKFLOW_BASE_PATH: .workflow-base
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Create GitHub App token for base repo
+        id: base-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: write
+
+      - name: Check PR author
+        id: check-author
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ steps.base-app-token.outputs.token }}
+          script: |
+            const normalizeLogin = (login) => (login || '').replace(/\[bot\]$/i, '');
+            const pr = context.payload.pull_request;
+            const allowedUsers = ['wwwillchen', 'wwwillchen-bot', 'vercel', 'keppo-bot'];
+            const prAuthor = normalizeLogin(pr.user.login);
+            if (!allowedUsers.includes(prAuthor)) {
+              console.log(`PR author ${prAuthor} is not allowed to use this workflow`);
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+            // Skip if fix-pr is active — fix-pr handles its own rebase
+            const labels = (pr.labels || []).map(l => l.name);
+            if (labels.includes('/fix-pr') || labels.includes('fix-pr:pending')) {
+              console.log(`PR #${pr.number} has active fix-pr label, skipping /sync-pr`);
+              // Clean up the trigger label so it doesn't re-fire
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                name: '/sync-pr',
+              }).catch(() => {});
+              core.setOutput('should_continue', 'false');
+              return;
+            }
+            core.setOutput('should_continue', 'true');
+            core.setOutput('pr_number', pr.number);
+
+      - name: Create GitHub App token for PR head repo
+        if: steps.check-author.outputs.should_continue == 'true'
+        id: head-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.event.pull_request.head.repo.owner.login }}
+          repositories: ${{ github.event.pull_request.head.repo.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Checkout repository
+        if: steps.check-author.outputs.should_continue == 'true'
+        uses: actions/checkout@v4
+        with:
+          token: ${{ steps.head-app-token.outputs.token }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure git remotes for cross-repo PR
+        if: steps.check-author.outputs.should_continue == 'true'
+        run: |
+          # Add upstream remote pointing to the base repo for rebasing
+          git remote add upstream "https://x-access-token:${BASE_APP_TOKEN}@github.com/${{ github.repository }}.git"
+          git fetch upstream ${{ github.event.pull_request.base.ref }}
+
+          echo "Git remotes configured:"
+          echo "  origin -> ${{ github.event.pull_request.head.repo.full_name }} (head repo / fork)"
+          echo "  upstream -> ${{ github.repository }} (base repo / branch: ${{ github.event.pull_request.base.ref }})"
+          git remote -v
+        env:
+          BASE_APP_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Configure push remote for fork PRs
+        if: steps.check-author.outputs.should_continue == 'true'
+        run: |
+          # Keep fetches against the checked-out PR head repo while forcing pushes
+          # through the GitHub App token for the fork/head repository.
+          # Using the app token ensures pushes emit normal synchronize events.
+          git remote set-url --push origin "https://x-access-token:${PR_HEAD_APP_TOKEN}@github.com/${{ github.event.pull_request.head.repo.full_name }}.git"
+          echo "Configured pushurl to ${{ github.event.pull_request.head.repo.full_name }}"
+        env:
+          PR_HEAD_APP_TOKEN: ${{ steps.head-app-token.outputs.token }}
+
+      - name: Checkout workflow base revision
+        if: steps.check-author.outputs.should_continue == 'true'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.base-app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Create minimal agent token
+        if: steps.check-author.outputs.should_continue == 'true'
+        id: agent-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-pull-requests: read
+
+      - name: Install Codex CLI
+        if: steps.check-author.outputs.should_continue == 'true'
+        run: npm install -g @openai/codex@latest
+
+      - name: Write Codex auth file
+        if: steps.check-author.outputs.should_continue == 'true'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-codex-auth.sh"
+
+      - name: Remove rebase trigger labels and add sync-pr:pending
+        if: steps.check-author.outputs.should_continue == 'true'
+        run: |
+          gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "/sync-pr" --remove-label "sync-pr:failed" --add-label "sync-pr:pending"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Write Codex prompt
+        if: steps.check-author.outputs.should_continue == 'true'
+        run: |
+          mkdir -p "$(dirname "${PROMPT_PATH}")"
+          cat <<EOF > "${PROMPT_PATH}"
+          You are orchestrating the /sync-pr skill. Your job is to run it end-to-end as a sub-agent with NO shortcuts.
+
+          Rules:
+          1. Execute every step of /sync-pr sequentially. Do not skip, summarize, or stop early.
+          2. The skill must determine the PR base branch from GitHub metadata and rebase onto that branch, not a hardcoded branch name.
+          3. After the rebase and lint steps complete, verify that the force-with-lease push succeeded.
+          4. Do not consider the task complete until the branch update has been pushed successfully and you have confirmed its output.
+
+          Now run the following command:
+          /sync-pr ${{ steps.check-author.outputs.pr_number }}
+          EOF
+
+      - name: Run PR rebase with Codex
+        if: steps.check-author.outputs.should_continue == 'true'
+        env:
+          GH_TOKEN: ${{ steps.agent-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.agent-token.outputs.token }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-codex.sh"
+
+      - name: Update labels on success
+        if: steps.check-author.outputs.should_continue == 'true' && success()
+        run: |
+          gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending" --remove-label "sync-pr:failed"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Update labels on cancellation
+        if: steps.check-author.outputs.should_continue == 'true' && cancelled()
+        run: |
+          gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+
+      - name: Update labels on failure
+        if: steps.check-author.outputs.should_continue == 'true' && failure()
+        run: |
+          gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending" --add-label "sync-pr:failed"
+        env:
+          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}

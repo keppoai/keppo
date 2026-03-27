@@ -1,0 +1,202 @@
+{
+  "name": "@keppo/shared",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "exports": {
+    "./providers": {
+      "types": "./dist/providers.d.ts",
+      "default": "./dist/providers.js"
+    },
+    "./provider-facet-loader": {
+      "types": "./dist/provider-facet-loader.d.ts",
+      "default": "./dist/provider-facet-loader.js"
+    },
+    "./providers-ui": {
+      "types": "./dist/providers-ui.d.ts",
+      "default": "./dist/providers-ui.js"
+    },
+    "./ai-credit-errors": {
+      "types": "./dist/ai-credit-errors.d.ts",
+      "default": "./dist/ai-credit-errors.js"
+    },
+    "./ai_generation": {
+      "types": "./dist/ai_generation.d.ts",
+      "default": "./dist/ai_generation.js"
+    },
+    "./automations": {
+      "types": "./dist/automations.d.ts",
+      "default": "./dist/automations.js"
+    },
+    "./circuit-breaker": {
+      "types": "./dist/circuit-breaker.d.ts",
+      "default": "./dist/circuit-breaker.js"
+    },
+    "./billing-contracts": {
+      "types": "./dist/billing-contracts.d.ts",
+      "default": "./dist/billing-contracts.js"
+    },
+    "./contracts/billing": {
+      "types": "./dist/contracts/billing.d.ts",
+      "default": "./dist/contracts/billing.js"
+    },
+    "./convex-admin": {
+      "types": "./dist/convex-admin.d.ts",
+      "default": "./dist/convex-admin.js"
+    },
+    "./domain": {
+      "types": "./dist/domain.d.ts",
+      "default": "./dist/domain.js"
+    },
+    "./error-codes": {
+      "types": "./dist/error-codes.d.ts",
+      "default": "./dist/error-codes.js"
+    },
+    "./execution-errors": {
+      "types": "./dist/execution-errors.d.ts",
+      "default": "./dist/execution-errors.js"
+    },
+    "./feature-flags": {
+      "types": "./dist/feature-flags.d.ts",
+      "default": "./dist/feature-flags.js"
+    },
+    "./local-admin-bypass": {
+      "types": "./dist/local-admin-bypass.d.ts",
+      "default": "./dist/local-admin-bypass.js"
+    },
+    "./mcp-auth": {
+      "types": "./dist/mcp-auth.d.ts",
+      "default": "./dist/mcp-auth.js"
+    },
+    "./network": {
+      "types": "./dist/network.d.ts",
+      "default": "./dist/network.js"
+    },
+    "./provider-runtime-context": {
+      "types": "./dist/provider-runtime-context.d.ts",
+      "default": "./dist/provider-runtime-context.js"
+    },
+    "./provider-runtime-secrets": {
+      "types": "./dist/provider-runtime-secrets.d.ts",
+      "default": "./dist/provider-runtime-secrets.js"
+    },
+    "./subscriptions": {
+      "types": "./dist/subscriptions.d.ts",
+      "default": "./dist/subscriptions.js"
+    },
+    "./provider-ids": {
+      "types": "./dist/provider-ids.d.ts",
+      "default": "./dist/provider-ids.js"
+    },
+    "./notifications": {
+      "types": "./dist/notifications.d.ts",
+      "default": "./dist/notifications.js"
+    },
+    "./store": {
+      "types": "./dist/store.d.ts",
+      "default": "./dist/store.js"
+    },
+    "./types": {
+      "types": "./dist/types.d.ts",
+      "default": "./dist/types.js"
+    },
+    "./code-mode": {
+      "types": "./dist/code-mode/index.d.ts",
+      "default": "./dist/code-mode/index.js"
+    },
+    "./code-mode-runtime": {
+      "types": "./dist/code-mode/runtime.d.ts",
+      "default": "./dist/code-mode/runtime.js"
+    },
+    "./code-mode/sdk-generator": {
+      "types": "./dist/code-mode/sdk-generator.d.ts",
+      "default": "./dist/code-mode/sdk-generator.js"
+    },
+    "./code-mode/structured-execution-error": {
+      "types": "./dist/code-mode/structured-execution-error.d.ts",
+      "default": "./dist/code-mode/structured-execution-error.js"
+    },
+    "./code-mode/tool-search-types": {
+      "types": "./dist/code-mode/tool-search-types.d.ts",
+      "default": "./dist/code-mode/tool-search-types.js"
+    },
+    "./unikraft/client": {
+      "types": "./dist/unikraft/client.d.ts",
+      "default": "./dist/unikraft/client.js"
+    },
+    "./unikraft/types": {
+      "types": "./dist/unikraft/types.d.ts",
+      "default": "./dist/unikraft/types.js"
+    },
+    "./email": {
+      "types": "./dist/email/index.d.ts",
+      "default": "./dist/email/index.js"
+    },
+    "./email/mailgun-fetch": {
+      "types": "./dist/email/mailgun-fetch.d.ts",
+      "default": "./dist/email/mailgun-fetch.js"
+    },
+    "./email/templates": {
+      "types": "./dist/email/templates.d.ts",
+      "default": "./dist/email/templates.js"
+    },
+    "./providers/boundaries/api-schemas": {
+      "types": "./dist/providers/boundaries/api-schemas.d.ts",
+      "default": "./dist/providers/boundaries/api-schemas.js"
+    },
+    "./providers/boundaries/common": {
+      "types": "./dist/providers/boundaries/common.d.ts",
+      "default": "./dist/providers/boundaries/common.js"
+    },
+    "./providers/boundaries/convex-schemas": {
+      "types": "./dist/providers/boundaries/convex-schemas.d.ts",
+      "default": "./dist/providers/boundaries/convex-schemas.js"
+    },
+    "./providers/boundaries/error-boundary": {
+      "types": "./dist/providers/boundaries/error-boundary.d.ts",
+      "default": "./dist/providers/boundaries/error-boundary.js"
+    },
+    "./providers/boundaries/json": {
+      "types": "./dist/providers/boundaries/json.d.ts",
+      "default": "./dist/providers/boundaries/json.js"
+    },
+    "./providers/boundaries/types": {
+      "types": "./dist/providers/boundaries/types.d.ts",
+      "default": "./dist/providers/boundaries/types.js"
+    },
+    "./user-facing-errors": {
+      "types": "./dist/user-facing-errors.d.ts",
+      "default": "./dist/user-facing-errors.js"
+    },
+    "./tools-core": {
+      "types": "./dist/tool-definitions.d.ts",
+      "default": "./dist/tool-definitions.js"
+    },
+    "./sandbox": {
+      "types": "./dist/sandbox.d.ts",
+      "default": "./dist/sandbox.js"
+    }
+  },
+  "scripts": {
+    "build": "tsgo -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsgo -p tsconfig.json --noEmit",
+    "lint": "pnpm exec node ../../scripts/check-provider-module-globals.mjs && pnpm run typecheck"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "@notionhq/client": "^5.11.0",
+    "@octokit/request-error": "^7.1.0",
+    "@octokit/rest": "^22.0.1",
+    "@octokit/types": "^16.0.0",
+    "@slack/web-api": "^7.14.1",
+    "@vercel/sandbox": "^1.8.0",
+    "cel-js": "^0.8.2",
+    "convex": "^1.33.0",
+    "gaxios": "^7.1.3",
+    "googleapis": "^171.4.0",
+    "stripe": "^20.4.0",
+    "zod": "^4.1.5"
+  }
+}

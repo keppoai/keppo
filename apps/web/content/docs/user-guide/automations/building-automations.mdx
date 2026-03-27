@@ -1,0 +1,46 @@
+---
+title: Building Automations
+description: How to move from a plain-English goal to a production-ready, reviewable automation.
+audience: user-guide
+---
+
+## Start with a concrete operator outcome
+
+The best automation prompts describe:
+
+- the trigger or starting signal
+- the systems involved
+- what Keppo should produce
+- what still needs human approval
+
+Bad: "Handle support."
+
+Better: "Read unread Gmail threads in the support inbox, draft a response using our policy, and require approval before sending."
+
+## Builder stages
+
+Keppo’s staged builder is meant to preserve context instead of forcing you through hidden setup detours.
+
+- Draft generation captures the workflow idea.
+- Setup questions resolve missing provider details or policy choices.
+- Review keeps the resulting write surface explicit.
+
+## Approval-first mindset
+
+If an action changes a real system, assume approval is needed until the team has enough confidence to relax it with rules. Keppo is designed to help you earn automation trust, not bypass it.
+
+<Callout title="Review the diff, not just the goal" tone="tip">
+Two automations can sound similar in natural language but differ dramatically in write surface. Always inspect the concrete actions, prompts, and destinations before activation.
+</Callout>
+
+## Signs the draft is ready
+
+- The trigger is specific.
+- The write actions are understandable.
+- The approval reviewer can tell what will happen next.
+- The run detail page would make sense to a teammate who did not author the automation.
+
+## Related docs
+
+- [Approvals and Rules](/docs/user-guide/approvals-and-rules)
+- [Notifications](/docs/user-guide/notifications)

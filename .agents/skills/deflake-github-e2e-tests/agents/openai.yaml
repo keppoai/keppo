@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deflake GitHub E2E Tests"
+  short_description: "Triage flaky GitHub E2E runs and drive a fix"
+  default_prompt: "Use $deflake-github-e2e-tests to inspect GitHub Actions E2E main flakes, identify recurring failure signatures, implement the highest-value fix, and hand off to pr-push when available."

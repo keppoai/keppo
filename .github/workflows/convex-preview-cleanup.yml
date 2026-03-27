@@ -1,0 +1,74 @@
+name: Convex Preview Cleanup
+
+on:
+  schedule:
+    # Every night at 03:00 UTC
+    - cron: "0 3 * * *"
+  workflow_dispatch:
+    inputs:
+      max_age_days:
+        description: "Delete preview deployments older than this many days"
+        required: false
+        default: "3"
+        type: string
+      dry_run:
+        description: "Log which deployments would be deleted without actually deleting them"
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  cleanup:
+    name: Delete stale preview deployments
+    runs-on: ubicloud-standard-2
+    environment: convex-preview-cleanup
+    timeout-minutes: 10
+
+    steps:
+      - name: Delete stale previews
+        env:
+          CONVEX_TEAM_ACCESS_TOKEN: ${{ secrets.CONVEX_TEAM_ACCESS_TOKEN }}
+          CONVEX_PROJECT_ID: ${{ vars.CONVEX_PROJECT_ID }}
+          MAX_AGE_DAYS: ${{ inputs.max_age_days || '3' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          api_base="https://api.convex.dev/v1"
+          cutoff_ms=$(( ($(date +%s) - MAX_AGE_DAYS * 86400) * 1000 ))
+
+          echo "Max age: ${MAX_AGE_DAYS} days"
+          echo "Cutoff timestamp (ms): ${cutoff_ms}"
+          echo "Dry run: ${DRY_RUN}"
+          echo "---"
+
+          response=$(curl -sf \
+            -H "Authorization: Bearer ${CONVEX_TEAM_ACCESS_TOKEN}" \
+            "${api_base}/projects/${CONVEX_PROJECT_ID}/list_deployments?deploymentType=preview")
+
+          stale=$(echo "$response" | jq -r '.[] | select(.createTime < '"$cutoff_ms"') | .name')
+          skipped=$(echo "$response" | jq '[.[] | select(.createTime >= '"$cutoff_ms"')] | length')
+          deleted=0
+
+          for name in $stale; do
+            if [[ "$DRY_RUN" == "true" ]]; then
+              create_time=$(echo "$response" | jq -r --arg n "$name" '.[] | select(.name == $n) | .createTime')
+              echo "[dry-run] Would delete: ${name} (created $(date -u -d @$((create_time / 1000)) 2>/dev/null || date -u -r $((create_time / 1000))) )"
+            else
+              echo "Deleting: ${name}"
+              curl -sf -X POST \
+                -H "Authorization: Bearer ${CONVEX_TEAM_ACCESS_TOKEN}" \
+                "${api_base}/deployments/${name}/delete"
+              echo " -> deleted"
+            fi
+            deleted=$((deleted + 1))
+          done
+
+          action="Deleted"
+          if [[ "$DRY_RUN" == "true" ]]; then
+            action="Would delete"
+          fi
+
+          echo "---"
+          echo "${action} ${deleted} stale preview deployment(s), skipped ${skipped} recent one(s)."

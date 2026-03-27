@@ -1,0 +1,49 @@
+---
+title: Deployment
+description: How the runtime is laid out and what must be true for a hosted Keppo deployment to boot cleanly.
+audience: self-hosted
+---
+
+## Runtime layout
+
+The important deployment seams are:
+
+- `apps/web` for the live HTTP surface and typed server functions
+- `convex/` for the active Convex runtime
+- `cloud/` for shared billing, scheduler, and sandbox modules
+
+`apps/web` builds with Vite plus Nitro using the `vercel` preset. Production output lands in `apps/web/.vercel/output/`.
+
+## Boot expectations
+
+API startup validates env with a schema. Missing required secrets should fail at boot instead of degrading into half-configured behavior.
+
+The most important variables are:
+
+- `KEPPO_URL`
+- `CONVEX_URL`
+- `KEPPO_CONVEX_ADMIN_KEY`
+- `BETTER_AUTH_SECRET`
+- `KEPPO_MASTER_KEY`
+- `OPENAI_API_KEY`
+- `KEPPO_CRON_SECRET`
+
+## Deployment-path validation
+
+When you need an end-to-end deployment-path check instead of normal local dev, use Docker Compose:
+
+```bash
+docker compose up --build
+docker compose down
+```
+
+## Practical deployment advice
+
+- Keep dashboard origin and auth callback hosts aligned.
+- Keep client and server Convex URLs on the same hostname family in local dev.
+- Treat internal cron, queue, and webhook routes as fail-closed surfaces.
+
+## Related docs
+
+- [Providers](/docs/self-hosted/providers)
+- [Troubleshooting](/docs/self-hosted/troubleshooting)

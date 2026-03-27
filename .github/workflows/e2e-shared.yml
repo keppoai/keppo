@@ -1,0 +1,293 @@
+name: E2E Shared
+
+on:
+  workflow_call:
+
+concurrency:
+  group: e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CI: "true"
+  NODE_OPTIONS: "--max-old-space-size=4096"
+  CONVEX_AGENT_MODE: anonymous
+  E2E_WORKERS: "1"
+  E2E_FLAKE_BUDGET: "2"
+  KEPPO_E2E_STRICT_HANDLES: "1"
+  BETTER_AUTH_SECRET: "keppo-ci-better-auth-secret-0123456789"
+  KEPPO_CALLBACK_HMAC_SECRET: "keppo-ci-callback-hmac-secret-0123456789"
+  KEPPO_CRON_SECRET: "keppo-ci-cron-secret-0123456789"
+  KEPPO_MASTER_KEY: "keppo-ci-master-key-0123456789"
+  KEPPO_OAUTH_STATE_SECRET: "keppo-ci-oauth-state-secret-0123456789"
+  OPENAI_API_KEY: "sk-keppo-ci-openai"
+  GOOGLE_CLIENT_SECRET: "fake-google-client-secret"
+  STRIPE_SECRET_KEY: "sk_test_e2e_billing"
+  STRIPE_WEBHOOK_SECRET: "whsec_e2e_billing"
+  GITHUB_CLIENT_SECRET: "fake-github-client-secret"
+
+jobs:
+  e2e-gates:
+    name: Checks
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Unified Web Artifact
+        run: pnpm run build:web
+        env:
+          NODE_OPTIONS: "--max-old-space-size=4096"
+
+      - name: Run Typecheck Gate
+        run: pnpm run typecheck
+
+      - name: Run Non-E2E Suite (excluding local-convex)
+        run: pnpm run test:non-e2e:ci
+
+      - name: Run Security Check Suites And Regressions
+        run: pnpm run check:security
+
+      - name: API Contract Tests (Auth Boundaries + OAuth State)
+        run: pnpm --filter @keppo/api test -- src/app.test.ts src/routes/agents.test.ts src/routes/mcp.test.ts
+
+      - name: Validate Docker Compose Path
+        run: |
+          cp .env.example .env.ci
+          compose_file="$(find . -maxdepth 3 \( -name '*compose*.yml' -o -name '*compose*.yaml' -o -name 'compose.yml' -o -name 'compose.yaml' \) | head -n 1)"
+          if [[ -z "$compose_file" ]]; then
+            echo "No Docker Compose file present in this checkout; skipping self-hosted compose validation."
+            exit 0
+          fi
+          docker compose -f "$compose_file" --env-file .env.ci config >/tmp/keppo-docker-compose.rendered.yml
+      - name: Check Provider Registry Snapshot Drift
+        run: pnpm run check:provider-registry-snapshot
+
+      - name: Run SDK Type Compatibility Gate
+        run: pnpm run check:sdk-type-compat
+
+  local-convex-shard:
+    name: Local Convex ${{ matrix.shard }}/2
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build shared package
+        run: pnpm --filter @keppo/shared build
+
+      - name: Run Local Convex Tests (shard ${{ matrix.shard }}/2)
+        run: ./scripts/dotenvx-run.sh ./scripts/test-local-convex.sh --shard=${{ matrix.shard }}/2
+
+  e2e-shard:
+    name: Test ${{ matrix.shard }}/6
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4, 5, 6]
+    env:
+      PLAYWRIGHT_JSON_OUTPUT_DIR: test-results
+      PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report-shard-${{ matrix.shard }}-of-6.json
+      E2E_SHARD_INDEX: "${{ matrix.shard }}"
+      E2E_SHARD_TOTAL: "6"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run Shared E2E Lane Shard
+        run: >-
+          pnpm run test:e2e:ci:timed --
+          --shard=${{ matrix.shard }}/6
+          --reporter=line,json,blob
+
+      - name: Upload E2E Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-artifacts-shard-${{ matrix.shard }}-of-6
+          if-no-files-found: ignore
+          path: |
+            blob-report
+            test-results
+            playwright-report
+            tests/e2e/.runtime
+
+  e2e:
+    name: Report
+    if: ${{ always() }}
+    needs:
+      - e2e-gates
+      - e2e-shard
+    runs-on: ubicloud-standard-2
+    steps:
+      - name: Checkout
+        if: always()
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        if: always()
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.4
+
+      - name: Setup Node
+        if: always()
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        if: always()
+        run: pnpm install --frozen-lockfile
+
+      - name: Download Shard Artifacts
+        if: always()
+        uses: actions/download-artifact@v4
+        with:
+          pattern: e2e-artifacts-shard-*-of-6
+          path: shard-artifacts
+
+      - name: Collect Blob Reports
+        if: always()
+        run: |
+          mkdir -p merged-blob-report
+          find shard-artifacts -path '*/blob-report/*.zip' -exec cp {} merged-blob-report/ \;
+
+      - name: Merge Playwright Reports
+        if: always()
+        env:
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report
+          PLAYWRIGHT_JSON_OUTPUT_DIR: test-results
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report.json
+        run: pnpm exec playwright merge-reports --reporter=html,json merged-blob-report
+
+      - name: Upload Unified Playwright Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-report
+          if-no-files-found: ignore
+          path: |
+            playwright-report
+            test-results/e2e-report.json
+
+      - name: Publish Workflow Summary
+        if: always()
+        run: >-
+          pnpm exec node scripts/write-playwright-summary.mjs
+          --report test-results/e2e-report.json
+          --title "E2E"
+          --artifact-name e2e-report
+          --output playwright-summary.md
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}"
+
+      - name: Post PR Comment
+        if: always() && github.event.pull_request
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const marker = '<!-- playwright-report-comment -->';
+            let body;
+            try {
+              body = fs.readFileSync('playwright-summary.md', 'utf8');
+            } catch {
+              body = '## E2E\n\nPlaywright report was not generated.';
+            }
+            body = `${marker}\n${body}`;
+
+            const { owner, repo } = context.repo;
+            const issue_number = context.payload.pull_request.number;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner,
+              repo,
+              issue_number,
+              per_page: 100,
+            });
+
+            const existing = comments.filter((c) => c.body?.startsWith(marker));
+
+            for (const comment of existing) {
+              const nodeId = comment.node_id;
+              if (!nodeId) {
+                core.warning(
+                  `Playwright report comment ${String(comment.id)} has no node_id; cannot minimize.`,
+                );
+                continue;
+              }
+              try {
+                await github.graphql(
+                  `mutation($id: ID!) {
+                    minimizeComment(input: { subjectId: $id, classifier: OUTDATED }) {
+                      minimizedComment { isMinimized }
+                    }
+                  }`,
+                  { id: nodeId },
+                );
+              } catch (error) {
+                core.warning(
+                  `Failed to minimize Playwright report comment ${String(comment.id)}: ${error?.message ?? error}`,
+                );
+              }
+            }
+
+            await github.rest.issues.createComment({
+              owner,
+              repo,
+              issue_number,
+              body,
+            });

@@ -1,0 +1,32 @@
+---
+title: Testing
+description: Which kinds of tests belong where and how contributors should validate changes without wasting the local loop.
+audience: contributors
+---
+
+## Testing strategy in one view
+
+- Unit and view-model tests catch fast logic regressions.
+- Route and component tests use the repo-owned dashboard render harness.
+- API and runtime tests stay close to the actual contract boundary.
+- E2E is targeted locally and full-suite in GitHub Actions.
+
+## Important constraints
+
+- Do not run the full E2E suite locally.
+- Use `PLAYWRIGHT_ARGS` to target the smallest relevant spec when debugging.
+- Render dashboard UI tests through `apps/web/src/test/render-dashboard.tsx`.
+- When `packages/shared` exports change, rebuild before dependent tests.
+
+## Docs-specific guidance
+
+Public docs changes still need tests:
+
+- route-level smoke coverage
+- loader/search verification
+- targeted E2E with screenshots for visual review
+
+## Related docs
+
+- [Local Development](/docs/contributors/local-development)
+- [Security and Runtime](/docs/contributors/security-and-runtime)

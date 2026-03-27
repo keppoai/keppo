@@ -1,0 +1,734 @@
+import { createHmac } from "node:crypto";
+import { AI_CREDIT_ERROR_CODE, parseAiCreditErrorCode } from "@keppo/shared/ai-credit-errors";
+import { CLIENT_TYPE } from "@keppo/shared/domain";
+import {
+  AI_KEY_MODE,
+  AUTOMATION_ROUTE_ERROR_CODES,
+  AUTOMATION_ROUTE_STATUS,
+  AUTOMATION_RUN_LOG_LEVEL,
+  AUTOMATION_RUN_STATUS,
+  AUTOMATION_RUNNER_TYPE,
+  AUTOMATION_STATUS,
+  createAutomationRouteError,
+  getAiModelProviderLabel,
+  isAutomationRouteErrorCode,
+  parseAutomationRouteErrorCode,
+  resolveAutomationExecutionReadiness,
+  toAutomationRouteError,
+  type AutomationRouteErrorCode,
+  type AutomationRunTerminalStatus,
+} from "@keppo/shared/automations";
+import { parseJsonPayload } from "./api-runtime/app-helpers.ts";
+import { ConvexInternalClient } from "./api-runtime/convex.ts";
+import { getEnv } from "./api-runtime/env.ts";
+import { isInternalBearerAuthorized } from "./api-runtime/internal-auth.ts";
+import { logger } from "./api-runtime/logger.ts";
+import {
+  assertRunnerAuthSupported,
+  assertSandboxCallbackBaseUrlReachable,
+  buildRunnerAuthBootstrapCommand,
+  buildRunnerBootstrapCommand,
+  buildRunnerCommand,
+  decryptStoredKey,
+  extractAutomationRouteError,
+  hasValidAutomationCallbackSignature,
+  parseCompletionPayload,
+  parseDispatchPayload,
+  parseLogPayload,
+  preflightMcpServer,
+  resolveAutomationCallbackBaseUrl,
+  resolveAutomationMcpServerUrl,
+} from "./api-runtime/routes/automations.ts";
+import {
+  createAutomationSandboxProvider,
+  resolveAutomationSandboxProviderMode,
+  type AutomationSandboxProviderMode,
+} from "./api-runtime/sandbox/index.ts";
+
+const SECURITY_HEADER_VALUES = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
+} as const;
+
+type StartOwnedAutomationRuntimeConvex = Pick<
+  ConvexInternalClient,
+  | "appendAutomationRunLog"
+  | "createRun"
+  | "deductAiCredit"
+  | "getAiCreditBalance"
+  | "getAutomationRunDispatchContext"
+  | "getOrgAiKey"
+  | "getSubscriptionForOrg"
+  | "issueAutomationWorkspaceCredential"
+  | "updateAutomationRunStatus"
+  | "upsertOpenAiOauthKey"
+>;
+
+type RouteLogger = Pick<typeof logger, "error" | "info">;
+
+type SandboxProvider = ReturnType<typeof createAutomationSandboxProvider>;
+
+type StartOwnedAutomationRuntimeDeps = {
+  authorizeInternalRequest: (authorizationHeader: string | undefined) => {
+    ok: boolean;
+    reason?: string;
+  };
+  convex: StartOwnedAutomationRuntimeConvex;
+  createSandboxProvider?: (mode?: AutomationSandboxProviderMode) => SandboxProvider;
+  getEnv: typeof getEnv;
+  logger: RouteLogger;
+  parseJsonPayload: typeof parseJsonPayload;
+};
+
+let convexClient: ConvexInternalClient | null = null;
+
+const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
+const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
+  "invalid_payload",
+  "invalid_automation_run_terminal_status",
+  "missing_automation_run_id",
+]);
+
+const withSecurityHeaders = (request: Request, init?: ResponseInit): ResponseInit => {
+  const headers = new Headers(init?.headers);
+  for (const [key, value] of Object.entries(SECURITY_HEADER_VALUES)) {
+    headers.set(key, value);
+  }
+  if (new URL(request.url).protocol === "https:") {
+    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+  }
+  return {
+    ...init,
+    headers,
+  };
+};
+
+const jsonResponse = (request: Request, payload: unknown, status = 200): Response => {
+  return Response.json(payload, withSecurityHeaders(request, { status }));
+};
+
+const getDefaultDeps = (): StartOwnedAutomationRuntimeDeps => ({
+  authorizeInternalRequest: (authorizationHeader) =>
+    isInternalBearerAuthorized({
+      authorizationHeader,
+      allowWhenSecretMissing: false,
+    }),
+  convex: (convexClient ??= new ConvexInternalClient()),
+  createSandboxProvider: createAutomationSandboxProvider,
+  getEnv,
+  logger,
+  parseJsonPayload,
+});
+
+const internalUnauthorizedResponse = (request: Request, reason: string | undefined): Response => {
+  const statusCode = reason === "missing_secret" ? 503 : 401;
+  return jsonResponse(
+    request,
+    {
+      ok: false,
+      status: AUTOMATION_ROUTE_STATUS.unauthorized,
+      reason: reason ?? AUTOMATION_ROUTE_STATUS.unauthorized,
+    },
+    statusCode,
+  );
+};
+
+const mapInvalidPayloadError = (error: unknown): Record<string, unknown> | null => {
+  const typedError = toAutomationRouteError(error, "invalid_payload");
+  const fullMessage = typedError instanceof Error ? typedError.message : String(typedError);
+  const code = parseAutomationRouteErrorCode(fullMessage);
+  if (!code || !isAutomationRouteErrorCode(code) || !automationRouteErrorCodeSet.has(code)) {
+    return null;
+  }
+  if (!payloadErrorCodeSet.has(code)) {
+    return null;
+  }
+
+  const { message } = extractAutomationRouteError(typedError);
+  return {
+    ok: false,
+    status: AUTOMATION_ROUTE_STATUS.invalidPayload,
+    error: message,
+    error_code: code,
+  };
+};
+
+const parseRequestPayload = <T>(
+  request: Request,
+  deps: StartOwnedAutomationRuntimeDeps,
+  parser: (value: unknown) => T,
+): Promise<T> =>
+  request
+    .text()
+    .then((raw) => parser(deps.parseJsonPayload(raw)))
+    .catch((error: unknown) => {
+      throw error;
+    });
+
+export const handleInternalAutomationTerminateRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  const auth = deps.authorizeInternalRequest(request.headers.get("authorization") ?? undefined);
+  if (!auth.ok) {
+    return internalUnauthorizedResponse(request, auth.reason);
+  }
+
+  let payload: { automation_run_id: string };
+  try {
+    payload = await parseRequestPayload(request, deps, parseDispatchPayload);
+  } catch (error) {
+    const invalidPayload = mapInvalidPayloadError(error);
+    if (invalidPayload) {
+      return jsonResponse(request, invalidPayload, 400);
+    }
+    throw error;
+  }
+
+  const context = await deps.convex.getAutomationRunDispatchContext({
+    automationRunId: payload.automation_run_id,
+  });
+  if (!context) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.runNotFound,
+      },
+      404,
+    );
+  }
+
+  const sandboxId = context.run.sandbox_id?.trim();
+  if (!sandboxId) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.sandboxMissing,
+      },
+      409,
+    );
+  }
+
+  try {
+    const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)();
+    await sandbox.terminate(sandboxId);
+    await deps.convex.appendAutomationRunLog({
+      automationRunId: context.run.id,
+      level: AUTOMATION_RUN_LOG_LEVEL.system,
+      content: `Terminated sandbox ${sandboxId}`,
+    });
+
+    return jsonResponse(request, {
+      ok: true,
+      terminated: true,
+      sandbox_id: sandboxId,
+    });
+  } catch (error) {
+    const typedError = toAutomationRouteError(error, "automation_route_failed");
+    const { code, message } = extractAutomationRouteError(typedError);
+    deps.logger.error("automation.terminate.failed", {
+      automation_run_id: context.run.id,
+      sandbox_id: sandboxId,
+      error: message,
+      ...(code ? { error_code: code } : {}),
+    });
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.terminateFailed,
+        error: message,
+        ...(code ? { error_code: code } : {}),
+      },
+      500,
+    );
+  }
+};
+
+export const handleInternalAutomationDispatchRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  const auth = deps.authorizeInternalRequest(request.headers.get("authorization") ?? undefined);
+  if (!auth.ok) {
+    return internalUnauthorizedResponse(request, auth.reason);
+  }
+
+  let payload: { automation_run_id: string };
+  try {
+    payload = await parseRequestPayload(request, deps, parseDispatchPayload);
+  } catch (error) {
+    const invalidPayload = mapInvalidPayloadError(error);
+    if (invalidPayload) {
+      return jsonResponse(request, invalidPayload, 400);
+    }
+    throw error;
+  }
+
+  const context = await deps.convex.getAutomationRunDispatchContext({
+    automationRunId: payload.automation_run_id,
+  });
+  if (!context) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.runNotFound,
+      },
+      404,
+    );
+  }
+  if (context.automation.status !== AUTOMATION_STATUS.active) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.automationPaused,
+      },
+      409,
+    );
+  }
+  if (context.run.status !== AUTOMATION_RUN_STATUS.pending) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.runNotPending,
+        run_status: context.run.status,
+      },
+      409,
+    );
+  }
+
+  try {
+    const callbackBaseUrl = resolveAutomationCallbackBaseUrl(request.url);
+    const providerMode = resolveAutomationSandboxProviderMode();
+    assertSandboxCallbackBaseUrlReachable(callbackBaseUrl, providerMode);
+    const [subscription, creditBalance, byoKey, legacyOpenAiKey] = await Promise.all([
+      deps.convex.getSubscriptionForOrg(context.automation.org_id),
+      deps.convex.getAiCreditBalance({ orgId: context.automation.org_id }),
+      deps.convex.getOrgAiKey({
+        orgId: context.automation.org_id,
+        provider: context.config.ai_model_provider,
+        keyMode: AI_KEY_MODE.byok,
+      }),
+      context.config.ai_model_provider === "openai"
+        ? deps.convex.getOrgAiKey({
+            orgId: context.automation.org_id,
+            provider: context.config.ai_model_provider,
+            keyMode: AI_KEY_MODE.subscriptionToken,
+          })
+        : Promise.resolve(null),
+    ]);
+    const activeNonBundledKey =
+      byoKey?.is_active === true
+        ? byoKey
+        : legacyOpenAiKey?.is_active === true
+          ? legacyOpenAiKey
+          : null;
+    const resolvedKeyMode = resolveAutomationExecutionReadiness({
+      tierId: subscription?.tier ?? "free",
+      totalCreditsAvailable: creditBalance.total_available,
+      hasActiveByokKey: activeNonBundledKey !== null,
+    }).mode;
+    const authKeyMode =
+      resolvedKeyMode === AI_KEY_MODE.bundled
+        ? AI_KEY_MODE.bundled
+        : (activeNonBundledKey?.key_mode ?? AI_KEY_MODE.byok);
+
+    assertRunnerAuthSupported({
+      runnerType: context.config.runner_type,
+      aiModelProvider: context.config.ai_model_provider,
+      aiKeyMode: authKeyMode,
+    });
+
+    const key =
+      resolvedKeyMode === AI_KEY_MODE.byok
+        ? activeNonBundledKey
+        : await deps.convex.getOrgAiKey({
+            orgId: context.automation.org_id,
+            provider: context.config.ai_model_provider,
+            keyMode: AI_KEY_MODE.bundled,
+          });
+
+    if (!key || !key.is_active) {
+      const providerLabel = getAiModelProviderLabel(context.config.ai_model_provider);
+      const friendlyMessage =
+        resolvedKeyMode === AI_KEY_MODE.bundled
+          ? `Bundled ${providerLabel} access is unavailable for this org. Please contact support.`
+          : `No active ${providerLabel} API key found. Add or activate one in Settings -> AI Keys.`;
+      await deps.convex
+        .updateAutomationRunStatus({
+          automationRunId: context.run.id,
+          status: AUTOMATION_RUN_STATUS.cancelled,
+          errorMessage: friendlyMessage,
+        })
+        .catch(() => undefined);
+      return jsonResponse(
+        request,
+        {
+          ok: false,
+          status: AUTOMATION_ROUTE_STATUS.missingAiKey,
+          provider: context.config.ai_model_provider,
+          key_mode: authKeyMode,
+        },
+        400,
+      );
+    }
+
+    const mcpSessionId = `automation_${context.automation.id}_${Date.now().toString(36)}`;
+    await deps.convex.createRun({
+      workspaceId: context.automation.workspace_id,
+      sessionId: mcpSessionId,
+      clientType:
+        context.config.runner_type === AUTOMATION_RUNNER_TYPE.claudeCode
+          ? CLIENT_TYPE.claudeCode
+          : CLIENT_TYPE.chatgpt,
+      metadata: {
+        automation_run_id: context.run.id,
+        automation_id: context.automation.id,
+      },
+    });
+
+    const timeoutMs = Math.max(60_000, deps.getEnv().KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS);
+    const expiresMs = Date.now() + timeoutMs + 5 * 60_000;
+    const logCallbackUrl = new URL("/internal/automations/log", `${callbackBaseUrl}/`);
+    logCallbackUrl.searchParams.set("automation_run_id", context.run.id);
+    logCallbackUrl.searchParams.set("expires", String(expiresMs));
+    logCallbackUrl.searchParams.set(
+      "signature",
+      new URL("/internal/automations/log", `${callbackBaseUrl}/`).searchParams.get("signature") ??
+        "",
+    );
+    const completeCallbackUrl = new URL("/internal/automations/complete", `${callbackBaseUrl}/`);
+    completeCallbackUrl.searchParams.set("automation_run_id", context.run.id);
+    completeCallbackUrl.searchParams.set("expires", String(expiresMs));
+
+    const createSignedUrl = (pathname: string): string => {
+      const url = new URL(pathname, `${callbackBaseUrl}/`);
+      url.searchParams.set("automation_run_id", context.run.id);
+      url.searchParams.set("expires", String(expiresMs));
+      const signatureRequest = new Request(url);
+      const signature = (() => {
+        const signed = new URL(signatureRequest.url);
+        signed.searchParams.delete("signature");
+        const probe = signed.searchParams.get("automation_run_id");
+        if (!probe) {
+          throw createAutomationRouteError("automation_route_failed", "Missing callback run id.");
+        }
+        const secret = deps.getEnv().KEPPO_CALLBACK_HMAC_SECRET ?? deps.getEnv().BETTER_AUTH_SECRET;
+        if (!secret) {
+          throw createAutomationRouteError(
+            "automation_route_failed",
+            "Missing KEPPO_CALLBACK_HMAC_SECRET.",
+          );
+        }
+        return createHmac("sha256", secret)
+          .update(`${signed.pathname}:${probe}:${expiresMs}`)
+          .digest("hex");
+      })();
+      url.searchParams.set("signature", signature);
+      return url.toString();
+    };
+
+    const mcpServerUrl = resolveAutomationMcpServerUrl(
+      deps.getEnv().KEPPO_AUTOMATION_MCP_SERVER_URL,
+      callbackBaseUrl,
+      context.automation.workspace_id,
+    );
+    const mcpBearerToken = await deps.convex.issueAutomationWorkspaceCredential({
+      workspaceId: context.automation.workspace_id,
+    });
+    await preflightMcpServer(mcpServerUrl, mcpBearerToken);
+
+    let gatewayBaseUrl: string | null = null;
+    if (resolvedKeyMode === AI_KEY_MODE.bundled) {
+      gatewayBaseUrl = deps.getEnv().KEPPO_LLM_GATEWAY_URL?.trim() ?? null;
+      if (!gatewayBaseUrl) {
+        throw createAutomationRouteError(
+          "missing_env",
+          `Missing KEPPO_LLM_GATEWAY_URL for bundled ${context.config.ai_model_provider === "openai" ? "OpenAI" : "Anthropic"} runtime.`,
+        );
+      }
+
+      try {
+        await deps.convex.deductAiCredit({
+          orgId: context.automation.org_id,
+          usageSource: "runtime",
+        });
+      } catch (error) {
+        if (parseAiCreditErrorCode(error) === AI_CREDIT_ERROR_CODE.limitReached) {
+          await deps.convex
+            .updateAutomationRunStatus({
+              automationRunId: context.run.id,
+              status: AUTOMATION_RUN_STATUS.cancelled,
+              errorMessage:
+                "Bundled AI credits are exhausted. Add credits or configure an active BYO key and retry.",
+            })
+            .catch(() => undefined);
+          return jsonResponse(
+            request,
+            {
+              ok: false,
+              status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+            },
+            402,
+          );
+        }
+        if (parseAiCreditErrorCode(error) !== AI_CREDIT_ERROR_CODE.limitReached) {
+          await deps.convex
+            .updateAutomationRunStatus({
+              automationRunId: context.run.id,
+              status: AUTOMATION_RUN_STATUS.cancelled,
+              errorMessage: "Bundled AI credit deduction failed before dispatch.",
+            })
+            .catch(() => undefined);
+          return jsonResponse(
+            request,
+            {
+              ok: false,
+              status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
+            },
+            500,
+          );
+        }
+      }
+    }
+
+    const decryptedKey = await decryptStoredKey(key.encrypted_key);
+    const runnerCommand = buildRunnerCommand({
+      runnerType: context.config.runner_type,
+      aiModelProvider: context.config.ai_model_provider,
+      aiKeyMode: authKeyMode,
+      credentialKind: key.credential_kind,
+      networkAccess: context.config.network_access,
+      model: context.config.ai_model_name,
+      prompt: context.config.prompt,
+    });
+    const bootstrapCommand = buildRunnerBootstrapCommand({
+      runnerType: context.config.runner_type,
+      providerMode,
+    });
+    const runtimeBootstrapCommand = buildRunnerAuthBootstrapCommand({
+      runnerType: context.config.runner_type,
+      providerMode,
+      aiModelProvider: context.config.ai_model_provider,
+      aiKeyMode: authKeyMode,
+      credentialKind: key.credential_kind,
+    });
+    const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)();
+
+    const runtimeEnv: Record<string, string> = {
+      KEPPO_MCP_SESSION_ID: mcpSessionId,
+      KEPPO_MCP_SERVER_URL: mcpServerUrl,
+      KEPPO_MCP_BEARER_TOKEN: mcpBearerToken,
+    };
+    const e2eOpenAiBaseUrl = deps.getEnv().KEPPO_E2E_OPENAI_BASE_URL?.trim();
+    if (deps.getEnv().KEPPO_E2E_MODE && e2eOpenAiBaseUrl) {
+      runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL = e2eOpenAiBaseUrl;
+    }
+    const vercelAutomationBypassSecret = deps.getEnv().VERCEL_AUTOMATION_BYPASS_SECRET;
+    if (vercelAutomationBypassSecret) {
+      runtimeEnv.VERCEL_AUTOMATION_BYPASS_SECRET = vercelAutomationBypassSecret;
+    }
+    if (context.config.ai_model_provider === "openai") {
+      if (authKeyMode === AI_KEY_MODE.subscriptionToken && key.credential_kind === "openai_oauth") {
+        runtimeEnv.OPENAI_CODEX_AUTH_JSON = decryptedKey;
+      } else if (authKeyMode === AI_KEY_MODE.byok) {
+        runtimeEnv.OPENAI_API_KEY = decryptedKey;
+      } else if (authKeyMode === AI_KEY_MODE.bundled) {
+        runtimeEnv.OPENAI_API_KEY = decryptedKey;
+        runtimeEnv.OPENAI_BASE_URL = gatewayBaseUrl!;
+      }
+    } else {
+      if (authKeyMode === AI_KEY_MODE.byok) {
+        runtimeEnv.ANTHROPIC_API_KEY = decryptedKey;
+      } else if (authKeyMode === AI_KEY_MODE.bundled) {
+        runtimeEnv.ANTHROPIC_API_KEY = decryptedKey;
+        runtimeEnv.ANTHROPIC_BASE_URL = gatewayBaseUrl!;
+      }
+    }
+
+    const dispatch = await sandbox.dispatch({
+      bootstrap: {
+        command: bootstrapCommand,
+        env: {},
+        network_access: "package_registry_only",
+      },
+      runtime: {
+        bootstrap_command: runtimeBootstrapCommand,
+        command: runnerCommand,
+        env: runtimeEnv,
+        network_access: context.config.network_access,
+        callbacks: {
+          log_url: createSignedUrl("/internal/automations/log"),
+          complete_url: createSignedUrl("/internal/automations/complete"),
+        },
+      },
+      timeout_ms: timeoutMs,
+    });
+
+    await deps.convex.updateAutomationRunStatus({
+      automationRunId: context.run.id,
+      status: AUTOMATION_RUN_STATUS.running,
+      sandboxId: dispatch.sandbox_id,
+      mcpSessionId,
+    });
+    await deps.convex.appendAutomationRunLog({
+      automationRunId: context.run.id,
+      level: AUTOMATION_RUN_LOG_LEVEL.system,
+      content: `Dispatched sandbox ${dispatch.sandbox_id}`,
+    });
+
+    deps.logger.info("automation.dispatch.succeeded", {
+      automation_id: context.automation.id,
+      automation_run_id: context.run.id,
+      workspace_id: context.automation.workspace_id,
+      sandbox_id: dispatch.sandbox_id,
+    });
+
+    return jsonResponse(request, {
+      ok: true,
+      sandbox_id: dispatch.sandbox_id,
+    });
+  } catch (error) {
+    const typedError = toAutomationRouteError(error, "automation_route_failed");
+    const { code, message } = extractAutomationRouteError(typedError);
+    await deps.convex
+      .updateAutomationRunStatus({
+        automationRunId: context.run.id,
+        status: AUTOMATION_RUN_STATUS.cancelled,
+        errorMessage: `Dispatch failed: ${typedError.message}`,
+      })
+      .catch(() => undefined);
+
+    deps.logger.error("automation.dispatch.failed", {
+      automation_id: context.automation.id,
+      automation_run_id: context.run.id,
+      workspace_id: context.automation.workspace_id,
+      error: message,
+      ...(code ? { error_code: code } : {}),
+    });
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.dispatchFailed,
+        error: message,
+        ...(code ? { error_code: code } : {}),
+      },
+      500,
+    );
+  }
+};
+
+export const handleInternalAutomationLogRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  let payload: ReturnType<typeof parseLogPayload>;
+  try {
+    payload = await parseRequestPayload(request, deps, parseLogPayload);
+  } catch (error) {
+    const invalidPayload = mapInvalidPayloadError(error);
+    if (invalidPayload) {
+      return jsonResponse(request, invalidPayload, 400);
+    }
+    throw error;
+  }
+
+  if (!hasValidAutomationCallbackSignature(request, payload.automation_run_id)) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.invalidSignature,
+      },
+      401,
+    );
+  }
+
+  const limited = payload.lines.slice(0, 200);
+  for (const line of limited) {
+    await deps.convex.appendAutomationRunLog({
+      automationRunId: payload.automation_run_id,
+      level: line.level,
+      content: line.content,
+      ...(line.event_type !== undefined ? { eventType: line.event_type } : {}),
+      ...(line.event_data !== undefined ? { eventData: line.event_data } : {}),
+    });
+  }
+
+  return jsonResponse(request, {
+    ok: true,
+    ingested: limited.length,
+  });
+};
+
+export const handleInternalAutomationCompleteRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  let payload: {
+    automation_run_id: string;
+    status: AutomationRunTerminalStatus;
+    error_message?: string;
+  };
+  try {
+    payload = await parseRequestPayload(request, deps, parseCompletionPayload);
+  } catch (error) {
+    const invalidPayload = mapInvalidPayloadError(error);
+    if (invalidPayload) {
+      return jsonResponse(request, invalidPayload, 400);
+    }
+    throw error;
+  }
+
+  if (!hasValidAutomationCallbackSignature(request, payload.automation_run_id)) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.invalidSignature,
+      },
+      401,
+    );
+  }
+
+  await deps.convex.updateAutomationRunStatus({
+    automationRunId: payload.automation_run_id,
+    status: payload.status,
+    ...(payload.error_message ? { errorMessage: payload.error_message } : {}),
+  });
+
+  return jsonResponse(request, {
+    ok: true,
+    status: payload.status,
+  });
+};
+
+export const dispatchStartOwnedAutomationRuntimeRequest = async (
+  request: Request,
+  deps?: StartOwnedAutomationRuntimeDeps,
+): Promise<Response | null> => {
+  const pathname = new URL(request.url).pathname;
+
+  if (request.method === "POST" && pathname === "/internal/automations/dispatch") {
+    return await handleInternalAutomationDispatchRequest(request, deps ?? getDefaultDeps());
+  }
+  if (request.method === "POST" && pathname === "/internal/automations/terminate") {
+    return await handleInternalAutomationTerminateRequest(request, deps ?? getDefaultDeps());
+  }
+  if (request.method === "POST" && pathname === "/internal/automations/log") {
+    return await handleInternalAutomationLogRequest(request, deps ?? getDefaultDeps());
+  }
+  if (request.method === "POST" && pathname === "/internal/automations/complete") {
+    return await handleInternalAutomationCompleteRequest(request, deps ?? getDefaultDeps());
+  }
+
+  return null;
+};

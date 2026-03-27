@@ -1,0 +1,32 @@
+---
+title: Security and Runtime
+description: The contributor-level security posture for auth, internal routes, webhooks, secrets, and runtime isolation.
+audience: contributors
+---
+
+## Default mindset
+
+Keppo should fail closed on sensitive boundaries. That applies to:
+
+- auth and session handling
+- internal cron and queue routes
+- provider webhooks
+- sandbox execution
+- public diagnostics
+
+## Concrete expectations
+
+- Missing required secrets should fail boot, not degrade silently.
+- Webhook handlers verify signatures before mutating state.
+- Public and anonymous routes must stay sanitized.
+- Sandbox and networking rules should be explicit, especially for local-only modes.
+
+## When to stop and read the deeper rules
+
+If your change touches auth, webhooks, billing, internal routes, sandbox behavior, or GitHub Actions that run coding agents, go back to the repo rule files before you continue. This section is a contributor summary, not a replacement for those rules.
+
+## Related docs
+
+- `docs/rules/security.md`
+- `docs/rules/github-security.md`
+- `docs/specs/security-model.md`

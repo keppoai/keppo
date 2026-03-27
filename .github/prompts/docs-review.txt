@@ -1,0 +1,24 @@
+Review all documentation, rules, and specs in this repository for accuracy and freshness.
+
+Files to review:
+- `AGENTS.md` (top-level agent guidelines)
+- `README.md`
+- All files in `docs/`
+
+For each file, cross-reference its claims against the actual codebase:
+1. Check that referenced file paths, function names, environment variables, and CLI commands still exist.
+2. Check that described behaviors match the current implementation.
+3. Identify sections that reference removed features, renamed files, deleted code, or outdated patterns.
+4. Look for duplicate or contradictory guidance across files.
+5. Check that tables of contents (e.g. specs TOC in AGENTS.md, docs/specs/README.md) match the actual files on disk.
+
+Requirements:
+1. Work on the existing branch `{{BRANCH_NAME}}`.
+2. Only make changes that remove genuinely obsolete content or fix clearly incorrect references. Do not rewrite prose style, add new documentation, or reorganize structure. Do not edit files marked as auto-generated (e.g., `docs/providers.md`); if you find issues in a generated file, note them in the PR summary.
+3. If a rule or spec references code that no longer exists, either update the reference to the current location or remove the rule if the entire feature was removed.
+4. For each change, create a local git commit with a Conventional Commit message explaining what was stale and why it was removed or updated.
+5. If you find issues but are not confident in the fix, note them in the PR summary rather than making a risky edit.
+6. If nothing is obsolete and everything is accurate, leave the repository unchanged and do not write PR metadata.
+7. If you make any changes, write PR metadata to `{{PR_METADATA_PATH}}` as exactly one JSON object with this shape: `{"title":"Conventional Commit style title","summary":"short purpose-driven summary","rationale":"reviewer context explaining each change"}`.
+8. Do not push, and do not open or edit pull requests.
+9. You may use `gh` for **read-only** operations but do not use it to write or mutate any GitHub state.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Commit"
+  short_description: "Commit all local changes with an auto-generated Conventional Commit message"
+  default_prompt: "Use when user asks to commit local changes."

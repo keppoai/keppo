@@ -1,0 +1,36 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(gh label:*)",
+      "Bash(gh issue:*)",
+      "Bash(bash .agents/skills/commit/scripts/commit.sh *)",
+      "Bash(pnpm list:*)",
+      "Bash(bash .agents/skills/pr-push/scripts/pr_push.sh --title-file /tmp/pr-title.txt --summary-file /tmp/pr-summary.txt --rationale-file /tmp/pr-rationale.txt)",
+      "WebFetch(domain:dyad.sh)",
+      "Bash(npx playwright:*)",
+      "Bash(pnpm build:*)",
+      "Bash(curl -sL --max-time 30 \"https://unikraft.com/docs/introduction\")",
+      "Bash(curl -sL --max-time 30 \"https://unikraft.com/docs/getting-started\")",
+      "Bash(curl -sL --max-time 30 \"https://unikraft.com/docs/cli/reference\")",
+      "Bash(curl -sL --max-time 30 \"https://unikraft.com/docs\")",
+      "WebFetch(domain:unikraft.com)",
+      "WebFetch(domain:www.dyad.sh)",
+      "WebFetch(domain:fumadocs.vercel.app)",
+      "WebFetch(domain:www.fumadocs.dev)",
+      "Bash(curl -s -L 'https://fumadocs.vercel.app/docs/framework/tanstack-start')",
+      "Bash(curl -s -L 'https://fumadocs.vercel.app/docs/framework/tanstack-start/search')",
+      "Bash(curl -s -L 'https://fumadocs.vercel.app/docs/mdx')",
+      "Bash(curl -s -L 'https://fumadocs.vercel.app/docs/ui')",
+      "Bash(curl -s -L 'https://fumadocs.vercel.app/docs/ui/theme')",
+      "Bash(curl -s -L 'https://fumadocs.vercel.app/docs/ui/components')",
+      "WebFetch(domain:fumadocs.dev)",
+      "Bash(curl -s 'https://raw.githubusercontent.com/fuma-nama/fumadocs/main/packages/tanstack-start/package.json')",
+      "Bash(pnpm --filter web build)",
+      "Bash(pnpm --filter web exec tsc --noEmit --pretty)",
+      "Bash(KEPPO_ENVIRONMENT=staging pnpm run build:web:vercel)",
+      "Bash(KEPPO_ENVIRONMENT=staging npx vite build)",
+      "WebFetch(domain:api.convex.dev)"
+    ]
+  }
+}
