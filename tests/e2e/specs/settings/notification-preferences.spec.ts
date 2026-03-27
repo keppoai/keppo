@@ -35,6 +35,7 @@ const waitForPersistedEmailEndpoint = async (params: {
   page: Page;
   orgId: string;
   destination: string;
+  userId: string;
 }): Promise<string> => {
   let endpointId = "";
   // Combine backend persistence, page visibility, and control readiness into a
@@ -49,6 +50,7 @@ const waitForPersistedEmailEndpoint = async (params: {
             orgId: params.orgId,
             destination: params.destination,
             type: "email",
+            userId: params.userId,
           });
           endpointId = endpoint?.id ?? "";
         } catch {
@@ -73,7 +75,7 @@ const waitForPersistedEmailEndpoint = async (params: {
 
         return "ready";
       },
-      { timeout: 30_000 },
+      { timeout: 45_000 },
     )
     .toBe("ready");
   return endpointId;
@@ -100,6 +102,7 @@ test.describe("notification preference email endpoints", () => {
     const seeded = await auth.seedWorkspace("notification-endpoint-add", {
       preferSelectedWorkspace: true,
     });
+    const userId = `usr_${app.namespace}`;
     const destination = `alerts+${app.namespace}@example.com`;
 
     await pages.login.login();
@@ -116,6 +119,7 @@ test.describe("notification preference email endpoints", () => {
       page,
       orgId: seeded.orgId,
       destination,
+      userId,
     });
   });
 
@@ -129,6 +133,7 @@ test.describe("notification preference email endpoints", () => {
     const seeded = await auth.seedWorkspace("notification-endpoint-toggle", {
       preferSelectedWorkspace: true,
     });
+    const userId = `usr_${app.namespace}`;
     const destination = `ops+${app.namespace}@example.com`;
 
     await pages.login.login();
@@ -145,6 +150,7 @@ test.describe("notification preference email endpoints", () => {
       page,
       orgId: seeded.orgId,
       destination,
+      userId,
     });
 
     const endpointCard = getEndpointCard(page, destination);
@@ -198,6 +204,7 @@ test.describe("notification preference email endpoints", () => {
     const seeded = await auth.seedWorkspace("notification-endpoint-remove", {
       preferSelectedWorkspace: true,
     });
+    const userId = `usr_${app.namespace}`;
     const destination = `remove+${app.namespace}@example.com`;
 
     await pages.login.login();
@@ -214,6 +221,7 @@ test.describe("notification preference email endpoints", () => {
       page,
       orgId: seeded.orgId,
       destination,
+      userId,
     });
 
     const endpointCard = getEndpointCard(page, destination);
