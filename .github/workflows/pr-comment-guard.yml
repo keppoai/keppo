@@ -19,7 +19,7 @@ jobs:
     if: >-
       (github.event_name == 'pull_request_review_comment') ||
       (github.event_name == 'issue_comment' && github.event.issue.pull_request)
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     steps:

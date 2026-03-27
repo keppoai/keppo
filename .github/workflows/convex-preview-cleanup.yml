@@ -20,7 +20,7 @@ on:
 jobs:
   cleanup:
     name: Delete stale preview deployments
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     environment: convex-preview-cleanup
     timeout-minutes: 10
 

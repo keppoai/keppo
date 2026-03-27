@@ -24,7 +24,7 @@ jobs:
       github.event.pull_request.user.login == 'keppo-bot[bot]') &&
       !contains(github.event.pull_request.body, '#skip-bugbot') &&
       !contains(github.event.pull_request.body, '#skip-bb')
-    runs-on: ubicloud-standard-2
+    runs-on: ubuntu-latest
     permissions:
       pull-requests: write
     steps:
