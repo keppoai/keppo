@@ -623,6 +623,34 @@ const retrieveStripeSubscription = async (
   return result as Stripe.Subscription;
 };
 
+const isMissingStripeSubscriptionError = (error: unknown): boolean => {
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+  const candidate = error as {
+    code?: unknown;
+    statusCode?: unknown;
+    message?: unknown;
+    raw?: { message?: unknown; code?: unknown } | null;
+  };
+  const code = typeof candidate.code === "string" ? candidate.code : null;
+  const rawCode = typeof candidate.raw?.code === "string" ? candidate.raw.code : null;
+  const message = typeof candidate.message === "string" ? candidate.message : null;
+  const rawMessage = typeof candidate.raw?.message === "string" ? candidate.raw.message : null;
+  const statusCode =
+    typeof candidate.statusCode === "number" && Number.isFinite(candidate.statusCode)
+      ? candidate.statusCode
+      : null;
+
+  return (
+    statusCode === 404 &&
+    (code === "not_found" ||
+      rawCode === "resource_missing" ||
+      message?.includes("subscription_not_found") === true ||
+      rawMessage?.includes("subscription_not_found") === true)
+  );
+};
+
 const retrieveStripeSubscriptionSchedule = async (
   stripe: Stripe,
   scheduleId: string,
@@ -1709,9 +1737,21 @@ export const handleBillingSubscriptionPendingRequest = async (
     }
 
     const stripe = resolveStripeClient(deps);
-    const sub = await retrieveStripeSubscription(stripe, orgRow.stripe_subscription_id, {
-      expand: ["schedule"],
-    });
+    let sub: Stripe.Subscription;
+    try {
+      sub = await retrieveStripeSubscription(stripe, orgRow.stripe_subscription_id, {
+        expand: ["schedule"],
+      });
+    } catch (error) {
+      if (isMissingStripeSubscriptionError(error)) {
+        return jsonResponse(request, {
+          cancel_at_period_end: false,
+          pending_tier: null,
+          pending_effective_at: null,
+        });
+      }
+      throw error;
+    }
 
     const cancelAtPeriodEnd = sub.cancel_at_period_end === true;
     const cancelAtUnix =

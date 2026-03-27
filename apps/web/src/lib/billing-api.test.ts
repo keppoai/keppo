@@ -897,6 +897,54 @@ describe("start-owned billing api", () => {
     });
   });
 
+  it("treats missing Stripe subscriptions as no pending change", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    const deps = createDeps();
+    vi.mocked(deps.convex.getSubscriptionForOrg).mockResolvedValue({
+      id: "subrow_org",
+      org_id: "org_test",
+      tier: "starter",
+      status: "active",
+      current_period_start: "2026-03-01T00:00:00.000Z",
+      current_period_end: "2026-04-01T00:00:00.000Z",
+      stripe_customer_id: "cus_test",
+      stripe_subscription_id: "sub_missing",
+      created_at: "2026-03-01T00:00:00.000Z",
+      updated_at: "2026-03-01T00:00:00.000Z",
+    });
+    deps.getStripeClient = () =>
+      ({
+        subscriptions: {
+          retrieve: vi.fn(async () => {
+            const error = new Error("subscription_not_found") as Error & {
+              code?: string;
+              statusCode?: number;
+            };
+            error.code = "not_found";
+            error.statusCode = 404;
+            throw error;
+          }),
+        },
+      }) as unknown as ReturnType<NonNullable<typeof deps.getStripeClient>>;
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/api/billing/subscription/pending-change?orgId=org_test", {
+        headers: {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      }),
+      deps,
+    );
+
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(200);
+    await expect(response!.json()).resolves.toEqual({
+      cancel_at_period_end: false,
+      pending_tier: null,
+      pending_effective_at: null,
+    });
+  });
+
   it("creates subscription schedule phases when downgrading pro to starter", async () => {
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
     vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
