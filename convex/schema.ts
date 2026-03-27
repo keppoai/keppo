@@ -827,6 +827,7 @@ export default defineSchema({
     .index("by_user", ["user_id"])
     .index("by_org", ["org_id"])
     .index("by_org_type", ["org_id", "type"])
+    .index("by_org_type_destination", ["org_id", "type", "destination"])
     .index("by_org_user_created", ["org_id", "user_id", "created_at"])
     .index("by_org_user_type", ["org_id", "user_id", "type"]),
 
