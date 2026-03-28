@@ -7,7 +7,8 @@ Consult this file before changing GitHub Actions workflow structure, runner sele
 ## Runner selection rules
 
 - Default non-E2E GitHub Actions Linux jobs to `ubuntu-latest`, including lightweight control-plane work like labeling, commenting, prompt/context generation, metadata inspection, short-lived agent runs, and other orchestration work.
-- Use `ubicloud-standard-2` for workflows that run or trigger E2E tests (e.g. `e2e-shared.yml`, `ci-main.yml`, `ci-pr.yml`, `claude-deflake-e2e.yml`, `e2e-meta.yml`, `fix-pr.yml`, `get-main-to-green.yml`, `issue-agent-issue-to-pr.yml`, `codex-commit-review.yml`).
+- Use `namespace-profile-2cpu-4gbram` for workflows that run the Playwright E2E suite or E2E meta/deflake automation (`e2e-shared.yml`, `e2e-meta.yml`, `claude-deflake-e2e.yml`).
+- Use `ubicloud-standard-2` for other workflows that orchestrate, gate, or accompany E2E (e.g. `ci-pr.yml` check/result jobs, `fix-pr.yml`, `get-main-to-green.yml`, `issue-agent-issue-to-pr.yml`, `codex-commit-review.yml`).
 - Keep runner selection explicit when a job needs a different platform or image family, and document the reason in the same change.
 
 ## Unified web deployment rules
