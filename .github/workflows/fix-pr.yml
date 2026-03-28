@@ -22,7 +22,7 @@ jobs:
       group: fix-pr-pr-${{ github.event.pull_request.number }}
       cancel-in-progress: false
     environment: ai-bots
-    runs-on: ubicloud-standard-4
+    runs-on: namespace-profile-linux-medium
     env:
       WORKFLOW_BASE_PATH: .workflow-base
       PR_CONTEXT_PATH: tmp/pr-review-responder/context.json

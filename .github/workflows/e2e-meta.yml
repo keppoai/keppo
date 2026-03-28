@@ -28,7 +28,7 @@ env:
 
 jobs:
   e2e-meta:
-    runs-on: ubicloud-standard-4
+    runs-on: namespace-profile-linux-medium
     timeout-minutes: 180
     steps:
       - name: Checkout
