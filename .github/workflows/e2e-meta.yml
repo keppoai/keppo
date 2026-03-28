@@ -28,7 +28,7 @@ env:
 
 jobs:
   e2e-meta:
-    runs-on: ubicloud-standard-2
+    runs-on: namespace-profile-2cpu-4gbram
     timeout-minutes: 180
     steps:
       - name: Checkout
