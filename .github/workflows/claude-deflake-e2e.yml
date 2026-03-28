@@ -46,7 +46,7 @@ jobs:
       contents: write
       pull-requests: write
     environment: ai-bots
-    runs-on: ubicloud-standard-4
+    runs-on: namespace-profile-linux-medium
     timeout-minutes: 180
     env:
       ISSUE_BRANCH: ${{ format('claude/deflake-e2e/{0}', github.run_id) }}
