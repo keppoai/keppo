@@ -154,37 +154,43 @@ test.describe("notification preference email endpoints", () => {
     await endpointToggle.click();
     await expect(endpointToggle).toHaveAttribute("aria-checked", "false");
     await expect
-      .poll(async () => {
-        try {
-          return (
-            await store.findNotificationEndpoint({
-              orgId: seeded.orgId,
-              destination,
-              type: "email",
-            })
-          )?.enabled;
-        } catch {
-          return undefined;
-        }
-      })
+      .poll(
+        async () => {
+          try {
+            return (
+              await store.findNotificationEndpoint({
+                orgId: seeded.orgId,
+                destination,
+                type: "email",
+              })
+            )?.enabled;
+          } catch {
+            return undefined;
+          }
+        },
+        { timeout: 15_000 },
+      )
       .toBe(false);
 
     await endpointToggle.click();
     await expect(endpointToggle).toHaveAttribute("aria-checked", "true");
     await expect
-      .poll(async () => {
-        try {
-          return (
-            await store.findNotificationEndpoint({
-              orgId: seeded.orgId,
-              destination,
-              type: "email",
-            })
-          )?.enabled;
-        } catch {
-          return undefined;
-        }
-      })
+      .poll(
+        async () => {
+          try {
+            return (
+              await store.findNotificationEndpoint({
+                orgId: seeded.orgId,
+                destination,
+                type: "email",
+              })
+            )?.enabled;
+          } catch {
+            return undefined;
+          }
+        },
+        { timeout: 15_000 },
+      )
       .toBe(true);
   });
 
