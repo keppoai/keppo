@@ -11,6 +11,7 @@ describe("getProviderRuntimeSecrets", () => {
         GOOGLE_CLIENT_ID: "google_client",
         STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe_provider_webhook_secret",
         GITHUB_WEBHOOK_SECRET: "github_webhook_secret",
+        X_CLIENT_ID: "x_client",
         KEPPO_MASTER_KEY: "should_not_leak",
       },
     });
@@ -19,6 +20,7 @@ describe("getProviderRuntimeSecrets", () => {
       GOOGLE_CLIENT_ID: "google_client",
       STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe_provider_webhook_secret",
       GITHUB_WEBHOOK_SECRET: "github_webhook_secret",
+      X_CLIENT_ID: "x_client",
     });
   });
 
@@ -42,6 +44,9 @@ describe("getProviderRuntimeSecrets", () => {
         "REDDIT_OAUTH_AUTH_URL",
         "REDDIT_OAUTH_TOKEN_URL",
         "REDDIT_API_BASE_URL",
+        "X_OAUTH_AUTH_URL",
+        "X_OAUTH_TOKEN_URL",
+        "X_API_BASE_URL",
       ]),
     );
   });
@@ -82,6 +87,11 @@ describe("getProviderRuntimeSecrets", () => {
         "REDDIT_API_BASE_URL",
         "REDDIT_CLIENT_ID",
         "REDDIT_CLIENT_SECRET",
+        "X_OAUTH_AUTH_URL",
+        "X_OAUTH_TOKEN_URL",
+        "X_API_BASE_URL",
+        "X_CLIENT_ID",
+        "X_CLIENT_SECRET",
       ]),
     );
     expect(hostedKeys).not.toContain("KEPPO_FAKE_EXTERNAL_BASE_URL");
