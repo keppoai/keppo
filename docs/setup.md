@@ -82,11 +82,6 @@ Use Docker Compose when you need to validate the self-hosted deployment path end
 - Provider rollout is controlled by feature flags rather than route removal.
 - Self-hosted deployment-path validation expects Docker Compose to remain part of the documented local and operator workflow. Keep these docs aligned with the checked-in Compose configuration and validate changes with `pnpm run check:security`.
 
-## Deployment path validation
-
-- Validate the self-hosted deployment path with Docker Compose after runtime-affecting changes by running `docker compose up --build`.
-- Use that check when changing required env vars, callback URLs, auth flow wiring, ports, runtime dependencies, or other setup-sensitive behavior documented here.
-
 ---
 
 ## Environment variables
