@@ -706,12 +706,12 @@ export function LandingPage() {
               </div>
               <ul className="space-y-2.5 text-sm mb-6">
                 {[
-                  "3 automations",
+                  "2 automations",
+                  "150 runs / month",
+                  "5 AI credits",
                   "All integrations",
-                  "Manual approvals",
-                  "CEL rules engine",
+                  "7-day log retention",
                   "Community support",
-                  "Self-host option",
                 ].map((f) => (
                   <li key={f} className="flex items-center gap-2">
                     <Check className="size-3.5 text-primary shrink-0" />
@@ -736,7 +736,7 @@ export function LandingPage() {
                     </span>
                   </div>
                   <div className="mt-2 flex items-baseline gap-1">
-                    <span className="text-3xl font-bold">$29</span>
+                    <span className="text-3xl font-bold">$25</span>
                     <span className="text-sm text-muted-foreground">/month</span>
                   </div>
                   <p className="mt-2 text-sm text-muted-foreground">
@@ -745,12 +745,12 @@ export function LandingPage() {
                 </div>
                 <ul className="space-y-2.5 text-sm mb-6 flex-1">
                   {[
-                    "Unlimited automations",
+                    "5 automations",
+                    "1,500 runs / month",
+                    "100 AI credits",
                     "AI-powered rule authoring",
-                    "Rule impact simulation",
-                    "Priority sandbox",
-                    "Email + Slack notifications",
-                    "Up to 10 team members",
+                    "30-day log retention",
+                    "Up to 2 team members",
                   ].map((f) => (
                     <li key={f} className="flex items-center gap-2">
                       <Check className="size-3.5 text-primary shrink-0" />
@@ -759,7 +759,7 @@ export function LandingPage() {
                   ))}
                 </ul>
                 <Button className="w-full" render={<Link to="/login" />}>
-                  Start free trial
+                  Get started
                 </Button>
               </div>
             </div>
@@ -769,18 +769,18 @@ export function LandingPage() {
               <div className="mb-5">
                 <h3 className="text-lg font-semibold">Pro</h3>
                 <div className="mt-2 flex items-baseline gap-1">
-                  <span className="text-3xl font-bold">$99</span>
+                  <span className="text-3xl font-bold">$75</span>
                   <span className="text-sm text-muted-foreground">/month</span>
                 </div>
                 <p className="mt-2 text-sm text-muted-foreground">For growing teams.</p>
               </div>
               <ul className="space-y-2.5 text-sm mb-6">
                 {[
-                  "Everything in Starter",
+                  "25 automations",
+                  "15,000 runs / month",
+                  "300 AI credits",
                   "Unlimited team members",
-                  "Advanced analytics",
-                  "SIEM export",
-                  "SSO",
+                  "90-day log retention",
                   "Priority support",
                 ].map((f) => (
                   <li key={f} className="flex items-center gap-2">
@@ -790,7 +790,7 @@ export function LandingPage() {
                 ))}
               </ul>
               <Button variant="outline" className="w-full" render={<Link to="/login" />}>
-                Contact us
+                Get started
               </Button>
             </GlowCard>
           </div>
@@ -1170,7 +1170,7 @@ const FAQ_ITEMS = [
   {
     question: "Can AI approve things without me knowing?",
     answer:
-      "Only if you explicitly set a rule that says it can. By default, every action that writes, sends, or changes something requires your approval. High-risk actions (large refunds, public posts, account deletions) always require a human — that's a hard architectural limit, not a setting.",
+      "Only if you explicitly set a rule that says it can. By default, every action that writes, sends, or changes something requires your approval.",
   },
   {
     question: "Can I self-host Keppo?",

@@ -35,6 +35,8 @@ import { adminInviteCodesRoute } from "./routes/_admin.invite-codes";
 import { adminHealthRoute } from "./routes/_admin.health";
 import { adminUsageRoute } from "./routes/_admin.usage";
 import { adminAbuseRoute } from "./routes/_admin.abuse";
+import { termsRoute } from "./routes/terms";
+import { privacyRoute } from "./routes/privacy";
 
 export const routeTree = rootRoute.addChildren([
   loginRoute,
@@ -67,6 +69,8 @@ export const routeTree = rootRoute.addChildren([
       serverDetailRoute,
     ]),
   ]),
+  termsRoute,
+  privacyRoute,
   inviteAcceptRoute,
   adminLayoutRoute.addChildren([
     adminIndexRoute,
