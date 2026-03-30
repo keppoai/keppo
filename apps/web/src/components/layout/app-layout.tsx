@@ -181,7 +181,12 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const sessionEmail = session?.user?.email ?? null;
   const isDocsRoute = pathname === "/docs" || pathname.startsWith("/docs/");
   const allowPublicRoute =
-    pathname === "/" || pathname === "/login" || pathname === "/invites/accept" || isDocsRoute;
+    pathname === "/" ||
+    pathname === "/login" ||
+    pathname === "/invites/accept" ||
+    pathname === "/terms" ||
+    pathname === "/privacy" ||
+    isDocsRoute;
   const isStandaloneRoute = pathname === "/admin" || pathname.startsWith("/admin/");
   const isLandingPage = pathname === "/";
   const isLoginPage = pathname === "/login";
