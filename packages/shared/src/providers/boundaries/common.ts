@@ -29,9 +29,9 @@ export const addBoundaryIssue = (ctx: z.RefinementCtx, code: string, message: st
   });
 };
 
-export type ManagedOAuthProvider = "google" | "stripe" | "github" | "reddit";
+export type ManagedOAuthProvider = "google" | "stripe" | "github" | "reddit" | "x";
 
-export const MANAGED_OAUTH_PROVIDER_IDS = ["google", "stripe", "github", "reddit"] as const;
+export const MANAGED_OAUTH_PROVIDER_IDS = ["google", "stripe", "github", "reddit", "x"] as const;
 
 const managedOAuthProviderSet = new Set<ManagedOAuthProvider>(MANAGED_OAUTH_PROVIDER_IDS);
 

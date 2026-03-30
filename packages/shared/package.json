@@ -73,6 +73,10 @@
       "types": "./dist/network.d.ts",
       "default": "./dist/network.js"
     },
+    "./oauth-pkce": {
+      "types": "./dist/oauth-pkce.d.ts",
+      "default": "./dist/oauth-pkce.js"
+    },
     "./provider-runtime-context": {
       "types": "./dist/provider-runtime-context.d.ts",
       "default": "./dist/provider-runtime-context.js"

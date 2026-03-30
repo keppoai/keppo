@@ -44,6 +44,8 @@ export type ProviderAuthRequest = {
   state: string;
   scopes: Array<string>;
   namespace?: string;
+  /** OAuth 2.0 PKCE (required for X user access tokens). */
+  pkceCodeVerifier?: string;
 };
 
 export type ProviderAuthExchangeRequest = {
@@ -52,6 +54,8 @@ export type ProviderAuthExchangeRequest = {
   scopes?: Array<string>;
   externalAccountFallback?: string;
   namespace?: string;
+  /** PKCE code_verifier for token exchange (must match authorize-step challenge). */
+  pkceCodeVerifier?: string;
 };
 
 export type ProviderCredentialBundle = {

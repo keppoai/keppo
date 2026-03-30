@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { generateOAuthPkceCodeVerifier } from "@keppo/shared/oauth-pkce";
 import {
   PROVIDER_REGISTRY_PATH_FEATURE_FLAG,
   providerRolloutFeatureFlag,
@@ -488,6 +489,7 @@ export const handleOAuthProviderConnectRequest = async (
   const correlationId = randomUUID();
   const redirectUri = deps.getRedirectUri(request.url, provider);
   const runtimeContext = deps.toProviderRuntimeContext(namespace);
+  const pkceCodeVerifier = provider === "x" ? generateOAuthPkceCodeVerifier() : undefined;
   const statePayload = {
     org_id: orgId,
     provider,
@@ -502,6 +504,7 @@ export const handleOAuthProviderConnectRequest = async (
     correlation_id: correlationId,
     created_at: new Date().toISOString(),
     e2e_namespace: namespace,
+    ...(pkceCodeVerifier ? { pkce_code_verifier: pkceCodeVerifier } : {}),
   };
 
   const authRequest = await providerModule.facets.auth.buildAuthRequest(
@@ -510,6 +513,7 @@ export const handleOAuthProviderConnectRequest = async (
       state: deps.signOAuthStatePayload(JSON.stringify(statePayload)),
       scopes: requestedScopes,
       ...(namespace ? { namespace } : {}),
+      ...(pkceCodeVerifier ? { pkceCodeVerifier } : {}),
     },
     runtimeContext,
   );
@@ -853,6 +857,10 @@ export const handleOAuthProviderCallbackRequest = async (
               redirectUri,
               scopes: state.scopes,
               externalAccountFallback: orgId,
+              ...(typeof state.pkce_code_verifier === "string" &&
+              state.pkce_code_verifier.length > 0
+                ? { pkceCodeVerifier: state.pkce_code_verifier }
+                : {}),
               ...(namespace ? { namespace } : {}),
             },
             runtimeContext,
