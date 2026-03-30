@@ -9,6 +9,8 @@ import {
   toInAppEventView,
 } from "../notifications_shared";
 
+const UNREAD_NOTIFICATION_DISPLAY_CAP = 100;
+
 export const listInAppNotifications = query({
   args: {
     orgId: v.string(),
@@ -64,7 +66,7 @@ export const countUnread = query({
       .withIndex("by_org_channel_read", (q) =>
         q.eq("org_id", args.orgId).eq("channel", NOTIFICATION_CHANNEL.inApp).eq("read_at", null),
       )
-      .collect();
+      .take(UNREAD_NOTIFICATION_DISPLAY_CAP);
     return unread.length;
   },
 });

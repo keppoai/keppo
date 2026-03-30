@@ -5,6 +5,10 @@ import type { DashboardNotification } from "@/hooks/use-notifications";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { NotificationItem } from "@/components/notifications/notification-item";
 
+const formatUnreadCount = (unreadCount: number): string => {
+  return unreadCount >= 100 ? "100+" : String(unreadCount);
+};
+
 type NotificationPanelProps = {
   notifications: DashboardNotification[];
   unreadCount: number;
@@ -42,7 +46,7 @@ export function NotificationPanel({
       <div className="mb-3 flex items-center justify-between gap-2">
         <div>
           <p className="text-sm font-semibold">Notifications</p>
-          <p className="text-xs text-muted-foreground">{unreadCount} unread</p>
+          <p className="text-xs text-muted-foreground">{formatUnreadCount(unreadCount)} unread</p>
         </div>
         <Button
           type="button"
