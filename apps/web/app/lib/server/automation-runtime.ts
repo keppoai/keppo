@@ -26,6 +26,7 @@ import { logger } from "./api-runtime/logger.ts";
 import {
   assertRunnerAuthSupported,
   assertSandboxCallbackBaseUrlReachable,
+  buildAutomationRunnerPrompt,
   buildRunnerAuthBootstrapCommand,
   buildRunnerBootstrapCommand,
   buildRunnerCommand,
@@ -442,6 +443,7 @@ export const handleInternalAutomationDispatchRequest = async (
     );
     const mcpBearerToken = await deps.convex.issueAutomationWorkspaceCredential({
       workspaceId: context.automation.workspace_id,
+      automationRunId: context.run.id,
     });
     await preflightMcpServer(mcpServerUrl, mcpBearerToken);
 
@@ -507,7 +509,7 @@ export const handleInternalAutomationDispatchRequest = async (
       credentialKind: key.credential_kind,
       networkAccess: context.config.network_access,
       model: context.config.ai_model_name,
-      prompt: context.config.prompt,
+      prompt: buildAutomationRunnerPrompt(context.config.prompt),
     });
     const bootstrapCommand = buildRunnerBootstrapCommand({
       runnerType: context.config.runner_type,

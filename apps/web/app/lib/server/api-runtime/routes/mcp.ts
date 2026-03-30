@@ -97,6 +97,7 @@ type McpRoutesDeps = {
 };
 
 const MCP_ROUTE_PATH = "/mcp/:workspaceId";
+const AUTOMATION_OUTCOME_TOOL_NAME = "record_outcome";
 
 type McpRequestAuthContext = {
   workspaceId: string;
@@ -107,6 +108,7 @@ type McpRequestAuthContext = {
   testId: string | null;
   scenarioId: string | null;
   runId?: string;
+  automationRunId?: string;
 };
 
 type McpSessionState = {
@@ -193,6 +195,10 @@ const recordTypedToolCallFailureMetrics = (
       ...(params.orgId ? { orgId: params.orgId } : {}),
     });
   }
+};
+
+const isKeppoInternalToolName = (toolName: string): boolean => {
+  return toolName === AUTOMATION_OUTCOME_TOOL_NAME || toolName.startsWith("keppo.");
 };
 
 const resolveToolOwner = async (toolName: string): Promise<CanonicalProviderId | undefined> => {
@@ -665,6 +671,7 @@ const resolveHandlerContext = (
   orgId: string;
   codeModeEnabled: boolean;
   e2eNamespace: string | null;
+  automationRunId: string | null;
 } => {
   const authContext = extra.authInfo?.extra;
   if (!authContext) {
@@ -703,6 +710,8 @@ const resolveHandlerContext = (
     codeModeEnabled:
       typeof authContext.codeModeEnabled === "boolean" ? authContext.codeModeEnabled : true,
     e2eNamespace: typeof authContext.e2eNamespace === "string" ? authContext.e2eNamespace : null,
+    automationRunId:
+      typeof authContext.automationRunId === "string" ? authContext.automationRunId : null,
   };
 };
 
@@ -727,7 +736,18 @@ const createMcpServer = (
     async (_request, extra): Promise<ListToolsResult> => {
       const handlerContext = resolveHandlerContext(sessionStates, extra);
       await deps.convex.touchRun(handlerContext.runId);
-      const tools = await deps.convex.listToolCatalogForWorkspace(handlerContext.workspaceId);
+      const listedTools = await deps.convex.listToolCatalogForWorkspace(handlerContext.workspaceId);
+      const tools = listedTools.filter((tool) => tool.name !== AUTOMATION_OUTCOME_TOOL_NAME);
+      if (handlerContext.automationRunId) {
+        const { toolMap } = await loadToolsCoreModule();
+        const outcomeTool = toolMap.get(AUTOMATION_OUTCOME_TOOL_NAME);
+        if (outcomeTool) {
+          tools.push({
+            name: outcomeTool.name,
+            description: outcomeTool.description,
+          });
+        }
+      }
 
       return {
         tools: await Promise.all(
@@ -749,6 +769,10 @@ const createMcpServer = (
 
       const toolName = request.params.name;
       const toolArgs = isRecord(request.params.arguments) ? request.params.arguments : {};
+
+      if (toolName === AUTOMATION_OUTCOME_TOOL_NAME && !handlerContext.automationRunId) {
+        return buildToolErrorResult("record_outcome is only available inside automation runs.");
+      }
 
       if (toolName === "search_tools") {
         if (!handlerContext.codeModeEnabled) {
@@ -867,6 +891,9 @@ const createMcpServer = (
             const result = await deps.convex.executeToolCall({
               workspaceId: handlerContext.workspaceId,
               runId: handlerContext.runId,
+              ...(handlerContext.automationRunId
+                ? { automationRunId: handlerContext.automationRunId }
+                : {}),
               toolName: candidateToolName,
               input: {
                 ...input,
@@ -1130,7 +1157,11 @@ const createMcpServer = (
       const isLikelyCustomTool =
         toolProvider === null && separatorIndex > 0 && !knownToolNamespaces.has(toolNamespace);
 
-      if (!(await deps.resolveRegistryPathEnabled()) && toolProvider !== null) {
+      if (
+        !(await deps.resolveRegistryPathEnabled()) &&
+        toolProvider !== null &&
+        !isKeppoInternalToolName(toolName)
+      ) {
         return buildToolErrorResult(
           "provider_registry_disabled: Provider registry path is disabled by kill switch.",
         );
@@ -1153,6 +1184,9 @@ const createMcpServer = (
           : await deps.convex.executeToolCall({
               workspaceId: handlerContext.workspaceId,
               runId: handlerContext.runId,
+              ...(handlerContext.automationRunId
+                ? { automationRunId: handlerContext.automationRunId }
+                : {}),
               toolName,
               input: {
                 ...toolArgs,
@@ -1444,6 +1478,9 @@ export const createMcpRouteDispatcher = (
         e2eNamespace,
         testId,
         scenarioId,
+        ...(typeof auth.automation_run_id === "string"
+          ? { automationRunId: auth.automation_run_id }
+          : {}),
         ...(sessionState.runId ? { runId: sessionState.runId } : {}),
       } satisfies McpRequestAuthContext,
     };

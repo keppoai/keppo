@@ -581,7 +581,10 @@ export const deleteWorkspace = mutation({
 });
 
 export const issueAutomationWorkspaceCredential = internalMutation({
-  args: { workspaceId: v.string() },
+  args: {
+    workspaceId: v.string(),
+    automationRunId: v.optional(v.string()),
+  },
   returns: v.object({ credential_secret: v.string() }),
   handler: async (ctx, args) => {
     const workspace = await ctx.db
@@ -600,6 +603,14 @@ export const issueAutomationWorkspaceCredential = internalMutation({
       workspace_id: args.workspaceId,
       type: CREDENTIAL_TYPE.bearerToken,
       hashed_secret: await sha256Hex(secret),
+      ...(args.automationRunId
+        ? {
+            metadata: {
+              source: "automation_dispatch",
+              automation_run_id: args.automationRunId,
+            },
+          }
+        : {}),
       last_used_at: null,
       revoked_at: null,
       created_at: nowIso(),

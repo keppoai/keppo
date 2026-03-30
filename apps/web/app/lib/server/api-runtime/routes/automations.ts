@@ -602,6 +602,22 @@ export const buildRunnerCommand = (params: {
   return `codex exec --skip-git-repo-check${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
 };
 
+export const buildAutomationRunnerPrompt = (prompt: string): string => {
+  const task = prompt.trim();
+  return [
+    "You are running inside a Keppo automation.",
+    "Complete the requested task using the available MCP tools.",
+    "Call `record_outcome({ success, summary })` exactly once as your final tool call before you stop.",
+    "Call `record_outcome` directly, not through `execute_code`.",
+    "Use `success: true` when you accomplished the requested work. Waiting only for a human approval after you finished everything you can still counts as success.",
+    "Use `success: false` when the requested work was not accomplished.",
+    "The `summary` must be brief plain text. If success is true, say what was accomplished. If success is false, say what was not accomplished.",
+    "",
+    "Automation task:",
+    task,
+  ].join("\n");
+};
+
 const resolveCodexHomeDir = (providerMode: AutomationSandboxProviderMode): string => {
   return providerMode === "vercel"
     ? "/vercel/sandbox/.keppo-codex-home"

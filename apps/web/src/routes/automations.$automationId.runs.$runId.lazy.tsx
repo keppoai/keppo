@@ -11,6 +11,10 @@ import { RunChatViewer } from "@/components/automations/run-chat-viewer";
 import { LogViewer } from "@/components/automations/log-viewer";
 import { UserFacingErrorView } from "@/components/ui/user-facing-error";
 import {
+  getRunOutcomeBadgeLabel,
+  getRunOutcomeBadgeVariant,
+  getRunOutcomeTitle,
+  getRunStatusSummary,
   parseAutomationRun,
   runStatusBadgeVariant,
   humanizeTriggerType,
@@ -80,9 +84,9 @@ function RunDetailPage() {
       ? Math.max(0, Date.parse(run.ended_at) - Date.parse(run.started_at))
       : null;
   const runSummaryTone =
-    run?.status === "failed" || run?.status === "timed_out"
+    run?.outcome?.success === false || run?.status === "failed" || run?.status === "timed_out"
       ? "border-destructive/30 bg-destructive/8"
-      : run?.status === "succeeded"
+      : run?.outcome?.success === true || run?.status === "succeeded"
         ? "border-emerald-500/25 bg-emerald-500/8"
         : "border-border bg-muted/30";
 
@@ -114,6 +118,11 @@ function RunDetailPage() {
                   <Badge variant={runStatusBadgeVariant(run.status)} className="capitalize">
                     {run.status.replace("_", " ")}
                   </Badge>
+                  {getRunOutcomeBadgeLabel(run) ? (
+                    <Badge variant={getRunOutcomeBadgeVariant(run)} className="text-xs">
+                      {getRunOutcomeBadgeLabel(run)}
+                    </Badge>
+                  ) : null}
                   <Badge variant="outline" className="text-xs">
                     {humanizeTriggerType(run.trigger_type)}
                   </Badge>
@@ -153,28 +162,30 @@ function RunDetailPage() {
             <div className="flex flex-wrap items-start gap-3">
               <div
                 className={
-                  run.status === "failed" || run.status === "timed_out"
+                  run.outcome?.success === false ||
+                  run.status === "failed" ||
+                  run.status === "timed_out"
                     ? "rounded-xl bg-destructive/12 p-2 text-destructive"
-                    : run.status === "succeeded"
+                    : run.outcome?.success === true || run.status === "succeeded"
                       ? "rounded-xl bg-emerald-500/12 p-2 text-emerald-700 dark:text-emerald-400"
                       : "rounded-xl bg-background/80 p-2 text-foreground"
                 }
               >
-                {run.status === "failed" || run.status === "timed_out" ? (
+                {run.outcome?.success === false ||
+                run.status === "failed" ||
+                run.status === "timed_out" ? (
                   <AlertTriangleIcon className="size-4" />
                 ) : (
                   <CheckCircle2Icon className="size-4" />
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold">
-                  {run.status === "failed" || run.status === "timed_out"
-                    ? "Needs investigation"
-                    : run.status === "succeeded"
-                      ? "Run completed cleanly"
-                      : "Execution summary"}
+                <p className="text-sm font-semibold">{getRunOutcomeTitle(run)}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {run.outcome?.summary.trim()
+                    ? getRunStatusSummary(run)
+                    : describeOutcome(run.status)}
                 </p>
-                <p className="mt-1 text-sm text-muted-foreground">{describeOutcome(run.status)}</p>
                 {run.error_message ? (
                   <UserFacingErrorView
                     error={toUserFacingError(run.error_message, {

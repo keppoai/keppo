@@ -35,6 +35,7 @@ export const authenticateCredential = internalMutation({
       status: v.literal(MCP_CREDENTIAL_AUTH_STATUS.ok),
       credential_id: v.string(),
       workspace: workspaceValidator,
+      automation_run_id: v.optional(v.string()),
     }),
     v.object({
       status: v.literal(MCP_CREDENTIAL_AUTH_STATUS.suspended),
@@ -189,6 +190,10 @@ export const authenticateCredential = internalMutation({
       status: MCP_CREDENTIAL_AUTH_STATUS.ok,
       credential_id: credential.id,
       workspace: toWorkspaceBoundary(workspace),
+      ...(typeof credential.metadata?.automation_run_id === "string" &&
+      credential.metadata.automation_run_id.trim().length > 0
+        ? { automation_run_id: credential.metadata.automation_run_id.trim() }
+        : {}),
     };
   },
 });

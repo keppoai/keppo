@@ -5,6 +5,9 @@ import { createConvexTestHarness, seedAutomationFixture } from "./harness";
 
 const refs = {
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  recordAutomationRunOutcome: makeFunctionReference<"mutation">(
+    "automation_runs:recordAutomationRunOutcome",
+  ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
   ),
@@ -35,6 +38,40 @@ describe("convex automation lifecycle functions", () => {
     });
     expect(completedRun.status).toBe(AUTOMATION_RUN_STATUS.succeeded);
     expect(completedRun.ended_at).not.toBeNull();
+    expect(completedRun.outcome).toMatchObject({
+      success: false,
+      source: "fallback_missing",
+    });
+  });
+
+  it("records an automation outcome exactly once", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_outcome";
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const createdRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+
+    const recorded = await t.mutation(refs.recordAutomationRunOutcome, {
+      automation_run_id: createdRun.id,
+      success: true,
+      summary: "Reviewed the inbox and drafted a response.",
+    });
+    expect(recorded).toMatchObject({
+      success: true,
+      summary: "Reviewed the inbox and drafted a response.",
+      source: "agent_recorded",
+    });
+
+    await expect(
+      t.mutation(refs.recordAutomationRunOutcome, {
+        automation_run_id: createdRun.id,
+        success: true,
+        summary: "Second attempt",
+      }),
+    ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
   });
 
   it("reaps stale running runs into timed out status", async () => {

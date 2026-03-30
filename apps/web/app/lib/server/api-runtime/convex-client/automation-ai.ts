@@ -12,6 +12,7 @@ import type {
   AutomationProviderTriggerDeliveryMode,
   AutomationRunEventType,
   AutomationRunLogLevel,
+  AutomationRunOutcomeSource,
   AutomationRunStatus,
   AutomationRunTriggerType,
   AutomationRunnerType,
@@ -80,6 +81,12 @@ export type AutomationRunDispatchContext = {
     error_message: string | null;
     sandbox_id: string | null;
     mcp_session_id: string | null;
+    outcome: {
+      success: boolean;
+      summary: string;
+      source: AutomationRunOutcomeSource;
+      recorded_at: string;
+    } | null;
     log_storage_id: string | null;
     created_at: string;
   };

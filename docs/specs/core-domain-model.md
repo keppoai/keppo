@@ -18,7 +18,7 @@ Keppo is multi-tenant by organization. Most tables are keyed by `org_id` or `wor
 - Better Auth organization membership is the identity source.
 - `subscriptions`, `usage_meters`, `invite_codes`, `invite_code_redemptions`, `invites`, `org_suspensions`, and `retention_policies` track org-level access and lifecycle.
 - `workspaces` stores policy mode, default action behavior, optional Code Mode enablement, and workspace status.
-- `workspace_credentials` stores bearer or client credentials for MCP access.
+- `workspace_credentials` stores bearer or client credentials for MCP access. Automation-issued workspace credentials may also carry metadata that ties the credential back to a specific `automation_run_id` for runtime-scoped tool enforcement.
 
 ## Provider and tool access
 
@@ -73,6 +73,8 @@ Keppo is multi-tenant by organization. Most tables are keyed by `org_id` or `wor
 ## Automations and Code Mode
 
 - `automations`, `automation_config_versions`, `automation_runs`, `automation_run_logs`, and `automation_trigger_events` store automation definitions and executions.
+- `automation_runs` persists lifecycle state separately from operator-facing outcome reporting. Each run may store one final outcome object (`outcome_success`, plain-text `outcome_summary`, `outcome_source`, `outcome_recorded_at`) so the UI can show what the agent claims it accomplished even when lifecycle `status` is only a transport/runtime state.
+- `automation_run_logs` may append a final structured `system` event with `kind=automation_outcome` so grouped timeline views render the recorded or synthesized outcome inline with the rest of the run transcript.
 - `automations` stores operator-facing prose in `description`, an optional workflow diagram definition in `mermaid_content`, and the `mermaid_prompt_hash` that records which prompt revision last generated or manually aligned the diagram. Detail views derive Mermaid staleness by comparing the current config prompt hash to `mermaid_prompt_hash`.
 - `automation_config_versions` stores trigger, runner, model, prompt, and network settings, but not per-automation AI key mode; execution mode is derived from org billing, available bundled credits, and active org BYO keys at save/run time.
 - `automation_config_versions.provider_trigger` stores the canonical provider trigger contract: `provider_id`, `trigger_key`, schema version, structured filter payload, delivery preferences, and the last known subscription health snapshot for that automation config.

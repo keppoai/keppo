@@ -621,6 +621,7 @@ export class ConvexInternalClient {
   async executeToolCall(params: {
     workspaceId: string;
     runId: string;
+    automationRunId?: string;
     toolName: string;
     input: Record<string, unknown>;
     credentialId: string;
@@ -633,6 +634,7 @@ export class ConvexInternalClient {
         {
           workspaceId: payload.workspaceId,
           runId: payload.runId,
+          ...(payload.automationRunId ? { automationRunId: payload.automationRunId } : {}),
           toolName: payload.toolName,
           input: payload.input,
           credentialId: payload.credentialId,
@@ -991,11 +993,15 @@ export class ConvexInternalClient {
     return getAutomationRunDispatchContextImpl(this.resilientClient, params);
   }
 
-  async issueAutomationWorkspaceCredential(params: { workspaceId: string }): Promise<string> {
+  async issueAutomationWorkspaceCredential(params: {
+    workspaceId: string;
+    automationRunId?: string;
+  }): Promise<string> {
     const result = await this.callMutation<{ credential_secret: string }>(
       refs.issueAutomationWorkspaceCredential,
       {
         workspaceId: params.workspaceId,
+        ...(params.automationRunId ? { automationRunId: params.automationRunId } : {}),
       },
       "mutation:issueAutomationWorkspaceCredential",
     );
