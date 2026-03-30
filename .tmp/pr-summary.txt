@@ -1,0 +1,3 @@
+Fix the web dev server protocol-boundary loader so Vite 8 can evaluate the TypeScript module from config-time middleware without resolving through `.vite-temp` or requiring a runnable SSR environment.
+
+Add a checked-in `scripts/pr.sh` entrypoint and matching `setup-pr-push` skill update so the full branch, commit, push, and PR flow can be run from the host environment when sandbox GitHub credentials are unavailable.

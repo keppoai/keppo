@@ -7,7 +7,7 @@ import fumadocs from "fumadocs-mdx/vite";
 import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import { nitro } from "nitro/vite";
 import posthogRollupPlugin from "@posthog/rollup-plugin";
-import { defineConfig, type PluginOption } from "vite";
+import { defineConfig, runnerImport, type PluginOption } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
 import dyadComponentTagger from "@dyad-sh/react-vite-component-tagger";
 import * as sourceConfig from "./source.config";
@@ -18,24 +18,31 @@ type UnifiedProtocolBoundaryModule = {
 };
 
 let unifiedProtocolBoundaryModulePromise: Promise<UnifiedProtocolBoundaryModule> | null = null;
-const UNIFIED_PROTOCOL_BOUNDARY_MODULE_PATH = "./src/lib/unified-protocol-boundary";
-
-const loadUnifiedProtocolBoundaryModule = async (): Promise<UnifiedProtocolBoundaryModule> => {
-  unifiedProtocolBoundaryModulePromise ??= import(
-    /* @vite-ignore */ UNIFIED_PROTOCOL_BOUNDARY_MODULE_PATH
-  ) as Promise<UnifiedProtocolBoundaryModule>;
-  return await unifiedProtocolBoundaryModulePromise;
-};
+const UNIFIED_PROTOCOL_BOUNDARY_MODULE_PATH = path.resolve(
+  process.cwd(),
+  "src/lib/unified-protocol-boundary.ts",
+);
 
 const createApiBridgePlugin = () => ({
   name: "keppo-protocol-boundary",
   configureServer(server: import("vite").ViteDevServer) {
-    installApiBridgeMiddleware(server.middlewares);
+    installApiBridgeMiddleware(server.middlewares, loadUnifiedProtocolBoundaryModule);
   },
   configurePreviewServer(server: import("vite").PreviewServer) {
-    installApiBridgeMiddleware(server.middlewares);
+    installApiBridgeMiddleware(server.middlewares, async () => {
+      throw new Error(
+        "keppo-protocol-boundary preview middleware requires a built server entry instead of loading TypeScript source directly",
+      );
+    });
   },
 });
+
+const loadUnifiedProtocolBoundaryModule = async (): Promise<UnifiedProtocolBoundaryModule> => {
+  unifiedProtocolBoundaryModulePromise ??= runnerImport(UNIFIED_PROTOCOL_BOUNDARY_MODULE_PATH, {
+    root: process.cwd(),
+  }).then((result) => result.module as UnifiedProtocolBoundaryModule);
+  return await unifiedProtocolBoundaryModulePromise;
+};
 
 type ApiBridgeMiddleware = (
   req: import("node:http").IncomingMessage,
@@ -51,7 +58,10 @@ const canHaveRequestBody = (method: string): boolean => {
   return method !== "GET" && method !== "HEAD";
 };
 
-const installApiBridgeMiddleware = (middlewares: MiddlewareStack) => {
+const installApiBridgeMiddleware = (
+  middlewares: MiddlewareStack,
+  loadUnifiedProtocolBoundaryModule: () => Promise<UnifiedProtocolBoundaryModule>,
+) => {
   middlewares.use(async (req, res, next) => {
     const pathname = req.url ? new URL(req.url, "http://localhost").pathname : "";
     const protocolLikePath =
