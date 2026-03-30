@@ -1,0 +1,3 @@
+The Vite config was dynamically importing `./src/lib/unified-protocol-boundary` from a config bundle executed under `apps/web/node_modules/.vite-temp`, which broke module resolution during `pnpm dev`. The loader also could not rely on direct Node imports of `.ts` files or `server.ssrLoadModule()` in this Vite 8 environment.
+
+This change switches the dev middleware to Vite's supported runner-based module loading path and keeps the import anchored to the app root. The host-side `scripts/pr.sh` flow is included so this work can be committed, pushed, and turned into a PR outside the sandbox with explicit branch and PR metadata inputs.

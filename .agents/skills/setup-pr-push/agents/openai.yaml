@@ -1,0 +1,4 @@
+interface:
+  display_name: "Setup PR Push"
+  short_description: "Print the full host-side PR push command using scripts/pr.sh and explicit flags"
+  default_prompt: "Use $setup-pr-push to print the full scripts/pr.sh command with an explicit --branch-name flag, then commit current changes, push, and open or update a PR."
