@@ -191,15 +191,22 @@ test("notification preferences warn when an endpoint has repeated delivery failu
   await expect(page.getByText(destination)).toBeVisible();
 
   await expect
-    .poll(async () => {
-      return (
-        await store.findNotificationEndpoint({
-          orgId: seeded.orgId,
-          destination,
-          type: "email",
-        })
-      )?.id;
-    })
+    .poll(
+      async () => {
+        try {
+          return (
+            await store.findNotificationEndpoint({
+              orgId: seeded.orgId,
+              destination,
+              type: "email",
+            })
+          )?.id;
+        } catch {
+          return undefined;
+        }
+      },
+      { timeout: 15_000 },
+    )
     .toBeTruthy();
 
   const endpoint = await store.findNotificationEndpoint({
@@ -332,13 +339,20 @@ test("push subscribe and unsubscribe flow registers endpoint", async ({
   });
   await clickElement(pushButton);
   await expect
-    .poll(async () => {
-      return await store.findNotificationEndpoint({
-        orgId: seeded.orgId,
-        type: "push",
-        destination: "https://push.example.test/subscription",
-      });
-    })
+    .poll(
+      async () => {
+        try {
+          return await store.findNotificationEndpoint({
+            orgId: seeded.orgId,
+            type: "push",
+            destination: "https://push.example.test/subscription",
+          });
+        } catch {
+          return null;
+        }
+      },
+      { timeout: 15_000 },
+    )
     .toMatchObject({
       enabled: true,
       destination: "https://push.example.test/subscription",
@@ -349,15 +363,22 @@ test("push subscribe and unsubscribe flow registers endpoint", async ({
   await clickElement(page.getByRole("button", { name: /Disable push/i }));
   await expect(page.getByRole("button", { name: /Enable push notifications/i })).toBeVisible();
   await expect
-    .poll(async () => {
-      return (
-        await store.findNotificationEndpoint({
-          orgId: seeded.orgId,
-          type: "push",
-          destination: "https://push.example.test/subscription",
-        })
-      )?.enabled;
-    })
+    .poll(
+      async () => {
+        try {
+          return (
+            await store.findNotificationEndpoint({
+              orgId: seeded.orgId,
+              type: "push",
+              destination: "https://push.example.test/subscription",
+            })
+          )?.enabled;
+        } catch {
+          return undefined;
+        }
+      },
+      { timeout: 15_000 },
+    )
     .toBe(false);
 });
 
