@@ -50,6 +50,11 @@ Important routes:
   - `POST /internal/automations/terminate`
   - `POST /internal/automations/log`
   - `POST /internal/automations/complete`
+- Internal (operator health):
+  - `GET /internal/health/deep`
+  - `GET /internal/dlq`
+  - `POST /internal/dlq/:id/replay`
+  - `POST /internal/dlq/:id/abandon`
 
 Required env:
 
