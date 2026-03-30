@@ -114,7 +114,7 @@ Each provider has its own setup guide with env vars, OAuth callbacks, and operat
 - [Stripe](providers/stripe.md) — OAuth, Managed Payments checkout, billing webhooks (enable `subscription_schedule.updated` on the billing endpoint when using native in-app plan schedules), operator write-mode controls
 - [GitHub](providers/github.md) — OAuth, webhook setup, repository allowlisting
 
-Additional providers (`slack`, `notion`, `custom`) require no provider-specific env vars. Reddit requires `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` for managed OAuth. X requires `X_CLIENT_ID` and `X_CLIENT_SECRET`; optional overrides `X_OAUTH_AUTH_URL`, `X_OAUTH_TOKEN_URL`, and `X_API_BASE_URL` let self-hosted operators point at a custom OAuth/API surface instead of the built-in fake-gateway defaults used in local development and E2E.
+Additional providers (`slack`, `notion`, `custom`) require no provider-specific env vars. Reddit requires `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` for managed OAuth. X requires `X_CLIENT_ID` and `X_CLIENT_SECRET`; optional overrides `X_OAUTH_AUTH_URL`, `X_OAUTH_TOKEN_URL`, and `X_API_BASE_URL` let self-hosted operators point at a custom OAuth/API surface instead of the built-in fake-gateway defaults used in local development and E2E. The default outbound fetch allowlist includes `api.x.com:443`, and `X_API_BASE_URL` is merged into the allowlist when set. If you set `KEPPO_EXTERNAL_FETCH_ALLOWLIST` yourself, include `api.x.com:443` (and the host from any non-default `X_API_BASE_URL`) so X connector actions can reach the API.
 
 Provider rollout flags (all default `true`, set `false` to disable):
 
