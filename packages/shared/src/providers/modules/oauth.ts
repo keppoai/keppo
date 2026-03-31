@@ -28,6 +28,11 @@ export type ManagedOAuthConfig = {
   defaultClientSecret: string;
   defaultScopes: Array<string>;
   scopeMap?: Record<string, string>;
+  mapRequestedScopes?: (requestedScopes: Array<string>) => Array<string>;
+  normalizeGrantedScopes?: (
+    requestedScopes: Array<string>,
+    tokenScope: string | undefined,
+  ) => Array<string>;
   authUrlParams?: Record<string, string>;
   profilePaths: Array<string>;
   resolveExternalAccountId: (profile: Record<string, unknown>) => string | null;
@@ -71,6 +76,9 @@ const normalizeOAuthScopes = (
   requestedScopes: Array<string>,
   tokenScope: string | undefined,
 ): Array<string> => {
+  if (config.normalizeGrantedScopes) {
+    return config.normalizeGrantedScopes(requestedScopes, tokenScope);
+  }
   const parsedScopes = parseScopeList(tokenScope);
   if (parsedScopes.length === 0) {
     return requestedScopes;
@@ -196,7 +204,9 @@ export const createManagedOAuthAuthFacet = (
     buildAuthRequest: async (request, runtime) => {
       const resolvedConfig = resolveManagedOAuthConfig(runtime, config);
       const scopes = request.scopes.length > 0 ? request.scopes : [...resolvedConfig.defaultScopes];
-      const mappedScopes = scopes.map((scope) => resolvedConfig.scopeMap?.[scope] ?? scope);
+      const mappedScopes = resolvedConfig.mapRequestedScopes
+        ? resolvedConfig.mapRequestedScopes(scopes)
+        : scopes.map((scope) => resolvedConfig.scopeMap?.[scope] ?? scope);
 
       const authUrl = new URL(resolvedConfig.oauthAuthUrl);
       authUrl.searchParams.set("client_id", resolvedConfig.clientId);
