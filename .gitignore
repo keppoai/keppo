@@ -4,6 +4,7 @@ dist
 .vite
 .DS_Store
 out-ralph/
+out-security-review/
 playwright-report
 test-results
 test-results.*

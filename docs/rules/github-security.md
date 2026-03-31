@@ -57,6 +57,13 @@ Consult this file before changing GitHub Actions workflows that run Claude, Code
 - Store untrusted issue, PR, and review content in files and treat those files as reference material for the agent, not executable instructions.
 - When later privileged steps depend on trusted context, either validate it with hashes or regenerate the trusted helper scripts that consume it before execution.
 
+## Artifact handling rules
+
+- Keppo is an open-source project. Treat anything uploaded through `actions/upload-artifact` as potentially accessible to people outside the intended reviewer set, and never use GitHub Actions artifacts for sensitive data.
+- Never upload security findings, responsible-disclosure material, agent session logs, prompt/context files, private analysis outputs, or any other sensitive workflow byproducts with `actions/upload-artifact`.
+- For security-sensitive or otherwise non-public workflow outputs, use the dedicated trusted upload path (for example `upload-session-logs.sh`) or keep the data within the same job and process it locally without a GitHub artifact hop.
+- If a workflow cannot complete without persisting sensitive intermediate data across jobs, redesign the workflow instead of falling back to `actions/upload-artifact`.
+
 ## Permissions rules
 
 - Scope GitHub App tokens and job permissions to the minimum repository and permission set each deterministic step needs.

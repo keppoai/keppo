@@ -86,6 +86,19 @@ case "${AGENT_KIND}" in
     ;;
 esac
 
+if [[ -n "${EXTRA_UPLOAD_ROOTS:-}" ]]; then
+  while IFS= read -r extra_root; do
+    if [[ -z "${extra_root}" ]]; then
+      continue
+    fi
+    if [[ "${extra_root}" != *:* ]]; then
+      echo "Invalid EXTRA_UPLOAD_ROOTS entry: ${extra_root}" >&2
+      exit 1
+    fi
+    roots+=("${extra_root}")
+  done <<< "${EXTRA_UPLOAD_ROOTS}"
+fi
+
 tmp_dir="$(mktemp -d)"
 cleanup_paths+=("${tmp_dir}")
 manifest_entries_path="${tmp_dir}/manifest-files.jsonl"
@@ -103,6 +116,14 @@ for root_entry in "${roots[@]}"; do
   root="${root_entry#*:}"
   if [[ -d "${root}" ]]; then
     root_labels+=("${root_label}")
+    case "${root_label}" in
+      codex-home|claude-home-projects|claude-config-projects)
+        find_args=( -type f \( -name '*.json' -o -name '*.jsonl' \) -newer "${LOG_MARKER_PATH}" )
+        ;;
+      *)
+        find_args=( -type f -newer "${LOG_MARKER_PATH}" )
+        ;;
+    esac
     while IFS= read -r file; do
       if [[ ${#files[@]} -ge ${MAX_LOG_FILES} ]]; then
         skipped_due_to_cap=$((skipped_due_to_cap + 1))
@@ -116,16 +137,16 @@ for root_entry in "${roots[@]}"; do
       fi
       total_bytes="${next_total_bytes}"
       files+=("${root_label}:${root}:${file}:${file_bytes}")
-    done < <(find "${root}" -type f \( -name '*.json' -o -name '*.jsonl' \) -newer "${LOG_MARKER_PATH}" | sort)
+    done < <(find "${root}" "${find_args[@]}" | sort)
   fi
 done
 
 if [[ ${#files[@]} -eq 0 ]]; then
-  echo "No new ${AGENT_KIND} session logs found after ${LOG_MARKER_PATH}." >&2
+  echo "No new ${AGENT_KIND} session logs or extra upload files found after ${LOG_MARKER_PATH}." >&2
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
       printf '### %s session logs\n\n' "${AGENT_KIND}"
-      printf 'No new JSON/JSONL session logs were found for this run.\n'
+      printf 'No new session logs or extra upload files were found for this run.\n'
     } >> "${GITHUB_STEP_SUMMARY}"
   fi
   exit 0

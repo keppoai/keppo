@@ -1,0 +1,11 @@
+Use `$security-review:recent` at `{{SKILL_PATH}}` to perform defensive security research on this open-source project in coordination with the maintainer.
+
+Review the last 7 days of commits. Use `./out-security-review` for all intermediate artifacts and write the final confirmed findings JSON array to `{{FINDINGS_PATH}}`.
+
+Requirements:
+- Focus only on real critical and high severity vulnerabilities.
+- Follow the skill's workflow and formatting requirements exactly, including the required final `description` structure for each finding in `{{FINDINGS_PATH}}`.
+- If no qualifying vulnerabilities are confirmed, write `[]` to `{{FINDINGS_PATH}}`.
+- Do not modify tracked repository files. Only write under `./out-security-review`.
+
+The JSON artifact is the source of truth for the downstream filing job.
