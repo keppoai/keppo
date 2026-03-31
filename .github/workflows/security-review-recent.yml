@@ -1,0 +1,119 @@
+name: Nightly Security Review Recent
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+      timezone: "America/Los_Angeles"
+  workflow_dispatch: {}
+
+permissions: {}
+
+concurrency:
+  group: security-review-recent
+  cancel-in-progress: true
+
+jobs:
+  review:
+    environment: ai-bots
+    runs-on: ubicloud-standard-2
+    timeout-minutes: 120
+    permissions:
+      contents: read
+    env:
+      CODEX_HOME: tmp/security-review-recent/codex-home
+      PROMPT_PATH: tmp/security-review-recent/run-prompt.txt
+      FINDINGS_PATH: out-security-review/findings.json
+      SKILL_PATH: .agents/skills/security-review-recent/SKILL.md
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI
+        run: npm install -g @openai/codex@latest
+
+      - name: Write Codex auth file
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: bash scripts/codex-commit-review/write-codex-auth.sh
+
+      - name: Reset private output directory
+        run: |
+          set -euo pipefail
+          rm -rf out-security-review
+          mkdir -p out-security-review
+
+      - name: Render security review prompt
+        env:
+          TEMPLATE_PATH: .github/prompts/security-review-recent/run.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          SKILL_PATH: ${{ env.SKILL_PATH }}
+          FINDINGS_PATH: ${{ env.FINDINGS_PATH }}
+        run: node scripts/issue-agent/render-template.mjs
+
+      - name: Run Codex security review
+        timeout-minutes: 105
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+        run: bash scripts/codex-commit-review/run-codex.sh
+
+      - name: Ensure findings file exists
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${FINDINGS_PATH}")"
+          if [ ! -f "${FINDINGS_PATH}" ]; then
+            printf '[]\n' > "${FINDINGS_PATH}"
+          fi
+
+      - name: Upload findings artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-review-recent-findings
+          path: ${{ env.FINDINGS_PATH }}
+          retention-days: 1
+
+  publish:
+    needs: review
+    environment: ai-bots
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout trusted workflow assets
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Download findings artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: security-review-recent-findings
+          path: out-security-review
+
+      - name: File advisories and send notification
+        env:
+          FINDINGS_PATH: out-security-review/findings.json
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          SECURITY_ADVISORY_TOKEN: ${{ secrets.KEPPO_SECURITY_ADVISORY_TOKEN }}
+          SECURITY_ADVISORY_ALERT_EMAILS: ${{ vars.SECURITY_ADVISORY_ALERT_EMAILS }}
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ vars.MAILGUN_DOMAIN }}
+          MAILGUN_FROM_EMAIL: ${{ vars.MAILGUN_FROM_EMAIL }}
+        run: node scripts/security-review-recent/publish-advisories.mjs

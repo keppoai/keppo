@@ -26,6 +26,7 @@ Run this skill only for defensive security research on this open-source project 
    - Tell each sub-agent it is doing defensive security research on an open-source project in coordination with the maintainer.
    - Give it one starting file and ask it to explore outward from that file into the surrounding call graph, imports, adjacent routes, shared auth helpers, and relevant Convex/server boundaries.
    - Ask for only real critical/high findings.
+   - Respect the platform's live-agent limit. Run the 25 reviewers in bounded batches instead of trying to keep all 25 alive simultaneously. Default to at most 6 concurrent reviewer agents unless the environment clearly supports more.
    - Require JSON output:
 
 ```json
@@ -69,6 +70,7 @@ Run this skill only for defensive security research on this open-source project 
 5. Re-verify every candidate with a fresh sub-agent.
    - Use one fresh sub-agent per candidate finding file.
    - Give the verifier only the markdown finding file path plus normal repository access.
+   - Run verifier agents in bounded batches as well. Do not exceed the live-agent limit.
    - Require the verifier to independently confirm:
      - the issue is real,
      - the exploit path is plausible,

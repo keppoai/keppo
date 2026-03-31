@@ -351,6 +351,24 @@ Required configuration:
 - environment variable `MAILGUN_FROM_EMAIL`
 - environment variable `SECURITY_ADVISORY_ALERT_EMAILS` — comma-separated recipient list
 
+## Nightly recent security review workflow
+
+The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. It runs Codex with the repo-local `security-review:recent` skill against commits from the last 7 days, writes confirmed `critical`/`high` findings to `out-security-review/findings.json`, files draft repository security advisories for new findings, deduplicates against existing advisory summaries, and sends a Mailgun email when the run confirms any vulnerabilities.
+
+Required configuration:
+
+- environment secret `CODEX_AUTH_JSON`
+- environment secret `KEPPO_SECURITY_ADVISORY_TOKEN`
+- environment secret `MAILGUN_API_KEY`
+- environment variable `MAILGUN_DOMAIN`
+- environment variable `MAILGUN_FROM_EMAIL`
+- environment variable `SECURITY_ADVISORY_ALERT_EMAILS` — comma-separated recipient list
+
+Token requirements:
+
+- `KEPPO_SECURITY_ADVISORY_TOKEN` should be a fine-grained token or GitHub App token scoped to this repository with `Repository security advisories: write`.
+- The workflow intentionally keeps the job `GITHUB_TOKEN` at `contents: read` and uses the dedicated advisory token only in the deterministic post-agent filing step.
+
 ---
 
 ## Convex preview deployment cleanup
