@@ -62,6 +62,7 @@ Consult this file before changing GitHub Actions workflows that run Claude, Code
 - Keppo is an open-source project. Treat anything uploaded through `actions/upload-artifact` as potentially accessible to people outside the intended reviewer set, and never use GitHub Actions artifacts for sensitive data.
 - Never upload security findings, responsible-disclosure material, agent session logs, prompt/context files, private analysis outputs, or any other sensitive workflow byproducts with `actions/upload-artifact`.
 - For security-sensitive or otherwise non-public workflow outputs, use the dedicated trusted upload path (for example `upload-session-logs.sh`) or keep the data within the same job and process it locally without a GitHub artifact hop.
+- When a trusted upload helper scans an agent home directory for session logs, scope discovery to the known session-log subtree or filename pattern. Never treat "all newly written JSON files under agent home" as session logs; agent homes also contain auth, plugin, config, and other unrelated machine files.
 - If a workflow cannot complete without persisting sensitive intermediate data across jobs, redesign the workflow instead of falling back to `actions/upload-artifact`.
 
 ## Permissions rules

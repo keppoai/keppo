@@ -65,6 +65,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+should_include_file() {
+  local root_label="$1"
+  local root="$2"
+  local file="$3"
+  local relative_path
+
+  relative_path="${file#${root}/}"
+  case "${root_label}" in
+    codex-home)
+      [[ "${relative_path}" =~ ^sessions/.+\.(json|jsonl)$ ]]
+      return
+      ;;
+    *)
+      return 0
+      ;;
+  esac
+}
+
 declare -a roots=()
 case "${AGENT_KIND}" in
   codex)
@@ -125,6 +143,9 @@ for root_entry in "${roots[@]}"; do
         ;;
     esac
     while IFS= read -r file; do
+      if ! should_include_file "${root_label}" "${root}" "${file}"; then
+        continue
+      fi
       if [[ ${#files[@]} -ge ${MAX_LOG_FILES} ]]; then
         skipped_due_to_cap=$((skipped_due_to_cap + 1))
         continue
