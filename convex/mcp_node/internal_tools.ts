@@ -24,6 +24,7 @@ type InternalToolDefinition = {
 type InternalToolPayload = {
   workspaceId: string;
   runId: string;
+  automationRunId?: string | undefined;
   credentialId: string;
   input: JsonRecord;
 };
@@ -127,6 +128,20 @@ type InternalToolHandlerDeps = {
       startedAt: number;
     },
   ) => Promise<void>;
+  recordAutomationRunOutcome: (
+    ctx: ActionCtx,
+    params: {
+      workspaceId: string;
+      automationRunId: string;
+      success: boolean;
+      summary: string;
+    },
+  ) => Promise<{
+    success: boolean;
+    summary: string;
+    source: string;
+    recorded_at: string;
+  }>;
   stableIdempotencyKey: (toolName: string, payload: JsonRecord) => string;
   createWorkerExecutionError: (code: WorkerExecutionErrorCode, message: string) => Error;
 };
@@ -262,6 +277,84 @@ export const createInternalToolCallHandler = (deps: InternalToolHandlerDeps) => 
         action_id: created.action.id,
         next_tool: "keppo.wait_for_action",
       };
+    }
+
+    if (tool.name === "record_outcome") {
+      const automationRunId = payload.automationRunId?.trim();
+      if (!automationRunId) {
+        throw deps.createWorkerExecutionError(
+          "execution_failed",
+          "record_outcome is only available inside automation runs.",
+        );
+      }
+
+      const normalizedInput = toJsonRecord(
+        tool.input_schema.parse(payload.input),
+        `${tool.name} normalized input failed validation.`,
+        deps.createWorkerExecutionError,
+      );
+      const success = normalizedInput.success === true;
+      const summary = typeof normalizedInput.summary === "string" ? normalizedInput.summary : "";
+
+      const toolCall = await deps.createToolCall(ctx, {
+        runId: payload.runId,
+        toolName: tool.name,
+        inputRedacted: {
+          success,
+          summary,
+        },
+      });
+
+      try {
+        const recorded = await deps.recordAutomationRunOutcome(ctx, {
+          workspaceId: payload.workspaceId,
+          automationRunId,
+          success,
+          summary,
+        });
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.completed,
+          outputRedacted: {
+            status: "recorded",
+            success: recorded.success,
+            summary: recorded.summary,
+            source: recorded.source,
+            recorded_at: recorded.recorded_at,
+          },
+          startedAt,
+        });
+        return {
+          status: "recorded",
+          success: recorded.success,
+          summary: recorded.summary,
+          source: recorded.source,
+          recorded_at: recorded.recorded_at,
+        };
+      } catch (error) {
+        const message =
+          error instanceof Error ? error.message.trim() : "Failed to record automation outcome.";
+        const normalizedMessage =
+          message === "AutomationRunOutcomeAlreadyRecorded"
+            ? "record_outcome may only be called once per automation run."
+            : message === "AutomationRunOutcomeSummaryRequired"
+              ? "record_outcome requires a non-empty plain-text summary."
+              : message === "AutomationRunOutcomeSummaryTooLong"
+                ? "record_outcome summary must be 2000 characters or fewer."
+                : message === "AutomationRunWorkspaceMismatch"
+                  ? "record_outcome does not match the active workspace."
+                  : message || "Failed to record automation outcome.";
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.failed,
+          outputRedacted: {
+            status: "failed",
+            error: normalizedMessage,
+          },
+          startedAt,
+        });
+        throw deps.createWorkerExecutionError("execution_failed", normalizedMessage);
+      }
     }
 
     throw deps.createWorkerExecutionError("execution_failed", `Unknown internal tool ${tool.name}`);

@@ -203,6 +203,7 @@ export const providerUiPayloadSchema = z.object({
 export const convexExecuteToolCallPayloadSchema = z.object({
   workspaceId: nonEmptyStringSchema,
   runId: nonEmptyStringSchema,
+  automationRunId: nonEmptyStringSchema.optional(),
   toolName: nonEmptyStringSchema,
   input: jsonRecordSchema,
   credentialId: nonEmptyStringSchema,

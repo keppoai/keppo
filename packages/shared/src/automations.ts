@@ -201,6 +201,14 @@ export type AutomationRunFailureStatus =
   | typeof AUTOMATION_RUN_STATUS.cancelled
   | typeof AUTOMATION_RUN_STATUS.timedOut;
 
+export const AUTOMATION_RUN_OUTCOME_SOURCES = ["agent_recorded", "fallback_missing"] as const;
+export type AutomationRunOutcomeSource = (typeof AUTOMATION_RUN_OUTCOME_SOURCES)[number];
+export const AUTOMATION_RUN_OUTCOME_SOURCE = {
+  agentRecorded: "agent_recorded",
+  fallbackMissing: "fallback_missing",
+} as const satisfies Record<string, AutomationRunOutcomeSource>;
+export const AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH = 2000;
+
 const automationRunStatusSet = new Set<AutomationRunStatus>(AUTOMATION_RUN_STATUSES);
 
 export const isAutomationRunStatus = (value: unknown): value is AutomationRunStatus => {

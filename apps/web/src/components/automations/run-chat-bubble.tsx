@@ -1,6 +1,7 @@
 import {
   AlertCircleIcon,
   BrainIcon,
+  CheckCircle2Icon,
   ChevronRightIcon,
   InfoIcon,
   Settings2Icon,
@@ -225,25 +226,67 @@ const SystemBubble = ({
 }: {
   event: Extract<RunEvent, { type: "system" }>;
   isLatest?: boolean;
-}) => (
-  <BubbleFrame
-    event={event}
-    isLatest={isLatest}
-    compact
-    icon={<InfoIcon className="text-muted-foreground size-4" />}
-    title="System"
-    className="bg-card"
-    titleClassName="text-muted-foreground"
-  >
-    <div className="space-y-2">
-      {event.messages.map((message, index) => (
-        <p key={`${event.seq}-${index}`} className="text-sm leading-6">
-          {message}
-        </p>
-      ))}
-    </div>
-  </BubbleFrame>
-);
+}) => {
+  const outcome = event.outcome;
+  const isOutcome = outcome !== undefined;
+  return (
+    <BubbleFrame
+      event={event}
+      isLatest={isLatest}
+      compact
+      icon={
+        isOutcome ? (
+          outcome.success ? (
+            <CheckCircle2Icon className="size-4 text-emerald-600 dark:text-emerald-400" />
+          ) : (
+            <AlertCircleIcon className="size-4 text-destructive" />
+          )
+        ) : (
+          <InfoIcon className="text-muted-foreground size-4" />
+        )
+      }
+      title={isOutcome ? "Automation Outcome" : "System"}
+      className={
+        isOutcome
+          ? outcome.success
+            ? "bg-card border-l-4 border-l-emerald-400/75"
+            : "bg-card border-l-4 border-l-destructive/60"
+          : "bg-card"
+      }
+      titleClassName={
+        isOutcome
+          ? outcome.success
+            ? "text-emerald-900 dark:text-emerald-100"
+            : "text-destructive"
+          : "text-muted-foreground"
+      }
+      meta={
+        isOutcome ? (
+          <>
+            <Badge variant={outcome.success ? "default" : "destructive"} className="text-[10px]">
+              {outcome.success ? "Success" : "Failure"}
+            </Badge>
+            <Badge variant="outline" className="text-[10px]">
+              {outcome.source === "fallback_missing" ? "Fallback" : "Agent"}
+            </Badge>
+          </>
+        ) : undefined
+      }
+    >
+      <div className="space-y-2">
+        {isOutcome ? (
+          <p className="text-sm leading-6">{outcome.summary}</p>
+        ) : (
+          event.messages.map((message, index) => (
+            <p key={`${event.seq}-${index}`} className="text-sm leading-6">
+              {message}
+            </p>
+          ))
+        )}
+      </div>
+    </BubbleFrame>
+  );
+};
 
 const AutomationConfigBubble = ({
   event,

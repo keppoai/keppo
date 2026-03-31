@@ -15,6 +15,8 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
 import {
+  getRunOutcomeBadgeLabel,
+  getRunOutcomeBadgeVariant,
   getRunStatusSummary,
   humanizeTriggerType,
   parsePaginatedRuns,
@@ -212,13 +214,20 @@ export function RunList({ automationId, automationPath }: RunListProps) {
                     <span className="text-muted-foreground text-xs">
                       {humanizeTriggerType(run.trigger_type)}
                     </span>
+                    {getRunOutcomeBadgeLabel(run) ? (
+                      <Badge variant={getRunOutcomeBadgeVariant(run)} className="text-[10px]">
+                        {getRunOutcomeBadgeLabel(run)}
+                      </Badge>
+                    ) : null}
                     <span className="text-muted-foreground text-xs">
                       {run.created_at ? relativeTime(run.created_at) : "Just now"}
                     </span>
                   </div>
                   <p
                     className={
-                      run.status === "failed" || run.status === "timed_out"
+                      run.outcome?.success === false ||
+                      run.status === "failed" ||
+                      run.status === "timed_out"
                         ? "text-destructive mt-0.5 truncate text-xs"
                         : "text-muted-foreground mt-0.5 truncate text-xs"
                     }

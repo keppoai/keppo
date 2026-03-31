@@ -22,6 +22,7 @@ Consult this file before changing GitHub Actions workflow structure, runner sele
 - `issue-agent.yml` and `fix-pr.yml` run in the `ai-bots` environment and require the repo/app credentials documented in `docs/setup.md`.
 - `CODEX_AUTH_JSON` must contain a full working Codex CLI auth file, not a partial token fragment.
 - `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` is only required when agent-driven PRs are expected to publish reviewer-facing demo videos.
+- For workflow-authored PR or issue comments, prefer a scoped GitHub App token over user PAT secrets. When the workflow writes PR conversation comments through the issues API, mint the token with `issues: write` explicitly instead of assuming `pull-requests: write` is sufficient.
 
 ## Label and agent-selection rules
 

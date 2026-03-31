@@ -3,6 +3,7 @@ import {
   getAiKeyModeMeta,
   getAutomationPathSegment,
   getAutomationTriggerLabel,
+  getRunOutcomeBadgeLabel,
   getProviderTriggerSubscriptionSummary,
   getRunStatusSummary,
   getModelProviderForRunner,
@@ -119,6 +120,112 @@ describe("run log view model", () => {
     expect(getRunStatusSummary(parsed.page[0]!.latest_run!)).toBe(
       "Keppo could not reach the server. Try again.",
     );
+  });
+
+  it("prefers recorded automation outcomes over generic status copy", () => {
+    const parsed = parsePaginatedAutomations({
+      page: [
+        {
+          automation: {
+            id: "automation_456",
+            org_id: "org_123",
+            workspace_id: "workspace_123",
+            slug: "review-bot",
+            name: "Review Bot",
+            description: "Review pull requests",
+            status: "active",
+            current_config_version_id: "acv_456",
+            created_by: "user_123",
+            created_at: "2026-03-07T00:00:00.000Z",
+            updated_at: "2026-03-07T00:00:00.000Z",
+          },
+          current_config_version: null,
+          latest_run: {
+            id: "arun_456",
+            automation_id: "automation_456",
+            org_id: "org_123",
+            workspace_id: "workspace_123",
+            config_version_id: "acv_456",
+            trigger_type: "manual",
+            status: "succeeded",
+            started_at: "2026-03-07T01:00:00.000Z",
+            ended_at: "2026-03-07T01:03:00.000Z",
+            error_message: null,
+            sandbox_id: null,
+            mcp_session_id: null,
+            outcome: {
+              success: true,
+              summary: "Reviewed 3 open issues and requested approval to merge the PR.",
+              source: "agent_recorded",
+              recorded_at: "2026-03-07T01:02:59.000Z",
+            },
+            created_at: "2026-03-07T01:00:00.000Z",
+          },
+        },
+      ],
+      isDone: true,
+      continueCursor: "",
+    });
+
+    expect(parsed.page[0]?.latest_run?.outcome).toMatchObject({
+      success: true,
+      source: "agent_recorded",
+    });
+    expect(getRunStatusSummary(parsed.page[0]!.latest_run!)).toBe(
+      "Reviewed 3 open issues and requested approval to merge the PR.",
+    );
+  });
+
+  it("labels synthesized success outcomes as success instead of failure", () => {
+    const parsed = parsePaginatedAutomations({
+      page: [
+        {
+          automation: {
+            id: "automation_789",
+            org_id: "org_123",
+            workspace_id: "workspace_123",
+            slug: "ops-sync",
+            name: "Ops Sync",
+            description: "Sync status dashboards",
+            status: "active",
+            current_config_version_id: "acv_789",
+            created_by: "user_123",
+            created_at: "2026-03-07T00:00:00.000Z",
+            updated_at: "2026-03-07T00:00:00.000Z",
+          },
+          current_config_version: null,
+          latest_run: {
+            id: "arun_789",
+            automation_id: "automation_789",
+            org_id: "org_123",
+            workspace_id: "workspace_123",
+            config_version_id: "acv_789",
+            trigger_type: "manual",
+            status: "succeeded",
+            started_at: "2026-03-07T01:00:00.000Z",
+            ended_at: "2026-03-07T01:03:00.000Z",
+            error_message: null,
+            sandbox_id: null,
+            mcp_session_id: null,
+            outcome: {
+              success: true,
+              summary: "The run completed, but the automation did not record a final outcome.",
+              source: "fallback_missing",
+              recorded_at: "2026-03-07T01:02:59.000Z",
+            },
+            created_at: "2026-03-07T01:00:00.000Z",
+          },
+        },
+      ],
+      isDone: true,
+      continueCursor: "",
+    });
+
+    const run = parsed.page[0]!.latest_run!;
+    expect(getRunStatusSummary(run)).toBe(
+      "The run completed, but the automation did not record a final outcome.",
+    );
+    expect(getRunOutcomeBadgeLabel(run)).toBe("Fallback success");
   });
 
   it("groups adjacent thinking, config, and output fragments", () => {
@@ -244,6 +351,45 @@ describe("run log view model", () => {
       result: { items: [{ title: "Run logs UX" }] },
       resultFormat: "json",
       lastSeq: 3,
+    });
+  });
+
+  it("keeps automation outcome system events separate from generic system notes", () => {
+    const events = toRunEvents([
+      {
+        seq: 1,
+        level: "system",
+        content: "Dispatched sandbox sandbox_123",
+        timestamp: "2026-03-07T00:00:00.000Z",
+        event_type: "system",
+        event_data: { message: "Dispatched sandbox sandbox_123" },
+      },
+      {
+        seq: 2,
+        level: "system",
+        content: "Automation outcome (agent recorded): Success. Finished triage.",
+        timestamp: "2026-03-07T00:00:10.000Z",
+        event_type: "system",
+        event_data: {
+          message: "Automation outcome (agent recorded): Success. Finished triage.",
+          kind: "automation_outcome",
+          outcome: {
+            success: true,
+            summary: "Finished triage.",
+            source: "agent_recorded",
+          },
+        },
+      },
+    ]);
+
+    expect(events).toHaveLength(2);
+    expect(events[1]).toMatchObject({
+      type: "system",
+      outcome: {
+        success: true,
+        summary: "Finished triage.",
+        source: "agent_recorded",
+      },
     });
   });
 

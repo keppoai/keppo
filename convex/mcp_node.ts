@@ -48,6 +48,7 @@ const refs = {
   timeoutInactiveRuns: internal.mcp.timeoutInactiveRuns,
   expirePendingActions: internal.mcp.expirePendingActions,
   runSecurityMaintenance: internal.mcp.runSecurityMaintenance,
+  recordAutomationRunOutcome: internal.automation_runs.recordAutomationRunOutcome,
   recordCronSuccess: internal.cron_heartbeats.recordSuccessInternal,
   recordCronFailure: internal.cron_heartbeats.recordFailureInternal,
   enqueueDeadLetter: internal.dead_letter.enqueue,
@@ -193,6 +194,13 @@ const handleInternalToolCall = createInternalToolCallHandler({
     await approvedActionHandlers.createActionFromDecisionForInternalTool(ctx, params),
   finalizeToolCallRecord: async (ctx, params) =>
     await approvedActionHandlers.finalizeToolCallRecord(ctx, params),
+  recordAutomationRunOutcome: async (ctx, params) =>
+    await ctx.runMutation(refs.recordAutomationRunOutcome, {
+      workspace_id: params.workspaceId,
+      automation_run_id: params.automationRunId,
+      success: params.success,
+      summary: params.summary,
+    }),
   stableIdempotencyKey,
   createWorkerExecutionError,
 });
@@ -230,6 +238,7 @@ export const executeToolCall = internalAction({
   args: {
     workspaceId: v.string(),
     runId: v.string(),
+    automationRunId: v.optional(v.string()),
     toolName: v.string(),
     input: jsonRecordValidator,
     credentialId: v.string(),

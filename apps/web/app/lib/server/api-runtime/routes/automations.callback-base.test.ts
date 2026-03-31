@@ -3,6 +3,7 @@ import {
   applyVercelProtectionBypassToUrl,
   assertRunnerAuthSupported,
   assertSandboxCallbackBaseUrlReachable,
+  buildAutomationRunnerPrompt,
   buildRunnerAuthBootstrapCommand,
   buildRunnerBootstrapCommand,
   buildRunnerCommand,
@@ -47,6 +48,15 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     ).toBe(
       `codex exec --skip-git-repo-check --model 'gpt-5.2' --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'`,
     );
+  });
+
+  it("wraps automation prompts with the record_outcome runtime contract", () => {
+    const prompt = buildAutomationRunnerPrompt("Review open issues");
+
+    expect(prompt).toContain("record_outcome({ success, summary })");
+    expect(prompt).toContain("exactly once as your final tool call");
+    expect(prompt).toContain("Waiting only for a human approval");
+    expect(prompt).toContain("Automation task:\nReview open issues");
   });
 
   it("leaves Codex network access at the default when the automation allows web access", () => {

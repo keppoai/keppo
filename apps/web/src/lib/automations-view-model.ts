@@ -39,6 +39,7 @@ export type AutomationRunStatus =
   | "failed"
   | "cancelled"
   | "timed_out";
+export type AutomationRunOutcomeSource = "agent_recorded" | "fallback_missing";
 export type AutomationRunnerType = "chatgpt_codex" | "claude_code";
 export type AiModelProvider = "openai" | "anthropic";
 export type AiKeyMode = "byok" | "bundled" | "subscription_token";
@@ -199,6 +200,10 @@ const parseRunStatus = (value: unknown): AutomationRunStatus => {
   return "failed";
 };
 
+const parseRunOutcomeSource = (value: unknown): AutomationRunOutcomeSource => {
+  return value === "fallback_missing" ? "fallback_missing" : "agent_recorded";
+};
+
 const parseTriggerEventStatus = (value: unknown): AutomationTriggerEventStatus => {
   if (value === "dispatched" || value === "skipped") {
     return value;
@@ -345,6 +350,12 @@ export type AutomationRun = {
   error_message: string | null;
   sandbox_id: string | null;
   mcp_session_id: string | null;
+  outcome: {
+    success: boolean;
+    summary: string;
+    source: AutomationRunOutcomeSource;
+    recorded_at: string;
+  } | null;
   created_at: string;
 };
 
@@ -600,6 +611,7 @@ const parseAutomationRunRow = (value: unknown): AutomationRun | null => {
   if (!isRecord(value)) {
     return null;
   }
+  const outcomeValue = isRecord(value.outcome) ? value.outcome : null;
   return {
     id: asString(value.id),
     automation_id: asString(value.automation_id),
@@ -613,6 +625,17 @@ const parseAutomationRunRow = (value: unknown): AutomationRun | null => {
     error_message: asNullableString(value.error_message),
     sandbox_id: asNullableString(value.sandbox_id),
     mcp_session_id: asNullableString(value.mcp_session_id),
+    outcome:
+      outcomeValue &&
+      typeof outcomeValue.summary === "string" &&
+      outcomeValue.summary.trim().length > 0
+        ? {
+            success: outcomeValue.success === true,
+            summary: outcomeValue.summary,
+            source: parseRunOutcomeSource(outcomeValue.source),
+            recorded_at: asString(outcomeValue.recorded_at),
+          }
+        : null,
     created_at: asString(value.created_at),
   };
 };
@@ -898,6 +921,9 @@ export const humanizeRunStatus = (status: AutomationRunStatus): string => {
 };
 
 export const getRunStatusSummary = (run: AutomationRun): string => {
+  if (run.outcome) {
+    return run.outcome.summary;
+  }
   if (run.status === "pending") {
     return "Queued to start in this workspace.";
   }
@@ -917,6 +943,43 @@ export const getRunStatusSummary = (run: AutomationRun): string => {
     return toUserFacingErrorMessage(run.error_message, "Ended with an error that needs review.");
   }
   return "Ended with an error that needs review.";
+};
+
+export const getRunOutcomeBadgeLabel = (run: AutomationRun): string | null => {
+  if (!run.outcome) {
+    return null;
+  }
+  if (run.outcome.source === "fallback_missing") {
+    return run.outcome.success ? "Fallback success" : "Fallback failure";
+  }
+  return run.outcome.success ? "Reported success" : "Reported failure";
+};
+
+export const getRunOutcomeBadgeVariant = (
+  run: AutomationRun,
+): "default" | "secondary" | "destructive" | "outline" => {
+  if (!run.outcome) {
+    return "outline";
+  }
+  return run.outcome.success ? "default" : "destructive";
+};
+
+export const getRunOutcomeTitle = (run: AutomationRun): string => {
+  if (run.outcome) {
+    if (run.outcome.source === "fallback_missing") {
+      return run.outcome.success
+        ? "Completion inferred from terminal status"
+        : "Outcome missing from automation";
+    }
+    return run.outcome.success ? "Automation reported success" : "Automation reported failure";
+  }
+  if (run.status === "failed" || run.status === "timed_out") {
+    return "Needs investigation";
+  }
+  if (run.status === "succeeded") {
+    return "Run completed cleanly";
+  }
+  return "Execution summary";
 };
 
 export const summarizeLastRun = (run: AutomationRun | null): string => {
@@ -1048,6 +1111,11 @@ export type RunEventSystem = {
   type: "system";
   message: string;
   messages: string[];
+  outcome?: {
+    success: boolean;
+    summary: string;
+    source: AutomationRunOutcomeSource;
+  };
 } & RunEventBase;
 
 export type RunEventAutomationConfigEntry = {
@@ -1168,7 +1236,25 @@ const lineToEvent = (line: AutomationRunLogLine): RunEventDraft => {
   switch (line.event_type) {
     case "system": {
       const message = asString(data.message) || line.content;
-      return { type: "system", message, messages: [message], ...base };
+      const outcomeValue = isRecord(data.outcome) ? data.outcome : null;
+      const outcome =
+        data.kind === "automation_outcome" &&
+        outcomeValue &&
+        typeof outcomeValue.summary === "string" &&
+        outcomeValue.summary.trim().length > 0
+          ? {
+              success: outcomeValue.success === true,
+              summary: outcomeValue.summary,
+              source: parseRunOutcomeSource(outcomeValue.source),
+            }
+          : undefined;
+      return {
+        type: "system",
+        message,
+        messages: [message],
+        ...(outcome ? { outcome } : {}),
+        ...base,
+      };
     }
     case "automation_config": {
       const entry = toConfigEntry(data, line);
@@ -1299,7 +1385,12 @@ export const toRunEvents = (lines: AutomationRunLogLine[]): RunEvent[] => {
       continue;
     }
 
-    if (previous?.type === "system" && event.type === "system") {
+    if (
+      previous?.type === "system" &&
+      event.type === "system" &&
+      previous.outcome === undefined &&
+      event.outcome === undefined
+    ) {
       previous.messages.push(event.message);
       previous.message = joinTextFragments(previous.messages);
       appendDebugLine(previous, line);

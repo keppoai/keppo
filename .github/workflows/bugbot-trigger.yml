@@ -25,13 +25,19 @@ jobs:
       !contains(github.event.pull_request.body, '#skip-bugbot') &&
       !contains(github.event.pull_request.body, '#skip-bb')
     runs-on: ubuntu-latest
-    permissions:
-      pull-requests: write
     steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
       - name: Comment @BugBot run
         uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
-          # Use a PAT from wwwillchen to post on their behalf
-          token: ${{ secrets.WWWILLCHEN_PR_RW_PAT }}
+          token: ${{ steps.app-token.outputs.token }}
           issue-number: ${{ github.event.pull_request.number }}
           body: "@BugBot run"

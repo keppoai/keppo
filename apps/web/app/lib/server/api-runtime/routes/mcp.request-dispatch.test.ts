@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMcpRouteDispatcher } from "./mcp";
 
-const createWorkspaceAuth = () => ({
+const createWorkspaceAuth = (options?: { automationRunId?: string }) => ({
   status: "ok" as const,
   credential_id: "cred_test",
   workspace: {
@@ -14,6 +14,7 @@ const createWorkspaceAuth = () => ({
     code_mode_enabled: true,
     created_at: "2026-03-01T00:00:00.000Z",
   },
+  ...(options?.automationRunId ? { automation_run_id: options.automationRunId } : {}),
 });
 
 const createDeps = () => {
@@ -98,7 +99,27 @@ const createInitializeRequest = (): Request =>
     }),
   });
 
-const createToolCallRequest = (sessionId: string, args: Record<string, unknown>): Request =>
+const createToolsListRequest = (sessionId: string): Request =>
+  createAuthorizedRequest("http://127.0.0.1/mcp/ws_test", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      "mcp-session-id": sessionId,
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/list",
+      params: {},
+    }),
+  });
+
+const createToolCallRequest = (
+  sessionId: string,
+  toolName: string,
+  args: Record<string, unknown>,
+): Request =>
   createAuthorizedRequest("http://127.0.0.1/mcp/ws_test", {
     method: "POST",
     headers: {
@@ -111,7 +132,7 @@ const createToolCallRequest = (sessionId: string, args: Record<string, unknown>)
       id: 2,
       method: "tools/call",
       params: {
-        name: "search_tools",
+        name: toolName,
         arguments: args,
       },
     }),
@@ -311,11 +332,13 @@ describe("createMcpRouteDispatcher", () => {
     expect(sessionId).toMatch(/^mcp_/);
 
     const firstResponse = await dispatch({
-      request: createToolCallRequest(sessionId!, { query: "send email" }),
+      request: createToolCallRequest(sessionId!, "search_tools", { query: "send email" }),
       workspaceIdParam: "ws_test",
     });
     const secondResponse = await dispatch({
-      request: createToolCallRequest(sessionId!, { query: "gmail send email message" }),
+      request: createToolCallRequest(sessionId!, "search_tools", {
+        query: "gmail send email message",
+      }),
       workspaceIdParam: "ws_test",
     });
 
@@ -356,11 +379,13 @@ describe("createMcpRouteDispatcher", () => {
 
     const [firstResponse, secondResponse] = await Promise.all([
       dispatch({
-        request: createToolCallRequest(sessionId!, { query: "send email" }),
+        request: createToolCallRequest(sessionId!, "search_tools", { query: "send email" }),
         workspaceIdParam: "ws_test",
       }),
       dispatch({
-        request: createToolCallRequest(sessionId!, { query: "gmail send email message" }),
+        request: createToolCallRequest(sessionId!, "search_tools", {
+          query: "gmail send email message",
+        }),
         workspaceIdParam: "ws_test",
       }),
     ]);
@@ -369,5 +394,134 @@ describe("createMcpRouteDispatcher", () => {
     expect(secondResponse.status).toBe(200);
     await expect(parseStreamableHttpJson(firstResponse)).resolves.toBeTruthy();
     await expect(parseStreamableHttpJson(secondResponse)).resolves.toBeTruthy();
+  });
+
+  it("hides record_outcome from non-automation tool lists", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.listToolCatalogForWorkspace.mockResolvedValue([
+      { name: "search_tools", description: "Search tools" },
+      { name: "record_outcome", description: "Record automation outcome" },
+    ]);
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const listResponse = await dispatch({
+      request: createToolsListRequest(sessionId!),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(listResponse)) as {
+      result?: { tools?: Array<{ name: string }> };
+    };
+
+    expect(listResponse.status).toBe(200);
+    expect(payload.result?.tools?.map((tool) => tool.name)).toEqual(["search_tools"]);
+  });
+
+  it("injects record_outcome for automation-authenticated sessions", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(
+      createWorkspaceAuth({ automationRunId: "arun_test" }),
+    );
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.listToolCatalogForWorkspace.mockResolvedValue([
+      { name: "search_tools", description: "Search tools" },
+    ]);
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const listResponse = await dispatch({
+      request: createToolsListRequest(sessionId!),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(listResponse)) as {
+      result?: { tools?: Array<{ name: string }> };
+    };
+
+    expect(listResponse.status).toBe(200);
+    expect(payload.result?.tools?.map((tool) => tool.name)).toContain("record_outcome");
+  });
+
+  it("rejects record_outcome outside automation sessions", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "record_outcome", {
+        success: true,
+        summary: "Done",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).toBe(true);
+    expect(payload.result?.content?.[0]?.text).toContain(
+      "record_outcome is only available inside automation runs.",
+    );
+    expect(convex.executeToolCall).not.toHaveBeenCalled();
+  });
+
+  it("passes the automation run id through record_outcome tool calls", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(
+      createWorkspaceAuth({ automationRunId: "arun_test" }),
+    );
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.executeToolCall.mockResolvedValue({
+      status: "recorded",
+      success: true,
+      summary: "Completed triage",
+    });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "record_outcome", {
+        success: true,
+        summary: "Completed triage",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+
+    expect(response.status).toBe(200);
+    expect(convex.executeToolCall).toHaveBeenCalledWith({
+      workspaceId: "ws_test",
+      runId: "run_test",
+      automationRunId: "arun_test",
+      toolName: "record_outcome",
+      input: {
+        success: true,
+        summary: "Completed triage",
+      },
+      credentialId: "cred_test",
+    });
   });
 });

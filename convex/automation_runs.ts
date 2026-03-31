@@ -16,6 +16,7 @@ import {
   automationStatusValidator,
   automationRunLogLevelValidator,
   automationRunEventTypeValidator,
+  automationRunOutcomeSourceValidator,
   automationProviderTriggerMigrationStateValidator,
   automationProviderTriggerValidator,
   aiModelProviderValidator,
@@ -29,6 +30,8 @@ import {
   AUTOMATION_STATUS,
   NOTIFICATION_EVENT_ID,
   AUTOMATION_RUN_STATUS,
+  AUTOMATION_RUN_OUTCOME_SOURCE,
+  AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH,
   RUN_TRIGGER_TYPE,
   RUN_STATUS,
   SUBSCRIPTION_TIER,
@@ -36,6 +39,7 @@ import {
   assertNever,
   isAutomationRunFailureStatus,
   isAutomationRunTerminalStatus,
+  type AutomationRunOutcomeSource,
   type AutomationRunStatus,
   type RunStatus,
   type RunTriggerType,
@@ -64,6 +68,13 @@ const zeroAutomationRunTopupBalance = {
   purchased_tool_call_time_ms_balance: 0,
 } as const;
 
+const automationRunOutcomeViewValidator = v.object({
+  success: v.boolean(),
+  summary: v.string(),
+  source: automationRunOutcomeSourceValidator,
+  recorded_at: v.string(),
+});
+
 const automationRunViewValidator = v.object({
   id: v.string(),
   automation_id: v.string(),
@@ -77,6 +88,7 @@ const automationRunViewValidator = v.object({
   error_message: v.union(v.string(), v.null()),
   sandbox_id: v.union(v.string(), v.null()),
   mcp_session_id: v.union(v.string(), v.null()),
+  outcome: v.union(automationRunOutcomeViewValidator, v.null()),
   log_storage_id: v.union(v.id("_storage"), v.null()),
   created_at: v.string(),
 });
@@ -160,6 +172,10 @@ type AutomationRunRow = Doc<"automation_runs"> & {
   workspace_id: string;
   config_version_id: string;
   trigger_type: RunTriggerType;
+  outcome_success: boolean | null;
+  outcome_summary: string | null;
+  outcome_source: AutomationRunOutcomeSource | null;
+  outcome_recorded_at: string | null;
   created_at: string;
   log_storage_id: Id<"_storage"> | null;
 };
@@ -182,8 +198,39 @@ const requireAutomationRunShape = (run: Doc<"automation_runs"> | null): Automati
     workspace_id: run.workspace_id,
     config_version_id: run.config_version_id,
     trigger_type: run.trigger_type,
+    outcome_success: run.outcome_success ?? null,
+    outcome_summary: run.outcome_summary ?? null,
+    outcome_source: run.outcome_source ?? null,
+    outcome_recorded_at: run.outcome_recorded_at ?? null,
     created_at: run.created_at ?? run.started_at,
     log_storage_id: run.log_storage_id ?? null,
+  };
+};
+
+const toAutomationRunOutcomeView = (
+  run: AutomationRunRow,
+): {
+  success: boolean;
+  summary: string;
+  source: AutomationRunOutcomeSource;
+  recorded_at: string;
+} | null => {
+  if (
+    typeof run.outcome_success !== "boolean" ||
+    typeof run.outcome_summary !== "string" ||
+    run.outcome_summary.trim().length === 0 ||
+    typeof run.outcome_source !== "string" ||
+    typeof run.outcome_recorded_at !== "string" ||
+    run.outcome_recorded_at.trim().length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    success: run.outcome_success,
+    summary: run.outcome_summary,
+    source: run.outcome_source,
+    recorded_at: run.outcome_recorded_at,
   };
 };
 
@@ -202,6 +249,12 @@ const toAutomationRunView = (
   error_message: string | null;
   sandbox_id: string | null;
   mcp_session_id: string | null;
+  outcome: {
+    success: boolean;
+    summary: string;
+    source: AutomationRunOutcomeSource;
+    recorded_at: string;
+  } | null;
   log_storage_id: Id<"_storage"> | null;
   created_at: string;
 } => {
@@ -218,6 +271,7 @@ const toAutomationRunView = (
     error_message: run.error_message ?? null,
     sandbox_id: run.sandbox_id ?? null,
     mcp_session_id: run.mcp_session_id ?? null,
+    outcome: toAutomationRunOutcomeView(run),
     log_storage_id: run.log_storage_id,
     created_at: run.created_at,
   };
@@ -357,6 +411,106 @@ const truncateToUtf8Bytes = (value: string, maxBytes: number): string => {
   return output;
 };
 
+const formatAutomationRunOutcomeLogMessage = (params: {
+  success: boolean;
+  summary: string;
+  source: AutomationRunOutcomeSource;
+}): string => {
+  const label = params.success ? "Success" : "Failure";
+  const source =
+    params.source === AUTOMATION_RUN_OUTCOME_SOURCE.agentRecorded
+      ? "agent recorded"
+      : "fallback generated";
+  return `Automation outcome (${source}): ${label}. ${params.summary}`;
+};
+
+const buildFallbackAutomationRunOutcomeSummary = (params: {
+  status: AutomationRunStatus;
+}): string => {
+  switch (params.status) {
+    case AUTOMATION_RUN_STATUS.succeeded:
+      return "The run completed, but the automation did not record a final outcome.";
+    case AUTOMATION_RUN_STATUS.failed:
+      return "The run failed before the automation recorded a final outcome.";
+    case AUTOMATION_RUN_STATUS.cancelled:
+      return "The run was cancelled before the automation recorded a final outcome.";
+    case AUTOMATION_RUN_STATUS.timedOut:
+      return "The run timed out before the automation recorded a final outcome.";
+    case AUTOMATION_RUN_STATUS.pending:
+    case AUTOMATION_RUN_STATUS.running:
+      return "The run has not reached a terminal state.";
+    default:
+      return assertNever(params.status, "automation run outcome fallback status");
+  }
+};
+
+const normalizeAutomationRunOutcomeSummary = (summary: string): string => {
+  const normalized = summary.trim();
+  if (normalized.length === 0) {
+    throw new Error("AutomationRunOutcomeSummaryRequired");
+  }
+  if (normalized.length > AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH) {
+    throw new Error("AutomationRunOutcomeSummaryTooLong");
+  }
+  return normalized;
+};
+
+const buildAutomationRunOutcomeRecord = (params: {
+  success: boolean;
+  summary: string;
+  source: AutomationRunOutcomeSource;
+}) => {
+  const summary = normalizeAutomationRunOutcomeSummary(params.summary);
+  const recordedAt = nowIso();
+  const outcome = {
+    success: params.success,
+    summary,
+    source: params.source,
+    recorded_at: recordedAt,
+  } as const;
+  const message = formatAutomationRunOutcomeLogMessage({
+    success: params.success,
+    summary,
+    source: params.source,
+  });
+  return {
+    outcome,
+    message,
+    patch: {
+      outcome_success: outcome.success,
+      outcome_summary: outcome.summary,
+      outcome_source: outcome.source,
+      outcome_recorded_at: outcome.recorded_at,
+    },
+  };
+};
+
+const appendAutomationRunOutcomeLogInternal = async (
+  ctx: MutationCtx,
+  params: {
+    automation_run_id: string;
+    outcome: {
+      success: boolean;
+      summary: string;
+      source: AutomationRunOutcomeSource;
+      recorded_at: string;
+    };
+    message: string;
+  },
+) => {
+  await appendAutomationRunLogInternal(ctx, {
+    automation_run_id: params.automation_run_id,
+    level: "system",
+    content: params.message,
+    event_type: "system",
+    event_data: {
+      message: params.message,
+      kind: "automation_outcome",
+      outcome: params.outcome,
+    },
+  });
+};
+
 const createAutomationRunInternal = async (
   ctx: MutationCtx,
   params: {
@@ -463,6 +617,10 @@ const createAutomationRunInternal = async (
     trigger_type: params.trigger_type,
     error_message: null,
     sandbox_id: null,
+    outcome_success: null,
+    outcome_summary: null,
+    outcome_source: null,
+    outcome_recorded_at: null,
     log_storage_id: null,
     created_at: createdAt,
     mcp_session_id: null,
@@ -482,6 +640,145 @@ const createAutomationRunInternal = async (
     .withIndex("by_custom_id", (q) => q.eq("id", id))
     .unique();
   return toAutomationRunView(requireAutomationRunShape(created));
+};
+
+const appendAutomationRunLogInternal = async (
+  ctx: MutationCtx,
+  args: {
+    automation_run_id: string;
+    level: "stdout" | "stderr" | "system";
+    content: string;
+    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+    event_data?: Record<string, unknown>;
+  },
+) => {
+  const run = await getAutomationRunById(ctx, args.automation_run_id);
+  const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
+    orgId: run.org_id,
+  });
+  const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
+  const maxLogBytes = getTierConfig(tier).automation_limits.max_log_bytes_per_run;
+
+  const timestamp = nowIso();
+  const content = truncateToUtf8Bytes(args.content, 4096);
+  const lineBytes = utf8Bytes(content);
+
+  const latest = await ctx.db
+    .query("automation_run_logs")
+    .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
+    .order("desc")
+    .first();
+  let nextSeq = latest ? latest.seq + 1 : 1;
+
+  const currentLogBytesFromMeta =
+    typeof run.metadata?.log_bytes === "number" ? run.metadata.log_bytes : null;
+  let currentBytes = currentLogBytesFromMeta;
+  if (currentBytes === null) {
+    const allRows = await ctx.db
+      .query("automation_run_logs")
+      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
+      .collect();
+    currentBytes = allRows.reduce((sum, row) => sum + utf8Bytes(row.content), 0);
+  }
+
+  let logEvictionNoted = run.metadata?.log_eviction_noted === true;
+  const evictionNotice = "Log ring buffer capacity reached; older lines were evicted.";
+  const evictionNoticeBytes = utf8Bytes(evictionNotice);
+  const reserveForNotice = logEvictionNoted ? 0 : evictionNoticeBytes;
+  const targetBeforeAppend = maxLogBytes - lineBytes - reserveForNotice;
+
+  if (currentBytes > targetBeforeAppend) {
+    let bytesToFree = currentBytes - Math.max(0, targetBeforeAppend);
+    const oldestRows = await ctx.db
+      .query("automation_run_logs")
+      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
+      .collect();
+
+    for (const row of oldestRows) {
+      if (bytesToFree <= 0) {
+        break;
+      }
+      const rowBytes = utf8Bytes(row.content);
+      await ctx.db.delete(row._id);
+      currentBytes -= rowBytes;
+      bytesToFree -= rowBytes;
+    }
+
+    if (!logEvictionNoted) {
+      await ctx.db.insert("automation_run_logs", {
+        automation_run_id: args.automation_run_id,
+        seq: nextSeq,
+        level: "system",
+        content: evictionNotice,
+        timestamp,
+      });
+      nextSeq += 1;
+      currentBytes += evictionNoticeBytes;
+      logEvictionNoted = true;
+    }
+  }
+
+  await ctx.db.insert("automation_run_logs", {
+    automation_run_id: args.automation_run_id,
+    seq: nextSeq,
+    level: args.level,
+    content,
+    timestamp,
+    ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
+    ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
+  });
+  currentBytes += lineBytes;
+
+  await ctx.db.patch(run._id, {
+    metadata: {
+      ...run.metadata,
+      automation_run_status: normalizeAutomationRunStatus(run),
+      log_bytes: currentBytes,
+      log_eviction_noted: logEvictionNoted,
+    },
+  });
+
+  return {
+    seq: nextSeq,
+    level: args.level,
+    content,
+    timestamp,
+    ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
+    ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
+  };
+};
+
+const recordAutomationRunOutcomeInternal = async (
+  ctx: MutationCtx,
+  params: {
+    automation_run_id: string;
+    workspace_id?: string;
+    success: boolean;
+    summary: string;
+    source: AutomationRunOutcomeSource;
+    on_existing: "error" | "ignore";
+  },
+) => {
+  const run = await getAutomationRunById(ctx, params.automation_run_id);
+  if (params.workspace_id !== undefined && run.workspace_id !== params.workspace_id) {
+    throw new Error("AutomationRunWorkspaceMismatch");
+  }
+  const existingOutcome = toAutomationRunOutcomeView(run);
+  if (existingOutcome) {
+    if (params.on_existing === "ignore") {
+      return existingOutcome;
+    }
+    throw new Error("AutomationRunOutcomeAlreadyRecorded");
+  }
+
+  const record = buildAutomationRunOutcomeRecord(params);
+  await ctx.db.patch(run._id, record.patch);
+  await appendAutomationRunOutcomeLogInternal(ctx, {
+    automation_run_id: params.automation_run_id,
+    outcome: record.outcome,
+    message: record.message,
+  });
+  return record.outcome;
 };
 
 const updateAutomationRunStatusInternal = async (
@@ -505,10 +802,24 @@ const updateAutomationRunStatusInternal = async (
   const now = nowIso();
   const legacyStatus = toRunStatus(params.status);
   const terminal = isAutomationRunTerminalStatus(params.status);
+  const existingOutcome = toAutomationRunOutcomeView(run);
 
   const errorMessage = isAutomationRunFailureStatus(params.status)
     ? params.error_message?.trim() || run.error_message || null
     : null;
+
+  const shouldReplaceExistingOutcome =
+    isAutomationRunFailureStatus(params.status) && existingOutcome?.success === true;
+  const terminalOutcomeRecord =
+    terminal && (!existingOutcome || shouldReplaceExistingOutcome)
+      ? buildAutomationRunOutcomeRecord({
+          success: params.status === AUTOMATION_RUN_STATUS.succeeded,
+          summary: buildFallbackAutomationRunOutcomeSummary({
+            status: params.status,
+          }),
+          source: AUTOMATION_RUN_OUTCOME_SOURCE.fallbackMissing,
+        })
+      : null;
 
   await ctx.db.patch(run._id, {
     status: legacyStatus,
@@ -520,6 +831,7 @@ const updateAutomationRunStatusInternal = async (
     error_message: errorMessage,
     ...(params.sandbox_id !== undefined ? { sandbox_id: params.sandbox_id } : {}),
     ...(params.mcp_session_id !== undefined ? { mcp_session_id: params.mcp_session_id } : {}),
+    ...(terminalOutcomeRecord ? terminalOutcomeRecord.patch : {}),
   });
 
   if (
@@ -549,6 +861,14 @@ const updateAutomationRunStatusInternal = async (
       },
       ctaUrl: `/automations/${run.automation_id}`,
       ctaLabel: "View Run",
+    });
+  }
+
+  if (terminalOutcomeRecord) {
+    await appendAutomationRunOutcomeLogInternal(ctx, {
+      automation_run_id: params.automation_run_id,
+      outcome: terminalOutcomeRecord.outcome,
+      message: terminalOutcomeRecord.message,
     });
   }
 
@@ -787,100 +1107,29 @@ export const appendAutomationRunLog = internalMutation({
   },
   returns: automationRunLogLineValidator,
   handler: async (ctx, args) => {
-    const run = await getAutomationRunById(ctx, args.automation_run_id);
-    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
-      orgId: run.org_id,
-    });
-    const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
-    const maxLogBytes = getTierConfig(tier).automation_limits.max_log_bytes_per_run;
+    return await appendAutomationRunLogInternal(ctx, args);
+  },
+});
 
-    const timestamp = nowIso();
-    const content = truncateToUtf8Bytes(args.content, 4096);
-    const lineBytes = utf8Bytes(content);
-
-    const latest = await ctx.db
-      .query("automation_run_logs")
-      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-      .order("desc")
-      .first();
-    let nextSeq = latest ? latest.seq + 1 : 1;
-
-    const currentLogBytesFromMeta =
-      typeof run.metadata?.log_bytes === "number" ? run.metadata.log_bytes : null;
-    let currentBytes = currentLogBytesFromMeta;
-    if (currentBytes === null) {
-      const allRows = await ctx.db
-        .query("automation_run_logs")
-        .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-        .collect();
-      currentBytes = allRows.reduce((sum, row) => sum + utf8Bytes(row.content), 0);
-    }
-
-    let logEvictionNoted = run.metadata?.log_eviction_noted === true;
-    const evictionNotice = "Log ring buffer capacity reached; older lines were evicted.";
-    const evictionNoticeBytes = utf8Bytes(evictionNotice);
-    const reserveForNotice = logEvictionNoted ? 0 : evictionNoticeBytes;
-    const targetBeforeAppend = maxLogBytes - lineBytes - reserveForNotice;
-
-    if (currentBytes > targetBeforeAppend) {
-      let bytesToFree = currentBytes - Math.max(0, targetBeforeAppend);
-      const oldestRows = await ctx.db
-        .query("automation_run_logs")
-        .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-        .collect();
-
-      for (const row of oldestRows) {
-        if (bytesToFree <= 0) {
-          break;
-        }
-        const rowBytes = utf8Bytes(row.content);
-        await ctx.db.delete(row._id);
-        currentBytes -= rowBytes;
-        bytesToFree -= rowBytes;
-      }
-
-      if (!logEvictionNoted) {
-        await ctx.db.insert("automation_run_logs", {
-          automation_run_id: args.automation_run_id,
-          seq: nextSeq,
-          level: "system",
-          content: evictionNotice,
-          timestamp,
-        });
-        nextSeq += 1;
-        currentBytes += evictionNoticeBytes;
-        logEvictionNoted = true;
-      }
-    }
-
-    await ctx.db.insert("automation_run_logs", {
+export const recordAutomationRunOutcome = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    workspace_id: v.optional(v.string()),
+    success: v.boolean(),
+    summary: v.string(),
+    source: v.optional(automationRunOutcomeSourceValidator),
+    on_existing: v.optional(v.union(v.literal("error"), v.literal("ignore"))),
+  },
+  returns: automationRunOutcomeViewValidator,
+  handler: async (ctx, args) => {
+    return await recordAutomationRunOutcomeInternal(ctx, {
       automation_run_id: args.automation_run_id,
-      seq: nextSeq,
-      level: args.level,
-      content,
-      timestamp,
-      ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
-      ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
+      ...(args.workspace_id ? { workspace_id: args.workspace_id } : {}),
+      success: args.success,
+      summary: args.summary,
+      source: args.source ?? AUTOMATION_RUN_OUTCOME_SOURCE.agentRecorded,
+      on_existing: args.on_existing ?? "error",
     });
-    currentBytes += lineBytes;
-
-    await ctx.db.patch(run._id, {
-      metadata: {
-        ...run.metadata,
-        automation_run_status: normalizeAutomationRunStatus(run),
-        log_bytes: currentBytes,
-        log_eviction_noted: logEvictionNoted,
-      },
-    });
-
-    return {
-      seq: nextSeq,
-      level: args.level,
-      content,
-      timestamp,
-      ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
-      ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
-    };
   },
 });
 

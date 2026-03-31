@@ -1,7 +1,24 @@
 import { z } from "zod";
+import { AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH } from "../automations.js";
 import type { ToolDefinition } from "./types.js";
 
 export const keppoInternalTools: ToolDefinition[] = [
+  {
+    name: "record_outcome",
+    provider: "keppo",
+    capability: "write",
+    risk_level: "low",
+    requires_approval: false,
+    output_sensitivity: "low",
+    action_type: "record_outcome",
+    description:
+      "Record the final automation outcome exactly once with a plain-text success or failure summary.",
+    redaction_policy: [],
+    input_schema: z.object({
+      success: z.boolean(),
+      summary: z.string().trim().min(1).max(AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH),
+    }),
+  },
   {
     name: "keppo.wait_for_action",
     provider: "keppo",

@@ -270,11 +270,17 @@ describe("start-owned automation runtime handlers", () => {
         }),
       },
     });
-    expect(dispatchArg.runtime.command).toBe(
-      "codex exec --skip-git-repo-check --model 'gpt-5.2' --config 'sandbox_mode=\"workspace-write\"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'",
+    expect(dispatchArg.runtime.command).toContain(
+      "codex exec --skip-git-repo-check --model 'gpt-5.2'",
     );
+    expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
+    expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
     expect(dispatchArg.runtime.callbacks.log_url).toContain("/internal/automations/log?");
     expect(dispatchArg.runtime.callbacks.complete_url).toContain("/internal/automations/complete?");
+    expect(deps.convex.issueAutomationWorkspaceCredential).toHaveBeenCalledWith({
+      workspaceId: "ws_test",
+      automationRunId: "arun_dispatch_test",
+    });
     expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         automationRunId: "arun_dispatch_test",
@@ -427,9 +433,10 @@ describe("start-owned automation runtime handlers", () => {
     expect(response.status).toBe(200);
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.network_access).toBe("mcp_and_web");
-    expect(dispatchArg.runtime.command).toBe(
-      "codex exec --skip-git-repo-check --model 'gpt-5.2' 'Review open issues'",
+    expect(dispatchArg.runtime.command).toContain(
+      "codex exec --skip-git-repo-check --model 'gpt-5.2'",
     );
+    expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
   });
 
   it("dispatches bundled runs through the gateway and deducts runtime credits", async () => {
@@ -525,9 +532,10 @@ describe("start-owned automation runtime handlers", () => {
       OPENAI_API_KEY: "bundled-gateway-secret",
       OPENAI_BASE_URL: "https://gateway.keppo.test",
     });
-    expect(dispatchArg.runtime.command).toBe(
-      "codex exec --skip-git-repo-check --config 'model_provider=\"keppo_openai_api\"' --model 'gpt-5.2' --config 'sandbox_mode=\"workspace-write\"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'",
+    expect(dispatchArg.runtime.command).toContain(
+      "codex exec --skip-git-repo-check --config 'model_provider=\"keppo_openai_api\"' --model 'gpt-5.2'",
     );
+    expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
   });
 
   it("returns a bundled-specific missing-key response before any BYO fallback lookup", async () => {
