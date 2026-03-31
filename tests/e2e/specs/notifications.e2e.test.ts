@@ -190,17 +190,17 @@ test("notification preferences warn when an endpoint has repeated delivery failu
   await clickElement(page.getByRole("button", { name: "Add email" }));
   await expect(page.getByText(destination)).toBeVisible();
 
+  let endpoint: Awaited<ReturnType<typeof store.findNotificationEndpoint>> = null;
   await expect
     .poll(
       async () => {
         try {
-          return (
-            await store.findNotificationEndpoint({
-              orgId: seeded.orgId,
-              destination,
-              type: "email",
-            })
-          )?.id;
+          endpoint = await store.findNotificationEndpoint({
+            orgId: seeded.orgId,
+            destination,
+            type: "email",
+          });
+          return endpoint?.id;
         } catch {
           return undefined;
         }
@@ -208,12 +208,6 @@ test("notification preferences warn when an endpoint has repeated delivery failu
       { timeout: 15_000 },
     )
     .toBeTruthy();
-
-  const endpoint = await store.findNotificationEndpoint({
-    orgId: seeded.orgId,
-    destination,
-    type: "email",
-  });
   expect(endpoint?.id).toBeTruthy();
 
   const firstFailure = await admin.createNotificationEvent({

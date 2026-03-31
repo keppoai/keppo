@@ -58,11 +58,40 @@ export class ConvexAdminHelper {
     setClientAdminAuth(this.client, resolveAdminKey());
   }
 
+  /**
+   * Retry a Convex client call on transient function-execution timeouts
+   * (local Convex 1s budget) or OCC failures that surface under CI load.
+   */
+  private async withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable =
+          message.includes("Function execution timed out") ||
+          message.includes("OptimisticConcurrencyControlFailure");
+        if (!retryable || attempt >= maxRetries) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private retryQuery(ref: any, args: any): Promise<any> {
+    return this.withRetry(() => this.client.query(ref, args));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private retryMutation(ref: any, args: any): Promise<any> {
+    return this.withRetry(() => this.client.mutation(ref, args));
+  }
+
   async seedAutomationFixture(params: {
     tier?: "free" | "starter" | "pro";
     scheduleCron?: string;
   }) {
-    return await this.client.mutation(refs.seedAutomationFixture, params);
+    return await this.retryMutation(refs.seedAutomationFixture, params);
   }
 
   async createAutomationForWorkspace(params: {
@@ -72,60 +101,60 @@ export class ConvexAdminHelper {
     description?: string;
     prompt?: string;
   }) {
-    return await this.client.mutation(refs.createAutomationForWorkspace, params);
+    return await this.retryMutation(refs.createAutomationForWorkspace, params);
   }
 
   async createAutomationViaContract(params: { tier?: "free" | "starter" | "pro" }) {
-    return await this.client.mutation(refs.createAutomationViaContract, params);
+    return await this.retryMutation(refs.createAutomationViaContract, params);
   }
 
   async getInviteToken(inviteId: string) {
-    return await this.client.query(refs.getInviteToken, { inviteId });
+    return await this.retryQuery(refs.getInviteToken, { inviteId });
   }
 
   async getLatestInviteTokenForEmail(orgId: string, email: string) {
-    return await this.client.query(refs.getLatestInviteTokenForEmail, {
+    return await this.retryQuery(refs.getLatestInviteTokenForEmail, {
       orgId,
       email,
     });
   }
 
   async getAuthUserByEmail(email: string) {
-    return await this.client.query(refs.getAuthUserForTesting, {
+    return await this.retryQuery(refs.getAuthUserForTesting, {
       email,
     });
   }
 
   async acceptInviteForUser(rawToken: string, userId: string) {
     const tokenHash = createHash("sha256").update(rawToken).digest("hex");
-    return await this.client.mutation(refs.acceptInviteInternal, {
+    return await this.retryMutation(refs.acceptInviteInternal, {
       tokenHash,
       userId,
     });
   }
 
   async listAutomationRuns(automationId: string) {
-    return await this.client.query(refs.listAutomationFixtureRuns, { automationId });
+    return await this.retryQuery(refs.listAutomationFixtureRuns, { automationId });
   }
 
   async createAutomationRun(
     automationId: string,
     triggerType: "schedule" | "event" | "manual" = "manual",
   ) {
-    return await this.client.mutation(refs.createAutomationRun, {
+    return await this.retryMutation(refs.createAutomationRun, {
       automation_id: automationId,
       trigger_type: triggerType,
     });
   }
 
   async getAutomationRun(automationRunId: string) {
-    return await this.client.query(refs.getAutomationRun, {
+    return await this.retryQuery(refs.getAutomationRun, {
       automationRunId: automationRunId,
     });
   }
 
   async getAutomationRunLogs(automationRunId: string) {
-    return await this.client.query(refs.getAutomationRunLogs, {
+    return await this.retryQuery(refs.getAutomationRunLogs, {
       automationRunId: automationRunId,
     });
   }
@@ -139,7 +168,7 @@ export class ConvexAdminHelper {
       eventData?: Record<string, unknown>;
     },
   ) {
-    return await this.client.mutation(refs.appendAutomationRunLog, {
+    return await this.retryMutation(refs.appendAutomationRunLog, {
       automation_run_id: automationRunId,
       level,
       content,
@@ -152,21 +181,21 @@ export class ConvexAdminHelper {
     automationRunId: string,
     status: "running" | "succeeded" | "failed" | "cancelled" | "timed_out",
   ) {
-    return await this.client.mutation(refs.updateAutomationRunStatus, {
+    return await this.retryMutation(refs.updateAutomationRunStatus, {
       automation_run_id: automationRunId,
       status,
     });
   }
 
   async addPurchasedCredits(orgId: string, credits: number) {
-    return await this.client.mutation(refs.addPurchasedCredits, {
+    return await this.retryMutation(refs.addPurchasedCredits, {
       org_id: orgId,
       credits,
     });
   }
 
   async setOrgFeatureAccess(orgId: string, featureKey: string, enabled = true) {
-    return await this.client.mutation(refs.setOrgFeatureAccess, {
+    return await this.retryMutation(refs.setOrgFeatureAccess, {
       orgId,
       featureKey,
       enabled,
@@ -184,7 +213,7 @@ export class ConvexAdminHelper {
     eventType: string;
     payload: Record<string, unknown>;
   }) {
-    return await this.client.mutation(refs.createAuditEvent, params);
+    return await this.retryMutation(refs.createAuditEvent, params);
   }
 
   async registerNotificationEndpoint(params: {
@@ -194,7 +223,7 @@ export class ConvexAdminHelper {
     pushSubscription?: string;
     preferences?: Record<string, boolean>;
   }) {
-    return await this.client.mutation(refs.registerNotificationEndpoint, params);
+    return await this.retryMutation(refs.registerNotificationEndpoint, params);
   }
 
   async createNotificationEvent(params: {
@@ -207,11 +236,11 @@ export class ConvexAdminHelper {
     ctaLabel: string;
     endpointId?: string;
   }) {
-    return await this.client.mutation(refs.createNotificationEvent, params);
+    return await this.retryMutation(refs.createNotificationEvent, params);
   }
 
   async markNotificationEventFailed(eventId: string, error: string) {
-    return await this.client.mutation(refs.markNotificationEventFailed, {
+    return await this.retryMutation(refs.markNotificationEventFailed, {
       eventId,
       error,
       retryable: false,

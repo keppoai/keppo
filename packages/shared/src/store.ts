@@ -69,12 +69,41 @@ export class KeppoStore {
     setClientAdminAuth(this.client, adminKey);
   }
 
+  /**
+   * Retry a Convex client call on transient function-execution timeouts
+   * (local Convex 1s budget) or OCC failures that surface under CI load.
+   */
+  private async withRetry<T>(fn: () => Promise<T>, maxRetries = 2): Promise<T> {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const retryable =
+          message.includes("Function execution timed out") ||
+          message.includes("OptimisticConcurrencyControlFailure");
+        if (!retryable || attempt >= maxRetries) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 250 * (attempt + 1)));
+      }
+    }
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private retryQuery(ref: any, args: any): Promise<any> {
+    return this.withRetry(() => this.client.query(ref, args));
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private retryMutation(ref: any, args: any): Promise<any> {
+    return this.withRetry(() => this.client.mutation(ref, args));
+  }
+
   async ensurePersonalOrgForUser(params: {
     id: string;
     email: string;
     name: string;
   }): Promise<string> {
-    return (await this.client.mutation(refs.seedUserOrg, {
+    return (await this.retryMutation(refs.seedUserOrg, {
       userId: params.id,
       email: params.email,
       name: params.name,
@@ -87,7 +116,7 @@ export class KeppoStore {
     policy_mode: Workspace["policy_mode"];
     default_action_behavior: Workspace["default_action_behavior"];
   }): Promise<Workspace> {
-    return (await this.client.mutation(refs.createWorkspaceForOrg, {
+    return (await this.retryMutation(refs.createWorkspaceForOrg, {
       orgId: params.org_id,
       name: params.name,
       policyMode: params.policy_mode,
@@ -102,7 +131,7 @@ export class KeppoStore {
     };
     secret: string;
   }> {
-    const rotated = (await this.client.mutation(refs.rotateWorkspaceCredentialForTesting, {
+    const rotated = (await this.retryMutation(refs.rotateWorkspaceCredentialForTesting, {
       workspaceId,
     })) as {
       credential_id: string;
@@ -129,7 +158,7 @@ export class KeppoStore {
     credential_expires_at: string | null;
     metadata?: Record<string, unknown>;
   }): Promise<void> {
-    await this.client.mutation(refs.upsertOAuthProviderForOrg, {
+    await this.retryMutation(refs.upsertOAuthProviderForOrg, {
       orgId: params.org_id,
       provider: params.provider,
       displayName: params.display_name,
@@ -146,14 +175,14 @@ export class KeppoStore {
     workspace_id: string;
     providers: Provider[];
   }): Promise<void> {
-    await this.client.mutation(refs.setWorkspaceIntegrations, {
+    await this.retryMutation(refs.setWorkspaceIntegrations, {
       workspaceId: params.workspace_id,
       providers: params.providers,
     });
   }
 
   async disconnectIntegration(params: { org_id: string; provider: Provider }): Promise<void> {
-    await this.client.mutation(refs.disconnectOAuthProviderForOrg, {
+    await this.retryMutation(refs.disconnectOAuthProviderForOrg, {
       orgId: params.org_id,
       provider: params.provider,
     });
@@ -164,7 +193,7 @@ export class KeppoStore {
     tool_name: string;
     enabled: boolean;
   }): Promise<void> {
-    await this.client.mutation(refs.setToolAutoApproval, {
+    await this.retryMutation(refs.setToolAutoApproval, {
       workspaceId: params.workspace_id,
       toolName: params.tool_name,
       enabled: params.enabled,
@@ -176,7 +205,7 @@ export class KeppoStore {
     actorId = "usr_e2e",
     reason = "approved by e2e",
   ): Promise<void> {
-    await this.client.mutation(refs.approveAction, {
+    await this.retryMutation(refs.approveAction, {
       actionId,
       actorId,
       reason,
@@ -188,7 +217,7 @@ export class KeppoStore {
     status: DbSchema["actions"][number]["status"],
     resultRedacted?: Record<string, unknown> | null,
   ): Promise<void> {
-    await this.client.mutation(refs.setActionStatus, {
+    await this.retryMutation(refs.setActionStatus, {
       actionId,
       status,
       ...(resultRedacted !== undefined ? { resultRedacted } : {}),
@@ -211,7 +240,7 @@ export class KeppoStore {
     const defaultEnd = new Date(
       Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1),
     ).toISOString();
-    await this.client.mutation(refs.upsertSubscriptionForOrg, {
+    await this.retryMutation(refs.upsertSubscriptionForOrg, {
       orgId: params.org_id,
       tier: params.tier,
       status: params.status ?? SUBSCRIPTION_STATUS.active,
@@ -223,14 +252,14 @@ export class KeppoStore {
   }
 
   async backdateActionForMaintenance(actionId: string, minutesAgo: number): Promise<void> {
-    await this.client.mutation(refs.backdateActionForMaintenance, {
+    await this.retryMutation(refs.backdateActionForMaintenance, {
       actionId,
       minutesAgo,
     });
   }
 
   async backdateRunActivityForAction(actionId: string, minutesAgo: number): Promise<void> {
-    await this.client.mutation(refs.backdateRunActivityForAction, {
+    await this.retryMutation(refs.backdateRunActivityForAction, {
       actionId,
       minutesAgo,
     });
@@ -241,7 +270,7 @@ export class KeppoStore {
     suspended: boolean;
     reason?: string;
   }): Promise<void> {
-    await this.client.mutation(refs.setOrgSuspended, {
+    await this.retryMutation(refs.setOrgSuspended, {
       orgId: params.org_id,
       suspended: params.suspended,
       ...(params.reason ? { reason: params.reason } : {}),
@@ -249,7 +278,7 @@ export class KeppoStore {
   }
 
   async listPendingActions(workspaceId: string): Promise<Array<DbSchema["actions"][number]>> {
-    const rows = (await this.client.query(refs.listPendingActionsForWorkspace, {
+    const rows = (await this.retryQuery(refs.listPendingActionsForWorkspace, {
       workspaceId,
     })) as Array<{
       id: string;
@@ -276,14 +305,14 @@ export class KeppoStore {
   }
 
   async findWorkspaceForOrg(orgId: string, slug?: string): Promise<Workspace | null> {
-    return (await this.client.query(refs.findWorkspaceForOrgForTesting, {
+    return (await this.retryQuery(refs.findWorkspaceForOrgForTesting, {
       orgId,
       ...(slug ? { slug } : {}),
     })) as Workspace | null;
   }
 
   async getAction(actionId: string): Promise<Action | null> {
-    return (await this.client.query(refs.getActionForTesting, {
+    return (await this.retryQuery(refs.getActionForTesting, {
       actionId,
     })) as Action | null;
   }
@@ -295,7 +324,7 @@ export class KeppoStore {
     type?: NotificationEndpoint["type"];
     userId?: string;
   }): Promise<NotificationEndpoint | null> {
-    return (await this.client.query(refs.findNotificationEndpointForTesting, {
+    return (await this.retryQuery(refs.findNotificationEndpointForTesting, {
       orgId: params.orgId,
       ...(params.destination !== undefined ? { destination: params.destination } : {}),
       ...(params.enabled !== undefined ? { enabled: params.enabled } : {}),
@@ -305,7 +334,7 @@ export class KeppoStore {
   }
 
   async getDbSnapshot(): Promise<DbSchema> {
-    return (await this.client.query(refs.getDbSnapshot, {})) as DbSchema;
+    return (await this.retryQuery(refs.getDbSnapshot, {})) as DbSchema;
   }
 
   async getAuthOrganization(orgId: string): Promise<{
@@ -315,7 +344,7 @@ export class KeppoStore {
     metadata: string | null;
     createdAt: number;
   } | null> {
-    return (await this.client.query(refs.getAuthOrgById, {
+    return (await this.retryQuery(refs.getAuthOrgById, {
       orgId,
     })) as {
       id: string;
