@@ -98,6 +98,11 @@ Run this skill only for defensive security research on this open-source project 
 
 6. Emit the final JSON artifact.
    - Keep only confirmed findings with severity `critical` or `high`.
+   - The final `description` for each finding must be fully fleshed out, precise, technical, and evidence-driven. Treat it as the source text for responsible disclosure, not as a short summary.
+   - Do not speculate beyond the code and evidence you verified.
+   - Do not inflate severity.
+   - Focus only on real vulnerabilities with a concrete exploit path.
+   - Write like a human security engineer, not like a generic scanner.
    - Write `./out-security-review/findings.json` as a JSON array:
 
 ```json
@@ -109,6 +114,58 @@ Run this skill only for defensive security research on this open-source project 
   }
 ]
 ```
+
+   - Format each final `description` as Markdown with these exact sections, in this order:
+
+```md
+### Summary
+Briefly explain what the vulnerability is and why the boundary fails.
+
+### Affected Files
+- path/to/file.ts:12
+- other/file.ts:88
+
+### Preconditions
+State exactly what the attacker needs:
+- required role or access level
+- deployment conditions or feature flags
+- whether the issue is production-relevant or limited to certain environments
+
+### Exploit Path
+Describe the exploit as a concrete step-by-step narrative:
+- which endpoint, route, mutation, callback, or code path is entered
+- what check is missing or incorrectly scoped
+- how attacker-controlled input reaches the vulnerable state change
+- what object, credential, token, or record gets overwritten, created, exposed, or executed
+
+### Impact
+Explain the real consequence in product terms:
+- what the attacker gains
+- whose data or authority is affected
+- whether the impact is same-tenant, cross-tenant, authenticated-only, or unauthenticated
+- why the severity is `high` or `critical`
+
+### Suggested Fix
+Give concrete remediation steps:
+- where to enforce the missing check
+- what should be rebound, revoked, invalidated, or revalidated
+- what defense-in-depth tests or regression tests should be added
+- include credential/session rotation advice when relevant
+```
+
+   - Style rules for the final `description`:
+     - Be specific to the codebase.
+     - Mention exact function names, routes, mutations, and data objects when known.
+     - Prefer concrete nouns over vague language.
+     - Avoid filler, marketing tone, and generic security advice.
+     - Avoid CVSS scoring unless explicitly requested.
+     - Do not say "may allow" when the exploit path is already confirmed.
+     - Do not include unsupported claims.
+     - Do not refer to yourself or the review process.
+   - Severity rules for the final JSON:
+     - `critical` is for severe compromise such as remote unauthenticated takeover, arbitrary code execution, or equivalent platform-wide compromise.
+     - `high` is for serious authenticated privilege escalation, cross-tenant confidentiality or integrity failures, billing abuse with real financial control, or strong account-linking or credential-takeover issues.
+     - If the issue does not clearly meet `high` or `critical`, drop it instead of stretching it.
 
 ## Review Prompt
 

@@ -358,7 +358,8 @@ The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time
 Required configuration:
 
 - environment secret `CODEX_AUTH_JSON`
-- environment secret `KEPPO_SECURITY_ADVISORY_TOKEN`
+- repository variable `KEPPO_GITHUB_APP_ID`
+- environment secret `KEPPO_GITHUB_APP_PRIVATE_KEY`
 - environment secret `MAILGUN_API_KEY`
 - environment variable `MAILGUN_DOMAIN`
 - environment variable `MAILGUN_FROM_EMAIL`
@@ -366,8 +367,8 @@ Required configuration:
 
 Token requirements:
 
-- `KEPPO_SECURITY_ADVISORY_TOKEN` should be a fine-grained token or GitHub App token scoped to this repository with `Repository security advisories: write`.
-- The workflow intentionally keeps the job `GITHUB_TOKEN` at `contents: read` and uses the dedicated advisory token only in the deterministic post-agent filing step.
+- The workflow intentionally keeps the job `GITHUB_TOKEN` at `contents: read` and mints a GitHub App installation token only for the deterministic advisory-filing step.
+- `actions/create-github-app-token` does not support `repository_advisories` fine-grained permission inputs yet, so this workflow must currently mint the installation token without `permission-*` scoping and rely on the App installation's configured permissions.
 
 ---
 

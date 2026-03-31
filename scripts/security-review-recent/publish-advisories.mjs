@@ -65,6 +65,28 @@ const appendStepSummary = async (line) => {
   await fs.appendFile(path, `${line}\n`, "utf8");
 };
 
+const loadSessionLogLinks = async (path) => {
+  if (!path) {
+    return [];
+  }
+
+  let raw;
+  try {
+    raw = await fs.readFile(path, "utf8");
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+    throw error;
+  }
+
+  return raw
+    .split("\n")
+    .map((line) => line.match(/^- `([^`]+)`: (https?:\/\/\S+)$/))
+    .filter(Boolean)
+    .map(([, label, url]) => ({ label, url }));
+};
+
 const loadFindings = async (path) => {
   const raw = (await fs.readFile(path, "utf8")).trim();
   if (!raw) {
@@ -229,6 +251,7 @@ const main = async () => {
   const serverUrl = process.env.GITHUB_SERVER_URL?.trim() || "https://github.com";
   const runId = process.env.GITHUB_RUN_ID?.trim();
   const repositoryName = repo.split("/")[1] || "unknown";
+  const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
 
   const existing = await fetchExistingAdvisories({ apiBaseUrl, repo, token });
   const existingBySummary = new Map(
@@ -298,6 +321,14 @@ const main = async () => {
         )),
   ];
 
+  if (sessionLogLinks.length > 0) {
+    textSections.push(
+      "",
+      "Session log viewer:",
+      ...sessionLogLinks.map(({ label, url }) => `- ${label}: ${url}`),
+    );
+  }
+
   if (runUrl) {
     textSections.push("", `Workflow run: ${runUrl}`);
   }
@@ -347,6 +378,21 @@ const main = async () => {
               .join("")
       }
     </ul>
+    ${
+      sessionLogLinks.length > 0
+        ? `
+    <h3 style="margin:16px 0 8px;">Session log viewer</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${sessionLogLinks
+        .map(
+          ({ label, url }) =>
+            `<li>${escapeHtml(label)} - <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></li>`,
+        )
+        .join("")}
+    </ul>
+    `
+        : ""
+    }
     ${
       runUrl
         ? `<p style="margin:16px 0 0;">Workflow run: <a href="${escapeHtml(runUrl)}">${escapeHtml(runUrl)}</a></p>`

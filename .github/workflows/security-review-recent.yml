@@ -15,20 +15,32 @@ concurrency:
 jobs:
   review:
     environment: ai-bots
-    runs-on: ubicloud-standard-2
-    timeout-minutes: 120
+    runs-on: namespace-profile-linux-medium
+    timeout-minutes: 180
     permissions:
       contents: read
     env:
       CODEX_HOME: tmp/security-review-recent/codex-home
       PROMPT_PATH: tmp/security-review-recent/run-prompt.txt
+      LOG_MARKER_PATH: tmp/security-review-recent/session-log-marker
+      SESSION_LOG_COMMENT_PATH: tmp/security-review-recent/session-log-comment.md
       FINDINGS_PATH: out-security-review/findings.json
       SKILL_PATH: .agents/skills/security-review-recent/SKILL.md
+      WORKFLOW_BASE_PATH: .workflow-base
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout trusted workflow assets
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Setup Node
@@ -42,7 +54,7 @@ jobs:
       - name: Write Codex auth file
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
-        run: bash scripts/codex-commit-review/write-codex-auth.sh
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/write-codex-auth.sh"
 
       - name: Reset private output directory
         run: |
@@ -50,19 +62,25 @@ jobs:
           rm -rf out-security-review
           mkdir -p out-security-review
 
+      - name: Record session log marker
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${LOG_MARKER_PATH}")"
+          touch "${LOG_MARKER_PATH}"
+
       - name: Render security review prompt
         env:
-          TEMPLATE_PATH: .github/prompts/security-review-recent/run.txt
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/security-review-recent/run.txt
           OUTPUT_PATH: ${{ env.PROMPT_PATH }}
           SKILL_PATH: ${{ env.SKILL_PATH }}
           FINDINGS_PATH: ${{ env.FINDINGS_PATH }}
-        run: node scripts/issue-agent/render-template.mjs
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
 
       - name: Run Codex security review
-        timeout-minutes: 105
+        timeout-minutes: 165
         env:
           PROMPT_PATH: ${{ env.PROMPT_PATH }}
-        run: bash scripts/codex-commit-review/run-codex.sh
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/run-codex.sh"
 
       - name: Ensure findings file exists
         run: |
@@ -72,48 +90,55 @@ jobs:
             printf '[]\n' > "${FINDINGS_PATH}"
           fi
 
-      - name: Upload findings artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: security-review-recent-findings
-          path: ${{ env.FINDINGS_PATH }}
-          retention-days: 1
-
-  publish:
-    needs: review
-    environment: ai-bots
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout trusted workflow assets
+      - name: Refresh trusted workflow assets
+        if: always()
         uses: actions/checkout@v5
         with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
+      - name: Upload session logs and findings
+        if: always()
+        continue-on-error: true
+        env:
+          AGENT_KIND: codex
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODEX_HOME: ${{ env.CODEX_HOME }}
+          EXTRA_UPLOAD_ROOTS: security-review:${{ github.workspace }}/out-security-review
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
 
-      - name: Download findings artifact
-        uses: actions/download-artifact@v4
+      - name: Create GitHub App token for advisories
+        if: success()
+        id: advisory-app-token
+        uses: actions/create-github-app-token@v2
         with:
-          name: security-review-recent-findings
-          path: out-security-review
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          # No permission-* scoping: repository_advisories is not yet
+          # supported by create-github-app-token, so we inherit all
+          # permissions from the App installation.
 
       - name: File advisories and send notification
+        if: success()
         env:
           FINDINGS_PATH: out-security-review/findings.json
           GITHUB_API_URL: ${{ github.api_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
-          SECURITY_ADVISORY_TOKEN: ${{ secrets.KEPPO_SECURITY_ADVISORY_TOKEN }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          SECURITY_ADVISORY_TOKEN: ${{ steps.advisory-app-token.outputs.token }}
           SECURITY_ADVISORY_ALERT_EMAILS: ${{ vars.SECURITY_ADVISORY_ALERT_EMAILS }}
           MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
           MAILGUN_DOMAIN: ${{ vars.MAILGUN_DOMAIN }}
           MAILGUN_FROM_EMAIL: ${{ vars.MAILGUN_FROM_EMAIL }}
-        run: node scripts/security-review-recent/publish-advisories.mjs
+        run: node "${WORKFLOW_BASE_PATH}/scripts/security-review-recent/publish-advisories.mjs"
