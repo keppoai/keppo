@@ -44,6 +44,8 @@ export type ProviderAuthRequest = {
   state: string;
   scopes: Array<string>;
   namespace?: string;
+  /** OAuth 2.0 PKCE (required for X user access tokens). */
+  pkceCodeVerifier?: string;
 };
 
 export type ProviderAuthExchangeRequest = {
@@ -52,6 +54,8 @@ export type ProviderAuthExchangeRequest = {
   scopes?: Array<string>;
   externalAccountFallback?: string;
   namespace?: string;
+  /** PKCE code_verifier for token exchange (must match authorize-step challenge). */
+  pkceCodeVerifier?: string;
 };
 
 export type ProviderCredentialBundle = {
@@ -146,6 +150,7 @@ export interface ProviderModuleMetadata {
   };
   oauth?: {
     defaultScopes: Array<string>;
+    requiresPkce?: boolean;
   };
   deprecation?: {
     status: ProviderDeprecationStatus;
@@ -185,6 +190,7 @@ const cloneMetadata = (metadata: ProviderModuleMetadata): ProviderModuleMetadata
       ? {
           oauth: {
             defaultScopes: [...metadata.oauth.defaultScopes],
+            ...(metadata.oauth.requiresPkce ? { requiresPkce: true } : {}),
           },
         }
       : {}),

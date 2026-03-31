@@ -1,6 +1,5 @@
 import type { ProviderModuleV2 } from "./providers/registry/types.js";
-
-export type ManagedOAuthProvider = "google" | "stripe" | "github" | "reddit";
+import type { ManagedOAuthProvider } from "./providers/boundaries/common.js";
 export type WebhookProvider = "stripe" | "github";
 
 type ManagedOAuthFacetSlice = {
@@ -52,6 +51,16 @@ const managedOAuthFacetLoaders: Record<ManagedOAuthProvider, ManagedOAuthFacetLo
     const [{ metadata }, { auth }] = await Promise.all([
       import("./providers/modules/reddit/metadata.js"),
       import("./providers/modules/reddit/auth.js"),
+    ]);
+    return {
+      metadata,
+      facets: { auth },
+    };
+  },
+  x: async () => {
+    const [{ metadata }, { auth }] = await Promise.all([
+      import("./providers/modules/x/metadata.js"),
+      import("./providers/modules/x/auth.js"),
     ]);
     return {
       metadata,

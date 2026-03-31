@@ -34,6 +34,8 @@ import {
   convexActionListSchema,
   convexActionRiskLevelSchema,
   convexActionSchema,
+  convexManagedOAuthConnectStatePayloadSchema,
+  convexManagedOAuthConnectStateSchema,
   convexActionStateSchema,
   convexActionStatusPayloadSchema,
   convexActionStatusSchema,
@@ -115,6 +117,10 @@ export type LocalQueueEnqueueResponse = z.infer<typeof localQueueEnqueueResponse
 export type ConvexUpsertOAuthProviderPayload = z.infer<
   typeof convexUpsertOAuthProviderPayloadSchema
 >;
+export type ConvexManagedOAuthConnectStatePayload = z.infer<
+  typeof convexManagedOAuthConnectStatePayloadSchema
+>;
+export type ConvexManagedOAuthConnectState = z.infer<typeof convexManagedOAuthConnectStateSchema>;
 export type ConvexRecordProviderWebhookPayload = z.infer<
   typeof convexRecordProviderWebhookPayloadSchema
 >;

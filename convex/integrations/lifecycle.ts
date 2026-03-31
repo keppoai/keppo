@@ -149,6 +149,127 @@ export const updateMetadata = mutation({
   },
 });
 
+export const upsertManagedOAuthConnectState = internalMutation({
+  args: {
+    orgId: v.string(),
+    provider: providerValidator,
+    correlationId: v.string(),
+    createdAt: v.string(),
+    expiresAt: v.string(),
+    pkceCodeVerifier: v.optional(v.string()),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const provider = canonicalizeProvider(args.provider);
+    const existing = await ctx.db
+      .query("oauth_connect_states")
+      .withIndex("by_org_provider_correlation", (q) =>
+        q
+          .eq("org_id", args.orgId)
+          .eq("provider", provider)
+          .eq("correlation_id", args.correlationId),
+      )
+      .unique();
+    const encryptedPkceCodeVerifier =
+      typeof args.pkceCodeVerifier === "string" && args.pkceCodeVerifier.length > 0
+        ? await encryptSecretValue(args.pkceCodeVerifier, "integration_credentials")
+        : null;
+
+    if (!existing) {
+      await ctx.db.insert("oauth_connect_states", {
+        id: randomIdFor("oauthst"),
+        org_id: args.orgId,
+        provider,
+        correlation_id: args.correlationId,
+        pkce_code_verifier_enc: encryptedPkceCodeVerifier,
+        key_version: "convex_first_v1",
+        created_at: args.createdAt,
+        expires_at: args.expiresAt,
+      });
+      return null;
+    }
+
+    await ctx.db.patch(existing._id, {
+      pkce_code_verifier_enc: encryptedPkceCodeVerifier,
+      key_version: "convex_first_v1",
+      created_at: args.createdAt,
+      expires_at: args.expiresAt,
+    });
+    return null;
+  },
+});
+
+export const getManagedOAuthConnectState = internalQuery({
+  args: {
+    orgId: v.string(),
+    provider: providerValidator,
+    correlationId: v.string(),
+  },
+  returns: v.union(
+    v.object({
+      provider: providerValidator,
+      correlationId: v.string(),
+      createdAt: v.string(),
+      expiresAt: v.string(),
+      pkceCodeVerifier: v.union(v.string(), v.null()),
+    }),
+    v.null(),
+  ),
+  handler: async (ctx, args) => {
+    const provider = canonicalizeProvider(args.provider);
+    const existing = await ctx.db
+      .query("oauth_connect_states")
+      .withIndex("by_org_provider_correlation", (q) =>
+        q
+          .eq("org_id", args.orgId)
+          .eq("provider", provider)
+          .eq("correlation_id", args.correlationId),
+      )
+      .unique();
+    if (!existing) {
+      return null;
+    }
+    if (Date.parse(existing.expires_at) <= Date.now()) {
+      return null;
+    }
+    return {
+      provider,
+      correlationId: args.correlationId,
+      createdAt: existing.created_at,
+      expiresAt: existing.expires_at,
+      pkceCodeVerifier:
+        existing.pkce_code_verifier_enc === null
+          ? null
+          : await decryptSecretValue(existing.pkce_code_verifier_enc, "integration_credentials"),
+    };
+  },
+});
+
+export const deleteManagedOAuthConnectState = internalMutation({
+  args: {
+    orgId: v.string(),
+    provider: providerValidator,
+    correlationId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const provider = canonicalizeProvider(args.provider);
+    const existing = await ctx.db
+      .query("oauth_connect_states")
+      .withIndex("by_org_provider_correlation", (q) =>
+        q
+          .eq("org_id", args.orgId)
+          .eq("provider", provider)
+          .eq("correlation_id", args.correlationId),
+      )
+      .unique();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+    return null;
+  },
+});
+
 export const registerCustomIntegration = mutation({
   args: {
     base_url: v.string(),

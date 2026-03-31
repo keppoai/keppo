@@ -1,3 +1,4 @@
+import { buildOAuthPkceCodeChallengeS256 } from "../../../oauth-pkce.js";
 import { getProviderDefaultScopes } from "../../../provider-default-scopes.js";
 import type {
   ProviderAuthExchangeRequest,
@@ -80,6 +81,16 @@ const parseScopeList = (scope: string | undefined): string[] => {
   return unique(scope.split(" "));
 };
 
+const isFakeGatewayAuthorizeUrl = (oauthAuthUrl: string, fakeBaseUrl: string): boolean => {
+  try {
+    const authUrl = new URL(oauthAuthUrl);
+    const fakeAuthUrl = new URL(X_DEFAULT_AUTH_PATH, fakeBaseUrl);
+    return authUrl.origin === fakeAuthUrl.origin && authUrl.pathname === fakeAuthUrl.pathname;
+  } catch {
+    return false;
+  }
+};
+
 const resolveGrantedCanonicalScopes = (
   requestedScopes: string[],
   grantedProviderScopes: string[],
@@ -100,12 +111,14 @@ const resolveGrantedCanonicalScopes = (
 
 const resolveEnv = (runtime: ProviderRuntimeContext) => {
   const fakeBase = runtime.secrets.KEPPO_FAKE_EXTERNAL_BASE_URL ?? DEFAULT_FAKE_EXTERNAL_BASE_URL;
+  const oauthAuthUrl = runtime.secrets.X_OAUTH_AUTH_URL ?? `${fakeBase}${X_DEFAULT_AUTH_PATH}`;
   return {
-    oauthAuthUrl: runtime.secrets.X_OAUTH_AUTH_URL ?? `${fakeBase}${X_DEFAULT_AUTH_PATH}`,
+    oauthAuthUrl,
     oauthTokenUrl: runtime.secrets.X_OAUTH_TOKEN_URL ?? `${fakeBase}${X_DEFAULT_TOKEN_PATH}`,
     apiBaseUrl: runtime.secrets.X_API_BASE_URL ?? `${fakeBase}${X_DEFAULT_API_PATH}`,
     clientId: runtime.secrets.X_CLIENT_ID ?? X_DEFAULT_CLIENT_ID,
     clientSecret: runtime.secrets.X_CLIENT_SECRET ?? X_DEFAULT_CLIENT_SECRET,
+    isFakeGatewayAuthUrl: isFakeGatewayAuthorizeUrl(oauthAuthUrl, fakeBase),
   };
 };
 
@@ -149,17 +162,22 @@ const exchangeCredentials = async (
   const env = resolveEnv(runtime);
   const requestedScopes =
     Array.isArray(request.scopes) && request.scopes.length > 0 ? request.scopes : X_DEFAULT_SCOPES;
+  const tokenParams = new URLSearchParams({
+    grant_type: "authorization_code",
+    code: request.code,
+    redirect_uri: request.redirectUri,
+  });
+  const verifier = request.pkceCodeVerifier?.trim();
+  if (verifier) {
+    tokenParams.set("code_verifier", verifier);
+  }
   const response = await runtime.httpClient(env.oauthTokenUrl, {
     method: "POST",
     headers: {
       Authorization: `Basic ${encodeBasicAuth(env.clientId, env.clientSecret)}`,
       "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: new URLSearchParams({
-      grant_type: "authorization_code",
-      code: request.code,
-      redirect_uri: request.redirectUri,
-    }).toString(),
+    body: tokenParams.toString(),
   });
 
   if (!response.ok) {
@@ -208,7 +226,13 @@ export const auth: ProviderAuthFacet = {
     authUrl.searchParams.set("response_type", "code");
     authUrl.searchParams.set("scope", providerScopes.join(" "));
     authUrl.searchParams.set("state", request.state);
-    if (request.namespace) {
+    const pkceVerifier = request.pkceCodeVerifier?.trim();
+    if (pkceVerifier) {
+      authUrl.searchParams.set("code_challenge", buildOAuthPkceCodeChallengeS256(pkceVerifier));
+      authUrl.searchParams.set("code_challenge_method", "S256");
+    }
+    // E2E fake gateway only — real X authorize URL rejects unknown query params.
+    if (request.namespace && env.isFakeGatewayAuthUrl) {
       authUrl.searchParams.set("namespace", request.namespace);
     }
 

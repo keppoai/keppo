@@ -6,7 +6,8 @@ import {
   handleOAuthProviderConnectRequest,
 } from "../../app/lib/server/oauth-api";
 
-const createDeps = (provider: "google" | "reddit" = "google") => {
+const createDeps = (provider: "google" | "reddit" | "x" = "google") => {
+  const storedPkceCodeVerifier = provider === "x" ? "pkce_verifier_test" : null;
   const buildAuthRequest = vi.fn().mockResolvedValue({
     oauth_start_url: `https://auth.test/oauth/start?provider=${provider}`,
   });
@@ -41,8 +42,20 @@ const createDeps = (provider: "google" | "reddit" = "google") => {
         expiresAtMs: Date.now() + 60_000,
       }),
       completeApiDedupeKey: vi.fn().mockResolvedValue(true),
+      deleteManagedOAuthConnectState: vi.fn().mockResolvedValue(undefined),
       getFeatureFlag: vi.fn().mockResolvedValue(true),
       getApiDedupeKey: vi.fn().mockResolvedValue(null),
+      getManagedOAuthConnectState: vi.fn().mockResolvedValue(
+        storedPkceCodeVerifier === null
+          ? null
+          : {
+              provider,
+              correlationId: "corr_x_test",
+              createdAt: new Date().toISOString(),
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              pkceCodeVerifier: storedPkceCodeVerifier,
+            },
+      ),
       recordProviderMetric: vi.fn().mockResolvedValue(undefined),
       releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
       resolveApiSessionFromToken: vi.fn().mockResolvedValue({
@@ -51,6 +64,7 @@ const createDeps = (provider: "google" | "reddit" = "google") => {
         role: "owner",
       }),
       setApiDedupePayload: vi.fn().mockResolvedValue(true),
+      upsertManagedOAuthConnectState: vi.fn().mockResolvedValue(undefined),
       upsertOAuthProviderForOrg: vi.fn().mockResolvedValue(undefined),
     },
     getE2ENamespace: (value: string | undefined) => value?.trim() || null,
@@ -58,6 +72,7 @@ const createDeps = (provider: "google" | "reddit" = "google") => {
       metadata: {
         oauth: {
           defaultScopes: ["scope:read"],
+          ...(provider === "x" ? { requiresPkce: true } : {}),
         },
       },
       facets: {
@@ -217,6 +232,44 @@ describe("start-owned oauth api handlers", () => {
     expect(unhandled).toBeNull();
   });
 
+  it("stores X PKCE verifier server-side instead of embedding it in OAuth state", async () => {
+    const deps = createDeps("x");
+
+    const response = await handleOAuthProviderConnectRequest(
+      withJson(
+        "/api/oauth/integrations/x/connect",
+        {
+          org_id: "org_test",
+          return_to: "/integrations",
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+          "x-keppo-e2e-namespace": "oauth-x",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(deps.signOAuthStatePayload).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(deps.signOAuthStatePayload.mock.calls[0]?.[0] ?? "{}")).not.toHaveProperty(
+      "pkce_code_verifier",
+    );
+    expect(deps.convex.upsertManagedOAuthConnectState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_test",
+        provider: "x",
+        pkceCodeVerifier: expect.any(String),
+      }),
+    );
+    expect(deps.buildAuthRequest).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pkceCodeVerifier: expect.any(String),
+      }),
+      {},
+    );
+  });
+
   it("completes OAuth callback natively in Start and redirects back into the app", async () => {
     const deps = createDeps();
     const signedState = `signed:${JSON.stringify({
@@ -258,6 +311,77 @@ describe("start-owned oauth api handlers", () => {
         externalAccountId: "google_account_test",
       }),
     );
+  });
+
+  it("loads the X PKCE verifier from server-side state during callback", async () => {
+    const deps = createDeps("x");
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "x",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "X",
+      correlation_id: "corr_x_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: "oauth-x",
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/x/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(302);
+    expect(deps.convex.getManagedOAuthConnectState).toHaveBeenCalledWith({
+      orgId: "org_test",
+      provider: "x",
+      correlationId: "corr_x_test",
+    });
+    expect(deps.exchangeCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pkceCodeVerifier: "pkce_verifier_test",
+      }),
+      {},
+    );
+    expect(deps.convex.deleteManagedOAuthConnectState).toHaveBeenCalledWith({
+      orgId: "org_test",
+      provider: "x",
+      correlationId: "corr_x_test",
+    });
+  });
+
+  it("fails closed when a PKCE-required callback cannot load server-side verifier state", async () => {
+    const deps = createDeps("x");
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue(null);
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "x",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "X",
+      correlation_id: "corr_x_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: "oauth-x",
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/x/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_state",
+        message: "Missing OAuth PKCE verifier; restart the connection flow.",
+        provider: "x",
+      },
+    });
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
   });
 
   it("supports Reddit as a managed OAuth provider in Start-owned routes", async () => {

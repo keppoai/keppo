@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { generateOAuthPkceCodeVerifier } from "@keppo/shared/oauth-pkce";
 import {
   PROVIDER_REGISTRY_PATH_FEATURE_FLAG,
   providerRolloutFeatureFlag,
@@ -78,12 +79,15 @@ type StartOwnedOAuthConvex = Pick<
   ConvexInternalClient,
   | "claimApiDedupeKey"
   | "completeApiDedupeKey"
+  | "deleteManagedOAuthConnectState"
   | "getApiDedupeKey"
   | "getFeatureFlag"
+  | "getManagedOAuthConnectState"
   | "recordProviderMetric"
   | "releaseApiDedupeKey"
   | "resolveApiSessionFromToken"
   | "setApiDedupePayload"
+  | "upsertManagedOAuthConnectState"
   | "upsertOAuthProviderForOrg"
 >;
 
@@ -483,11 +487,14 @@ export const handleOAuthProviderConnectRequest = async (
   const orgId = sessionIdentity.orgId;
   const providerModule = await deps.getProviderModule(provider);
   const defaultScopes = providerModule.metadata.oauth?.defaultScopes ?? [];
+  const requiresPkce = providerModule.metadata.oauth?.requiresPkce === true;
   const requestedScopes =
     Array.isArray(body.scopes) && body.scopes.length > 0 ? body.scopes : [...defaultScopes];
   const correlationId = randomUUID();
+  const stateCreatedAt = new Date().toISOString();
   const redirectUri = deps.getRedirectUri(request.url, provider);
   const runtimeContext = deps.toProviderRuntimeContext(namespace);
+  const pkceCodeVerifier = requiresPkce ? generateOAuthPkceCodeVerifier() : undefined;
   const statePayload = {
     org_id: orgId,
     provider,
@@ -500,9 +507,18 @@ export const handleOAuthProviderConnectRequest = async (
         ? body.display_name.trim()
         : `${provider} integration`,
     correlation_id: correlationId,
-    created_at: new Date().toISOString(),
+    created_at: stateCreatedAt,
     e2e_namespace: namespace,
   };
+
+  await deps.convex.upsertManagedOAuthConnectState({
+    orgId,
+    provider,
+    correlationId,
+    createdAt: stateCreatedAt,
+    expiresAt: new Date(Date.parse(stateCreatedAt) + OAUTH_STATE_TTL_MS).toISOString(),
+    ...(pkceCodeVerifier ? { pkceCodeVerifier } : {}),
+  });
 
   const authRequest = await providerModule.facets.auth.buildAuthRequest(
     {
@@ -510,6 +526,7 @@ export const handleOAuthProviderConnectRequest = async (
       state: deps.signOAuthStatePayload(JSON.stringify(statePayload)),
       scopes: requestedScopes,
       ...(namespace ? { namespace } : {}),
+      ...(pkceCodeVerifier ? { pkceCodeVerifier } : {}),
     },
     runtimeContext,
   );
@@ -778,9 +795,34 @@ export const handleOAuthProviderCallbackRequest = async (
   });
 
   const providerModule = await deps.getProviderModule(provider);
+  const requiresPkce = providerModule.metadata.oauth?.requiresPkce === true;
   const redirectUri = deps.getRedirectUri(request.url, provider);
   const namespace = state.e2e_namespace ?? deps.getE2ENamespace(parsedQuery.namespace);
   const exchangeKey = `${provider}:${orgId}:${code}`;
+  const managedOAuthConnectState = await deps.convex.getManagedOAuthConnectState({
+    orgId,
+    provider,
+    correlationId: state.correlation_id,
+  });
+
+  if (requiresPkce && !managedOAuthConnectState?.pkceCodeVerifier) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.invalidState,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "invalid_state",
+        message: "Missing OAuth PKCE verifier; restart the connection flow.",
+        correlationId,
+      }),
+      400,
+    );
+  }
 
   try {
     return await withIdempotency({
@@ -853,6 +895,9 @@ export const handleOAuthProviderCallbackRequest = async (
               redirectUri,
               scopes: state.scopes,
               externalAccountFallback: orgId,
+              ...(managedOAuthConnectState?.pkceCodeVerifier
+                ? { pkceCodeVerifier: managedOAuthConnectState.pkceCodeVerifier }
+                : {}),
               ...(namespace ? { namespace } : {}),
             },
             runtimeContext,
@@ -872,6 +917,11 @@ export const handleOAuthProviderCallbackRequest = async (
               oauth_correlation_id: state.correlation_id,
               ...(state.e2e_namespace ? { e2e_namespace: state.e2e_namespace } : {}),
             },
+          });
+          await deps.convex.deleteManagedOAuthConnectState({
+            orgId,
+            provider,
+            correlationId: state.correlation_id,
           });
         } catch (error) {
           recordOAuthCallbackMetric({
