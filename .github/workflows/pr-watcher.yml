@@ -149,67 +149,70 @@ jobs:
 
       # Claude evaluates ALL signals: review comments, CI status, unresolved
       # threads. It is the sole decision-maker — no heuristic parsing.
+      #
+      # Uses Claude Code CLI directly (not claude-code-action) because this is
+      # a headless evaluation triggered by workflow_run, not a PR/issue event.
       - name: Evaluate with Claude
         if: steps.collect.outputs.action == 'needs-evaluation'
-        uses: anthropics/claude-code-action@v1
         env:
-          CLAUDE_CODE_MAX_OUTPUT_TOKENS: 4000
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ steps.app-token.outputs.token }}
-          track_progress: false
-          show_full_output: false
-          direct_prompt: |
-            You are the PR Watcher decision engine. Read tmp/pr-watcher/context.json and decide what action to take.
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          CLAUDE_CODE_MAX_OUTPUT_TOKENS: "4000"
+        run: |
+          npx -y @anthropic-ai/claude-code \
+            --dangerously-skip-permissions \
+            --model claude-sonnet-4-6 \
+            --allowedTools "Read,Write" \
+            -p "$(cat <<'ENDPROMPT'
+          You are the PR Watcher decision engine. Read tmp/pr-watcher/context.json and decide what action to take.
 
-            The context contains:
-            - claudeReview / codexReview: Review comment bodies from keppo-bot. Each has a `truncated` flag — if true, the review was cut at 4000 chars and may be missing important issues. Treat truncated reviews conservatively (default to human-review if you cannot confirm no HIGH issues exist).
-            - checksPassing: Whether CI/E2E checks are green
-            - failedChecks: Names of any failed check runs
-            - unresolvedThreads: Unresolved, non-outdated PR review threads (capped at 50). If `unresolvedThreadsTruncated` is true, more threads exist — default to human-review.
-            - fixPrCount: How many times /fix-pr has been applied
+          The context contains:
+          - claudeReview / codexReview: Review comment bodies from keppo-bot. Each has a `truncated` flag — if true, the review was cut at 4000 chars and may be missing important issues. Treat truncated reviews conservatively (default to human-review if you cannot confirm no HIGH issues exist).
+          - checksPassing: Whether CI/E2E checks are green
+          - failedChecks: Names of any failed check runs
+          - unresolvedThreads: Unresolved, non-outdated PR review threads (capped at 50). If `unresolvedThreadsTruncated` is true, more threads exist — default to human-review.
+          - fixPrCount: How many times /fix-pr has been applied
 
-            ## Decision Rules
+          ## Decision Rules
 
-            **Only HIGH severity issues block merge.** MEDIUM and LOW are informational.
+          **Only HIGH severity issues block merge.** MEDIUM and LOW are informational.
 
-            For each review comment and unresolved thread, assess severity:
-            - HIGH: Security vulnerabilities, data loss, broken functionality, access control bypasses, crashes, critical correctness bugs
-            - MEDIUM/LOW: Code quality, style, minor bugs, suggestions, refactoring, naming, performance concerns
+          For each review comment and unresolved thread, assess severity:
+          - HIGH: Security vulnerabilities, data loss, broken functionality, access control bypasses, crashes, critical correctness bugs
+          - MEDIUM/LOW: Code quality, style, minor bugs, suggestions, refactoring, naming, performance concerns
 
-            Then decide:
+          Then decide:
 
-            1. If checks are failing OR any issue is HIGH and mechanically fixable (code bugs, missing validation, broken tests, type errors):
-               → action: "fix-pr" (an agent can fix these)
+          1. If checks are failing OR any issue is HIGH and mechanically fixable (code bugs, missing validation, broken tests, type errors):
+             → action: "fix-pr" (an agent can fix these)
 
-            2. If any issue is HIGH but requires human judgment (architecture, product direction, security policy, ambiguous requirements):
-               → action: "label", label: "pr=needs-human-review"
+          2. If any issue is HIGH but requires human judgment (architecture, product direction, security policy, ambiguous requirements):
+             → action: "label", label: "pr=needs-human-review"
 
-            3. If both Claude and Codex reviews exist, neither has HIGH issues, checks pass, and no unresolved threads have HIGH issues:
-               → action: "label", label: "pr=ready-to-merge"
+          3. If both Claude and Codex reviews exist, neither has HIGH issues, checks pass, and no unresolved threads have HIGH issues:
+             → action: "label", label: "pr=ready-to-merge"
 
-            4. If only one review exists and it has no HIGH issues, checks pass, no HIGH unresolved threads:
-               → action: "label", label: "pr=ready-to-merge" (one review is sufficient)
+          4. If only one review exists and it has no HIGH issues, checks pass, no HIGH unresolved threads:
+             → action: "label", label: "pr=ready-to-merge" (one review is sufficient)
 
-            5. If reviews are missing or inconclusive:
-               → action: "label", label: "pr=needs-human-review"
+          5. If reviews are missing or inconclusive:
+             → action: "label", label: "pr=needs-human-review"
 
-            Priority: auto-fixable issues first (fix-pr), then human-review, then ready-to-merge.
+          Priority: auto-fixable issues first (fix-pr), then human-review, then ready-to-merge.
 
-            ## Output
+          ## Output
 
-            Write tmp/pr-watcher/decision.json with this exact shape:
-            {
-              "action": "fix-pr" | "label",
-              "label": "pr=ready-to-merge" | "pr=needs-human-review" | "/fix-pr",
-              "reason": "concise explanation of the decision"
-            }
+          Write tmp/pr-watcher/decision.json with this exact shape:
+          {
+            "action": "fix-pr" | "label",
+            "label": "pr=ready-to-merge" | "pr=needs-human-review" | "/fix-pr",
+            "reason": "concise explanation of the decision"
+          }
 
-            For action "fix-pr", set label to "/fix-pr".
+          For action "fix-pr", set label to "/fix-pr".
 
-            IMPORTANT: Only write the JSON file. Do not post comments or modify anything else.
-          claude_args: |
-            --dangerously-skip-permissions --model claude-sonnet-4-6 --allowedTools "Read,Write"
+          IMPORTANT: Only write the JSON file. Do not post comments or modify anything else.
+          ENDPROMPT
+          )" > /dev/null
 
       # Refresh trusted scripts after Claude runs to prevent agent tampering.
       # See docs/rules/github-security.md: "Never execute privileged post-agent
