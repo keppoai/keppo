@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: app-token
-        uses: keppoai/create-github-app-token@11aba8cf1954b5713f82565e593ed0d8657c5e3d
+        uses: keppoai/create-github-app-token@299ff5b7a964e6d07ec0ee77a3f4234f5478c2f9
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
@@ -234,13 +234,13 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: app-token
-        uses: keppoai/create-github-app-token@11aba8cf1954b5713f82565e593ed0d8657c5e3d
+        uses: keppoai/create-github-app-token@299ff5b7a964e6d07ec0ee77a3f4234f5478c2f9
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: write
-          permission-repository-security-advisories: write
+          permission-repository-advisories: write
 
       - name: Checkout repository
         uses: actions/checkout@v5
