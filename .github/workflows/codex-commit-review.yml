@@ -19,7 +19,7 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: app-token
-        uses: keppoai/create-github-app-token@11aba8cf1954b5713f82565e593ed0d8657c5e3d
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
@@ -234,13 +234,16 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: app-token
-        uses: keppoai/create-github-app-token@11aba8cf1954b5713f82565e593ed0d8657c5e3d
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
           permission-contents: read
           permission-issues: write
-          permission-repository-security-advisories: write
+          # permission-repository-advisories is not a valid input for
+          # actions/create-github-app-token@v2 — it gets silently ignored.
+          # Re-enable once the action adds support for this permission.
+          # permission-repository-advisories: write
 
       - name: Checkout repository
         uses: actions/checkout@v5

@@ -34,7 +34,7 @@ jobs:
     steps:
       - name: Create GitHub App token
         id: app-token
-        uses: keppoai/create-github-app-token@11aba8cf1954b5713f82565e593ed0d8657c5e3d
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
@@ -131,7 +131,7 @@ jobs:
       - name: Create minimal agent token
         if: steps.gather.outputs.has_failures == 'true'
         id: agent-token
-        uses: keppoai/create-github-app-token@11aba8cf1954b5713f82565e593ed0d8657c5e3d
+        uses: actions/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
