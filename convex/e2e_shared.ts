@@ -168,6 +168,7 @@ export const e2eResetTables = [
   "automation_run_topup_purchases",
   "automation_run_topups",
   "integration_credentials",
+  "oauth_connect_states",
   "api_dedupe_keys",
   "rate_limits",
   "integration_accounts",

@@ -377,6 +377,20 @@ export default defineSchema({
     .index("by_custom_id", ["id"])
     .index("by_integration_account", ["integration_account_id"]),
 
+  oauth_connect_states: defineTable({
+    id: v.string(),
+    org_id: v.string(),
+    provider: providerValidator,
+    correlation_id: v.string(),
+    pkce_code_verifier_enc: v.union(v.string(), v.null()),
+    key_version: v.string(),
+    created_at: v.string(),
+    expires_at: v.string(),
+  })
+    .index("by_custom_id", ["id"])
+    .index("by_org_provider_correlation", ["org_id", "provider", "correlation_id"])
+    .index("by_expires_at", ["expires_at"]),
+
   api_dedupe_keys: defineTable({
     id: v.string(),
     scope: apiDedupeScopeValidator,

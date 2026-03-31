@@ -9,6 +9,8 @@ import {
 } from "@keppo/shared/error-codes";
 import { type KnownFeatureFlag } from "@keppo/shared/feature-flags";
 import {
+  convexManagedOAuthConnectStatePayloadSchema,
+  convexManagedOAuthConnectStateSchema,
   convexApprovedActionDispatchListSchema,
   convexExecuteApprovedActionResultSchema,
   convexIngestProviderEventPayloadSchema,
@@ -831,6 +833,86 @@ export class ConvexInternalClient {
         metadata: payload.metadata ?? {},
       },
       "mutation:upsertOAuthProviderForOrg",
+    );
+  }
+
+  async upsertManagedOAuthConnectState(params: {
+    orgId: string;
+    provider: CanonicalProviderId;
+    correlationId: string;
+    createdAt: string;
+    expiresAt: string;
+    pkceCodeVerifier?: string;
+  }): Promise<void> {
+    const payload = parseConvexPayload(convexManagedOAuthConnectStatePayloadSchema, params);
+    await this.callMutation(
+      refs.upsertManagedOAuthConnectState,
+      {
+        orgId: payload.orgId,
+        provider: payload.provider,
+        correlationId: payload.correlationId,
+        createdAt: payload.createdAt,
+        expiresAt: payload.expiresAt,
+        ...(payload.pkceCodeVerifier ? { pkceCodeVerifier: payload.pkceCodeVerifier } : {}),
+      },
+      "mutation:upsertManagedOAuthConnectState",
+    );
+  }
+
+  async getManagedOAuthConnectState(params: {
+    orgId: string;
+    provider: CanonicalProviderId;
+    correlationId: string;
+  }): Promise<{
+    provider: CanonicalProviderId;
+    correlationId: string;
+    createdAt: string;
+    expiresAt: string;
+    pkceCodeVerifier: string | null;
+  } | null> {
+    const payload = parseConvexPayload(
+      convexManagedOAuthConnectStatePayloadSchema.pick({
+        orgId: true,
+        provider: true,
+        correlationId: true,
+      }),
+      params,
+    );
+    const result = await this.callQuery(
+      refs.getManagedOAuthConnectState,
+      {
+        orgId: payload.orgId,
+        provider: payload.provider,
+        correlationId: payload.correlationId,
+      },
+      "query:getManagedOAuthConnectState",
+    );
+    return result === null
+      ? null
+      : parseConvexPayload(convexManagedOAuthConnectStateSchema, result);
+  }
+
+  async deleteManagedOAuthConnectState(params: {
+    orgId: string;
+    provider: CanonicalProviderId;
+    correlationId: string;
+  }): Promise<void> {
+    const payload = parseConvexPayload(
+      convexManagedOAuthConnectStatePayloadSchema.pick({
+        orgId: true,
+        provider: true,
+        correlationId: true,
+      }),
+      params,
+    );
+    await this.callMutation(
+      refs.deleteManagedOAuthConnectState,
+      {
+        orgId: payload.orgId,
+        provider: payload.provider,
+        correlationId: payload.correlationId,
+      },
+      "mutation:deleteManagedOAuthConnectState",
     );
   }
 

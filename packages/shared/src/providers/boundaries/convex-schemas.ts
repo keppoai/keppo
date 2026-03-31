@@ -37,6 +37,23 @@ export const convexUpsertOAuthProviderPayloadSchema = z.object({
   metadata: jsonRecordSchema.optional(),
 });
 
+export const convexManagedOAuthConnectStatePayloadSchema = z.object({
+  orgId: nonEmptyStringSchema,
+  provider: canonicalProviderIdSchema,
+  correlationId: nonEmptyStringSchema,
+  createdAt: nonEmptyStringSchema,
+  expiresAt: nonEmptyStringSchema,
+  pkceCodeVerifier: nonEmptyStringSchema.optional(),
+});
+
+export const convexManagedOAuthConnectStateSchema = z.object({
+  provider: canonicalProviderIdSchema,
+  correlationId: nonEmptyStringSchema,
+  createdAt: nonEmptyStringSchema,
+  expiresAt: nonEmptyStringSchema,
+  pkceCodeVerifier: z.union([nonEmptyStringSchema, z.null()]),
+});
+
 export const convexRecordProviderWebhookPayloadSchema = z.object({
   provider: canonicalProviderIdSchema,
   externalAccountId: z.union([nonEmptyStringSchema, z.null()]).optional(),

@@ -150,6 +150,7 @@ export interface ProviderModuleMetadata {
   };
   oauth?: {
     defaultScopes: Array<string>;
+    requiresPkce?: boolean;
   };
   deprecation?: {
     status: ProviderDeprecationStatus;
@@ -189,6 +190,7 @@ const cloneMetadata = (metadata: ProviderModuleMetadata): ProviderModuleMetadata
       ? {
           oauth: {
             defaultScopes: [...metadata.oauth.defaultScopes],
+            ...(metadata.oauth.requiresPkce ? { requiresPkce: true } : {}),
           },
         }
       : {}),

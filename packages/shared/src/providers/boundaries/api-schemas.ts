@@ -52,8 +52,6 @@ export const oauthStatePayloadSchema = z.object({
   correlation_id: z.string().min(1),
   created_at: z.string().min(1),
   e2e_namespace: z.union([z.string().trim().min(1), z.null()]),
-  /** Present for X OAuth 2.0 PKCE (user access token flow). */
-  pkce_code_verifier: z.string().min(1).optional(),
 });
 
 export const oauthTokenResponseSchema = z

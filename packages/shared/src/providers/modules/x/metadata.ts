@@ -23,6 +23,7 @@ export const metadata: ProviderModuleMetadata = {
   },
   oauth: {
     defaultScopes: getProviderDefaultScopes("x"),
+    requiresPkce: true,
   },
   ...withProviderDeprecation("x"),
   toolOwnership: listProviderToolOwnership("x"),

@@ -59,6 +59,7 @@
   - sandbox log/complete callbacks use per-run HMAC-signed URLs with expiry.
   - API rejects callbacks with missing/invalid signatures or expired timestamps.
   - OAuth integration callback state is HMAC-signed; callbacks reject missing/tampered state tokens.
+  - PKCE verifiers for managed OAuth flows stay in server-side storage keyed by the signed state correlation ID; they are not embedded in readable front-channel state.
 - Stuck-run safety:
   - sandbox provider enforces hard timeout.
   - Convex reaper cron (`automation_scheduler:reapStaleRuns`) marks stale runs `timed_out` and requests sandbox termination.
