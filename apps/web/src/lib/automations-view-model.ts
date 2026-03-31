@@ -921,7 +921,7 @@ export const humanizeRunStatus = (status: AutomationRunStatus): string => {
 };
 
 export const getRunStatusSummary = (run: AutomationRun): string => {
-  if (run.outcome?.summary.trim()) {
+  if (run.outcome) {
     return run.outcome.summary;
   }
   if (run.status === "pending") {
@@ -950,7 +950,7 @@ export const getRunOutcomeBadgeLabel = (run: AutomationRun): string | null => {
     return null;
   }
   if (run.outcome.source === "fallback_missing") {
-    return "Fallback failure";
+    return run.outcome.success ? "Fallback success" : "Fallback failure";
   }
   return run.outcome.success ? "Reported success" : "Reported failure";
 };
@@ -967,7 +967,9 @@ export const getRunOutcomeBadgeVariant = (
 export const getRunOutcomeTitle = (run: AutomationRun): string => {
   if (run.outcome) {
     if (run.outcome.source === "fallback_missing") {
-      return "Outcome missing from automation";
+      return run.outcome.success
+        ? "Completion inferred from terminal status"
+        : "Outcome missing from automation";
     }
     return run.outcome.success ? "Automation reported success" : "Automation reported failure";
   }

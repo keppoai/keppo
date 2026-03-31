@@ -3,7 +3,14 @@ import { useMemo, useState } from "react";
 import { createLazyRoute, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
-import { AlertTriangleIcon, ArrowLeftIcon, CheckCircle2Icon, Clock3Icon } from "lucide-react";
+import {
+  AlertTriangleIcon,
+  ArrowLeftIcon,
+  BanIcon,
+  CheckCircle2Icon,
+  Clock3Icon,
+  Loader2Icon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -42,6 +49,22 @@ const describeOutcome = (status: string): string => {
     default:
       return "Run is queued. Execution details will appear here as soon as the worker starts.";
   }
+};
+
+const getRunSummaryIcon = (run: NonNullable<ReturnType<typeof parseAutomationRun>>) => {
+  if (run.outcome?.success === false || run.status === "failed" || run.status === "timed_out") {
+    return <AlertTriangleIcon className="size-4" />;
+  }
+  if (run.outcome?.success === true || run.status === "succeeded") {
+    return <CheckCircle2Icon className="size-4" />;
+  }
+  if (run.status === "running") {
+    return <Loader2Icon className="size-4 animate-spin" />;
+  }
+  if (run.status === "cancelled") {
+    return <BanIcon className="size-4" />;
+  }
+  return <Clock3Icon className="size-4" />;
 };
 
 function RunDetailPage() {
@@ -171,20 +194,12 @@ function RunDetailPage() {
                       : "rounded-xl bg-background/80 p-2 text-foreground"
                 }
               >
-                {run.outcome?.success === false ||
-                run.status === "failed" ||
-                run.status === "timed_out" ? (
-                  <AlertTriangleIcon className="size-4" />
-                ) : (
-                  <CheckCircle2Icon className="size-4" />
-                )}
+                {getRunSummaryIcon(run)}
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold">{getRunOutcomeTitle(run)}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {run.outcome?.summary.trim()
-                    ? getRunStatusSummary(run)
-                    : describeOutcome(run.status)}
+                  {run.outcome ? getRunStatusSummary(run) : describeOutcome(run.status)}
                 </p>
                 {run.error_message ? (
                   <UserFacingErrorView

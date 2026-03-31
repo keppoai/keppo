@@ -131,6 +131,7 @@ type InternalToolHandlerDeps = {
   recordAutomationRunOutcome: (
     ctx: ActionCtx,
     params: {
+      workspaceId: string;
       automationRunId: string;
       success: boolean;
       summary: string;
@@ -306,6 +307,7 @@ export const createInternalToolCallHandler = (deps: InternalToolHandlerDeps) => 
 
       try {
         const recorded = await deps.recordAutomationRunOutcome(ctx, {
+          workspaceId: payload.workspaceId,
           automationRunId,
           success,
           summary,
@@ -337,7 +339,11 @@ export const createInternalToolCallHandler = (deps: InternalToolHandlerDeps) => 
             ? "record_outcome may only be called once per automation run."
             : message === "AutomationRunOutcomeSummaryRequired"
               ? "record_outcome requires a non-empty plain-text summary."
-              : message || "Failed to record automation outcome.";
+              : message === "AutomationRunOutcomeSummaryTooLong"
+                ? "record_outcome summary must be 2000 characters or fewer."
+                : message === "AutomationRunWorkspaceMismatch"
+                  ? "record_outcome does not match the active workspace."
+                  : message || "Failed to record automation outcome.";
         await deps.finalizeToolCallRecord(ctx, {
           toolCallId: toolCall.id,
           status: TOOL_CALL_STATUS.failed,

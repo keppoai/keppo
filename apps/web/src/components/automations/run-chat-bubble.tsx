@@ -249,8 +249,8 @@ const SystemBubble = ({
       className={
         isOutcome
           ? outcome.success
-            ? "border-l-4 border-l-emerald-400/75"
-            : "border-l-4 border-l-destructive/60"
+            ? "bg-card border-l-4 border-l-emerald-400/75"
+            : "bg-card border-l-4 border-l-destructive/60"
           : "bg-card"
       }
       titleClassName={

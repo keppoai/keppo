@@ -39,7 +39,7 @@ describe("convex automation lifecycle functions", () => {
     expect(completedRun.status).toBe(AUTOMATION_RUN_STATUS.succeeded);
     expect(completedRun.ended_at).not.toBeNull();
     expect(completedRun.outcome).toMatchObject({
-      success: false,
+      success: true,
       source: "fallback_missing",
     });
   });
@@ -72,6 +72,40 @@ describe("convex automation lifecycle functions", () => {
         summary: "Second attempt",
       }),
     ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
+  });
+
+  it("replaces a stale success outcome when the run later fails", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_outcome_override";
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const createdRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.running,
+    });
+
+    await t.mutation(refs.recordAutomationRunOutcome, {
+      automation_run_id: createdRun.id,
+      workspace_id: fixture.workspaceId,
+      success: true,
+      summary: "Finished the requested work and handed off for approval.",
+    });
+
+    const failedRun = await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.timedOut,
+    });
+
+    expect(failedRun.outcome).toMatchObject({
+      success: false,
+      source: "fallback_missing",
+      summary: "The run timed out before the automation recorded a final outcome.",
+    });
   });
 
   it("reaps stale running runs into timed out status", async () => {

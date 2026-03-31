@@ -31,6 +31,7 @@ import {
   NOTIFICATION_EVENT_ID,
   AUTOMATION_RUN_STATUS,
   AUTOMATION_RUN_OUTCOME_SOURCE,
+  AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH,
   RUN_TRIGGER_TYPE,
   RUN_STATUS,
   SUBSCRIPTION_TIER,
@@ -425,30 +426,89 @@ const formatAutomationRunOutcomeLogMessage = (params: {
 
 const buildFallbackAutomationRunOutcomeSummary = (params: {
   status: AutomationRunStatus;
-  errorMessage: string | null;
 }): string => {
-  const detail = params.errorMessage?.trim();
   switch (params.status) {
     case AUTOMATION_RUN_STATUS.succeeded:
-      return "The run ended without a final recorded outcome, so completion could not be verified.";
+      return "The run completed, but the automation did not record a final outcome.";
     case AUTOMATION_RUN_STATUS.failed:
-      return detail
-        ? `The run failed before a final outcome was recorded. ${detail}`
-        : "The run failed before a final outcome was recorded.";
+      return "The run failed before the automation recorded a final outcome.";
     case AUTOMATION_RUN_STATUS.cancelled:
-      return detail
-        ? `The run was cancelled before a final outcome was recorded. ${detail}`
-        : "The run was cancelled before a final outcome was recorded.";
+      return "The run was cancelled before the automation recorded a final outcome.";
     case AUTOMATION_RUN_STATUS.timedOut:
-      return detail
-        ? `The run timed out before a final outcome was recorded. ${detail}`
-        : "The run timed out before a final outcome was recorded.";
+      return "The run timed out before the automation recorded a final outcome.";
     case AUTOMATION_RUN_STATUS.pending:
     case AUTOMATION_RUN_STATUS.running:
       return "The run has not reached a terminal state.";
     default:
       return assertNever(params.status, "automation run outcome fallback status");
   }
+};
+
+const normalizeAutomationRunOutcomeSummary = (summary: string): string => {
+  const normalized = summary.trim();
+  if (normalized.length === 0) {
+    throw new Error("AutomationRunOutcomeSummaryRequired");
+  }
+  if (normalized.length > AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH) {
+    throw new Error("AutomationRunOutcomeSummaryTooLong");
+  }
+  return normalized;
+};
+
+const buildAutomationRunOutcomeRecord = (params: {
+  success: boolean;
+  summary: string;
+  source: AutomationRunOutcomeSource;
+}) => {
+  const summary = normalizeAutomationRunOutcomeSummary(params.summary);
+  const recordedAt = nowIso();
+  const outcome = {
+    success: params.success,
+    summary,
+    source: params.source,
+    recorded_at: recordedAt,
+  } as const;
+  const message = formatAutomationRunOutcomeLogMessage({
+    success: params.success,
+    summary,
+    source: params.source,
+  });
+  return {
+    outcome,
+    message,
+    patch: {
+      outcome_success: outcome.success,
+      outcome_summary: outcome.summary,
+      outcome_source: outcome.source,
+      outcome_recorded_at: outcome.recorded_at,
+    },
+  };
+};
+
+const appendAutomationRunOutcomeLogInternal = async (
+  ctx: MutationCtx,
+  params: {
+    automation_run_id: string;
+    outcome: {
+      success: boolean;
+      summary: string;
+      source: AutomationRunOutcomeSource;
+      recorded_at: string;
+    };
+    message: string;
+  },
+) => {
+  await appendAutomationRunLogInternal(ctx, {
+    automation_run_id: params.automation_run_id,
+    level: "system",
+    content: params.message,
+    event_type: "system",
+    event_data: {
+      message: params.message,
+      kind: "automation_outcome",
+      outcome: params.outcome,
+    },
+  });
 };
 
 const createAutomationRunInternal = async (
@@ -692,6 +752,7 @@ const recordAutomationRunOutcomeInternal = async (
   ctx: MutationCtx,
   params: {
     automation_run_id: string;
+    workspace_id?: string;
     success: boolean;
     summary: string;
     source: AutomationRunOutcomeSource;
@@ -699,6 +760,9 @@ const recordAutomationRunOutcomeInternal = async (
   },
 ) => {
   const run = await getAutomationRunById(ctx, params.automation_run_id);
+  if (params.workspace_id !== undefined && run.workspace_id !== params.workspace_id) {
+    throw new Error("AutomationRunWorkspaceMismatch");
+  }
   const existingOutcome = toAutomationRunOutcomeView(run);
   if (existingOutcome) {
     if (params.on_existing === "ignore") {
@@ -707,47 +771,14 @@ const recordAutomationRunOutcomeInternal = async (
     throw new Error("AutomationRunOutcomeAlreadyRecorded");
   }
 
-  const summary = params.summary.trim();
-  if (summary.length === 0) {
-    throw new Error("AutomationRunOutcomeSummaryRequired");
-  }
-
-  const recordedAt = nowIso();
-  await ctx.db.patch(run._id, {
-    outcome_success: params.success,
-    outcome_summary: summary,
-    outcome_source: params.source,
-    outcome_recorded_at: recordedAt,
-  });
-
-  const message = formatAutomationRunOutcomeLogMessage({
-    success: params.success,
-    summary,
-    source: params.source,
-  });
-  await appendAutomationRunLogInternal(ctx, {
+  const record = buildAutomationRunOutcomeRecord(params);
+  await ctx.db.patch(run._id, record.patch);
+  await appendAutomationRunOutcomeLogInternal(ctx, {
     automation_run_id: params.automation_run_id,
-    level: "system",
-    content: message,
-    event_type: "system",
-    event_data: {
-      message,
-      kind: "automation_outcome",
-      outcome: {
-        success: params.success,
-        summary,
-        source: params.source,
-        recorded_at: recordedAt,
-      },
-    },
+    outcome: record.outcome,
+    message: record.message,
   });
-
-  const updated = await getAutomationRunById(ctx, params.automation_run_id);
-  const recordedOutcome = toAutomationRunOutcomeView(updated);
-  if (!recordedOutcome) {
-    throw new Error("AutomationRunOutcomePersistFailed");
-  }
-  return recordedOutcome;
+  return record.outcome;
 };
 
 const updateAutomationRunStatusInternal = async (
@@ -771,10 +802,24 @@ const updateAutomationRunStatusInternal = async (
   const now = nowIso();
   const legacyStatus = toRunStatus(params.status);
   const terminal = isAutomationRunTerminalStatus(params.status);
+  const existingOutcome = toAutomationRunOutcomeView(run);
 
   const errorMessage = isAutomationRunFailureStatus(params.status)
     ? params.error_message?.trim() || run.error_message || null
     : null;
+
+  const shouldReplaceExistingOutcome =
+    isAutomationRunFailureStatus(params.status) && existingOutcome?.success === true;
+  const terminalOutcomeRecord =
+    terminal && (!existingOutcome || shouldReplaceExistingOutcome)
+      ? buildAutomationRunOutcomeRecord({
+          success: params.status === AUTOMATION_RUN_STATUS.succeeded,
+          summary: buildFallbackAutomationRunOutcomeSummary({
+            status: params.status,
+          }),
+          source: AUTOMATION_RUN_OUTCOME_SOURCE.fallbackMissing,
+        })
+      : null;
 
   await ctx.db.patch(run._id, {
     status: legacyStatus,
@@ -786,6 +831,7 @@ const updateAutomationRunStatusInternal = async (
     error_message: errorMessage,
     ...(params.sandbox_id !== undefined ? { sandbox_id: params.sandbox_id } : {}),
     ...(params.mcp_session_id !== undefined ? { mcp_session_id: params.mcp_session_id } : {}),
+    ...(terminalOutcomeRecord ? terminalOutcomeRecord.patch : {}),
   });
 
   if (
@@ -818,16 +864,11 @@ const updateAutomationRunStatusInternal = async (
     });
   }
 
-  if (terminal) {
-    await recordAutomationRunOutcomeInternal(ctx, {
+  if (terminalOutcomeRecord) {
+    await appendAutomationRunOutcomeLogInternal(ctx, {
       automation_run_id: params.automation_run_id,
-      success: false,
-      summary: buildFallbackAutomationRunOutcomeSummary({
-        status: params.status,
-        errorMessage,
-      }),
-      source: AUTOMATION_RUN_OUTCOME_SOURCE.fallbackMissing,
-      on_existing: "ignore",
+      outcome: terminalOutcomeRecord.outcome,
+      message: terminalOutcomeRecord.message,
     });
   }
 
@@ -1073,6 +1114,7 @@ export const appendAutomationRunLog = internalMutation({
 export const recordAutomationRunOutcome = internalMutation({
   args: {
     automation_run_id: v.string(),
+    workspace_id: v.optional(v.string()),
     success: v.boolean(),
     summary: v.string(),
     source: v.optional(automationRunOutcomeSourceValidator),
@@ -1082,6 +1124,7 @@ export const recordAutomationRunOutcome = internalMutation({
   handler: async (ctx, args) => {
     return await recordAutomationRunOutcomeInternal(ctx, {
       automation_run_id: args.automation_run_id,
+      ...(args.workspace_id ? { workspace_id: args.workspace_id } : {}),
       success: args.success,
       summary: args.summary,
       source: args.source ?? AUTOMATION_RUN_OUTCOME_SOURCE.agentRecorded,

@@ -207,11 +207,9 @@ export const AUTOMATION_RUN_OUTCOME_SOURCE = {
   agentRecorded: "agent_recorded",
   fallbackMissing: "fallback_missing",
 } as const satisfies Record<string, AutomationRunOutcomeSource>;
+export const AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH = 2000;
 
 const automationRunStatusSet = new Set<AutomationRunStatus>(AUTOMATION_RUN_STATUSES);
-const automationRunOutcomeSourceSet = new Set<AutomationRunOutcomeSource>(
-  AUTOMATION_RUN_OUTCOME_SOURCES,
-);
 
 export const isAutomationRunStatus = (value: unknown): value is AutomationRunStatus => {
   return typeof value === "string" && automationRunStatusSet.has(value as AutomationRunStatus);
@@ -249,15 +247,6 @@ export const isAutomationRunFailureStatus = (
     default:
       return assertNever(status, "automation run status");
   }
-};
-
-export const isAutomationRunOutcomeSource = (
-  value: unknown,
-): value is AutomationRunOutcomeSource => {
-  return (
-    typeof value === "string" &&
-    automationRunOutcomeSourceSet.has(value as AutomationRunOutcomeSource)
-  );
 };
 
 export const AUTOMATION_STATUSES = ["active", "paused"] as const;

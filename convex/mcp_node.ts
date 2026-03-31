@@ -196,6 +196,7 @@ const handleInternalToolCall = createInternalToolCallHandler({
     await approvedActionHandlers.finalizeToolCallRecord(ctx, params),
   recordAutomationRunOutcome: async (ctx, params) =>
     await ctx.runMutation(refs.recordAutomationRunOutcome, {
+      workspace_id: params.workspaceId,
       automation_run_id: params.automationRunId,
       success: params.success,
       summary: params.summary,

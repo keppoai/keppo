@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH } from "../automations.js";
 import type { ToolDefinition } from "./types.js";
 
 export const keppoInternalTools: ToolDefinition[] = [
@@ -15,7 +16,7 @@ export const keppoInternalTools: ToolDefinition[] = [
     redaction_policy: [],
     input_schema: z.object({
       success: z.boolean(),
-      summary: z.string().trim().min(1),
+      summary: z.string().trim().min(1).max(AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH),
     }),
   },
   {
