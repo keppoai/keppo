@@ -15,7 +15,9 @@ concurrency:
 jobs:
   review:
     environment: ai-bots
-    runs-on: namespace-profile-linux-medium
+    # This is an expensive long-running job and it's safer
+    # to runit on a larger runner to avoid OOM issues
+    runs-on: namespace-profile-linux-large
     timeout-minutes: 180
     permissions:
       contents: read
