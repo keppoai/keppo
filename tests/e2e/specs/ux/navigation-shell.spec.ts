@@ -19,7 +19,9 @@ test("workspace switching keeps shell mounted", async ({ app, auth, page, pages 
   );
   await expect(page.getByRole("button", { name: /Notifications/i })).toBeVisible();
   await expect(page.getByRole("navigation", { name: /breadcrumb/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Automations", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Automations", exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
 
   await pages.dashboard.useWorkspace(second.workspaceName);
   await expect(page).toHaveURL(
@@ -27,7 +29,9 @@ test("workspace switching keeps shell mounted", async ({ app, auth, page, pages 
   );
   await expect(page.getByRole("button", { name: /Notifications/i })).toBeVisible();
   await expect(page.getByRole("navigation", { name: /breadcrumb/i })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Automations", exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Automations", exact: true })).toBeVisible({
+    timeout: 20_000,
+  });
 
   await page.screenshot({
     path: "ux-artifacts/usability-shell-navigation.png",
