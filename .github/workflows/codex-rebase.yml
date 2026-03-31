@@ -23,7 +23,7 @@ jobs:
     steps:
       - name: Create GitHub App token for base repo
         id: base-app-token
-        uses: actions/create-github-app-token@v2
+        uses: keppoai/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
@@ -53,7 +53,7 @@ jobs:
     steps:
       - name: Create GitHub App token for base repo
         id: base-app-token
-        uses: actions/create-github-app-token@v2
+        uses: keppoai/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
@@ -95,7 +95,7 @@ jobs:
       - name: Create GitHub App token for PR head repo
         if: steps.check-author.outputs.should_continue == 'true'
         id: head-app-token
-        uses: actions/create-github-app-token@v2
+        uses: keppoai/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
@@ -153,7 +153,7 @@ jobs:
       - name: Create minimal agent token
         if: steps.check-author.outputs.should_continue == 'true'
         id: agent-token
-        uses: actions/create-github-app-token@v2
+        uses: keppoai/create-github-app-token@v2
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
