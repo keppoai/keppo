@@ -108,6 +108,7 @@ jobs:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          MAX_LOG_FILES: 100
           LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
           SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
           CODEX_HOME: ${{ env.CODEX_HOME }}
