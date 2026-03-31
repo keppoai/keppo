@@ -27,7 +27,7 @@ It is not a user-facing API and should fail closed for missing or malformed auth
 
 ## Why `multipart/form-data`
 
-The current GitHub workflow uploads raw `.json` and `.jsonl` files discovered after a marker file. A multipart request keeps file bytes raw instead of base64-encoding them into JSON, which avoids a 33% payload expansion and is simpler to stream and size-limit safely.
+The current GitHub workflow uploads raw session-log `.json` and `.jsonl` files discovered after a marker file. For Codex, that means files under the `sessions/` subtree of `CODEX_HOME`; additional non-session uploads must come from explicit extra roots. A multipart request keeps file bytes raw instead of base64-encoding them into JSON, which avoids a 33% payload expansion and is simpler to stream and size-limit safely.
 
 ## Request contract
 
@@ -306,7 +306,9 @@ Recommended codes:
 
 The GitHub-side uploader should:
 
-- Discover new `.json` and `.jsonl` files after the marker file, as it does today.
+- Discover new session-log `.json` and `.jsonl` files after the marker file.
+- For Codex uploads, only include files under the `sessions/` subtree of `CODEX_HOME`.
+- Keep any intentionally uploaded non-session files on explicit extra roots rather than broadening the default agent-home scan.
 - Keep the existing caps of `50` files and `50 MiB` total.
 - Build one multipart request per workflow run instead of one PUT per file.
 - Generate `upload_id` once per request.
