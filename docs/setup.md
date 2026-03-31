@@ -59,7 +59,6 @@ Use the repo-owned command surface for the smallest layer that exercises the rea
 - `pnpm test:shared` and `pnpm test:conformance` for shared package and provider conformance coverage
 - `pnpm test:non-e2e:authoring` for authoring guardrails on non-E2E suites
 - `pnpm run test:e2e:base -- <playwright-args...>` for local browser debugging
-- `pnpm test:nightly` for scheduled real-provider verification
 
 Local browser policy:
 
@@ -67,10 +66,6 @@ Local browser policy:
 - Use targeted Playwright specs only, then validate the full suite on GitHub Actions.
 - For automation-trigger work, use `pnpm run test:e2e:base -- tests/e2e/specs/automations/provider-event-triggers.spec.ts`.
 - For intentional Code Mode sandbox verification, set `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` so sandbox unavailability becomes a hard failure instead of a skip.
-
-## Deployment path validation
-
-Use Docker Compose when you need to validate the self-hosted deployment path end to end instead of the normal `pnpm run dev` local workflow. Bring the stack up with `docker compose up --build`, confirm the app boots with the env described below, and tear it down with `docker compose down` after validation.
 
 ## Hosted deployment model
 
@@ -80,7 +75,7 @@ Use Docker Compose when you need to validate the self-hosted deployment path end
 - Hosted builds sync Convex env and run `convex deploy --cmd '<build command>'` so schema/function changes ship with the matching web artifact.
 - Preview builds must also export the derived preview origin (`KEPPO_URL` and same-origin Better Auth companions such as `KEPPO_API_INTERNAL_BASE_URL`) into the shell before `convex deploy` begins, because Convex analyzes auth modules before the later hosted env sync step.
 - Provider rollout is controlled by feature flags rather than route removal.
-- Self-hosted deployment-path validation expects Docker Compose to remain part of the documented local and operator workflow. Keep these docs aligned with the checked-in Compose configuration and validate changes with `pnpm run check:security`.
+- Validate deployment changes with `pnpm run check:security`.
 
 ---
 
