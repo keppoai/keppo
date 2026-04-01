@@ -152,4 +152,119 @@ describe("BillingPage", () => {
       "Ask an owner or admin to purchase automation run top-ups for this organization.",
     );
   });
+
+  it("shows current paid-plan management on the active card and hides a free-tier cancel action", async () => {
+    renderDashboard(<BillingPage />, {
+      route: "/acme/settings/billing",
+      auth: createAuthState({
+        isAuthenticated: true,
+        getOrgId: () => "org_1",
+        getOrgSlug: () => "acme",
+      }),
+      runtime: createFakeDashboardRuntime({
+        queryHandlers: {
+          "billing:getCurrentOrgBilling": () => ({
+            org_id: "org_1",
+            tier: "starter",
+            status: "active",
+            billing_source: "stripe",
+            invite_promo: null,
+            period_start: "2026-03-01T00:00:00.000Z",
+            period_end: "2026-04-01T00:00:00.000Z",
+            usage: {
+              tool_call_count: 10,
+              total_tool_call_time_ms: 1200,
+            },
+            limits: {
+              price_cents_monthly: 2500,
+              max_tool_calls_per_month: 75_000,
+              max_total_tool_call_time_ms: 72_000_000,
+              included_ai_credits: {
+                total: 100,
+                bundled_runtime_enabled: true,
+                reset_period: "monthly",
+              },
+            },
+          }),
+          "ai_credits:getAiCreditBalance": () => ({
+            allowance_total: 100,
+            allowance_used: 10,
+            purchased_remaining: 0,
+            total_available: 90,
+          }),
+          "automation_runs:getCurrentOrgAutomationRunUsage": () => ({
+            run_count: 3,
+            max_runs_per_period: 25,
+          }),
+          "automation_run_topups:getAutomationRunTopupBalance": () => ({
+            purchased_runs_balance: 0,
+          }),
+        },
+      }),
+    });
+
+    expect(await screen.findByRole("heading", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByTestId("billing-plan-card-starter")).toHaveTextContent("Current");
+    expect(screen.getByTestId("billing-manage-subscription")).toBeVisible();
+    expect(screen.getByTestId("billing-change-plan")).toHaveTextContent("Upgrade to Pro");
+    expect(screen.getByTestId("billing-plan-card-free")).toHaveTextContent(
+      "Free trial does not include a cancellation step.",
+    );
+  });
+
+  it("lets pro orgs downgrade from the starter card", async () => {
+    renderDashboard(<BillingPage />, {
+      route: "/acme/settings/billing",
+      auth: createAuthState({
+        isAuthenticated: true,
+        getOrgId: () => "org_1",
+        getOrgSlug: () => "acme",
+      }),
+      runtime: createFakeDashboardRuntime({
+        queryHandlers: {
+          "billing:getCurrentOrgBilling": () => ({
+            org_id: "org_1",
+            tier: "pro",
+            status: "active",
+            billing_source: "stripe",
+            invite_promo: null,
+            period_start: "2026-03-01T00:00:00.000Z",
+            period_end: "2026-04-01T00:00:00.000Z",
+            usage: {
+              tool_call_count: 10,
+              total_tool_call_time_ms: 1200,
+            },
+            limits: {
+              price_cents_monthly: 7500,
+              max_tool_calls_per_month: 750_000,
+              max_total_tool_call_time_ms: 72_000_000,
+              included_ai_credits: {
+                total: 300,
+                bundled_runtime_enabled: true,
+                reset_period: "monthly",
+              },
+            },
+          }),
+          "ai_credits:getAiCreditBalance": () => ({
+            allowance_total: 300,
+            allowance_used: 10,
+            purchased_remaining: 0,
+            total_available: 290,
+          }),
+          "automation_runs:getCurrentOrgAutomationRunUsage": () => ({
+            run_count: 3,
+            max_runs_per_period: 25,
+          }),
+          "automation_run_topups:getAutomationRunTopupBalance": () => ({
+            purchased_runs_balance: 0,
+          }),
+        },
+      }),
+    });
+
+    expect(await screen.findByRole("heading", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByTestId("billing-plan-card-pro")).toHaveTextContent("Current");
+    expect(screen.getByTestId("billing-change-plan")).toHaveTextContent("Downgrade to Starter");
+    expect(screen.queryByTestId("billing-upgrade-pro")).not.toBeInTheDocument();
+  });
 });

@@ -168,7 +168,8 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 
 - Billing page at `/:orgSlug/settings/billing` shows current tier, status, billing period, and usage progress bars.
 - Billing page surfaces dedicated AI Credits and Automation Runs cards near the top so operators can see remaining prompt credits and current-period run capacity without digging through tool-call metrics.
-- Billing page includes a shared-subscription comparison card that highlights the current tier and compares monthly price, workspace capacity, included AI credits, and monthly tool-call limits.
+- Billing page includes one unified row of plan cards for `Free trial`, `Starter`, and `Pro` that compares monthly price, workspace capacity, included AI credits, and monthly tool-call limits while attaching the correct plan-specific CTA to each card.
+- The unified plan cards follow billing-source-aware actions: `free` orgs can start checkout only on higher paid tiers, the `Free trial` card never offers cancellation, Stripe-paid orgs manage the current paid tier from its card and can change only to eligible adjacent tiers, and invite promos keep Stripe checkout available without exposing native Stripe manage/change controls.
 - Billing copy distinguishes free-tier prompt-generation credits from paid bundled runtime credits and explains that automation runtime mode is derived per org: paid bundled credits run first, otherwise an active BYO key is required.
 - Upgrade CTAs call API billing checkout endpoint (`/billing/checkout`) for starter/pro Stripe Managed Payments sessions.
 - Billing page includes AI credit-pack CTAs and paid-tier automation run top-up CTAs so one-time purchases live beside recurring subscription management.
