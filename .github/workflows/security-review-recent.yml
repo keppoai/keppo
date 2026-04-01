@@ -63,6 +63,7 @@ jobs:
           set -euo pipefail
           rm -rf out-security-review
           mkdir -p out-security-review
+          mkdir -p "${FINDINGS_DIR}"
 
       - name: Record session log marker
         run: |
@@ -83,11 +84,6 @@ jobs:
         env:
           PROMPT_PATH: ${{ env.PROMPT_PATH }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/run-codex.sh"
-
-      - name: Ensure findings directory exists
-        run: |
-          set -euo pipefail
-          mkdir -p "${FINDINGS_DIR}"
 
       - name: Refresh trusted workflow assets
         if: always()
