@@ -193,22 +193,21 @@ export const loadApiRuntimeEnv = (): void => {
   );
   if (envSource.kind === "bundled") {
     applyRuntimeEnv(envSource.contents);
-    runtimeEnvLoaded = true;
-    return;
-  }
+  } else {
+    const envFiles = envSource.filepaths;
+    for (const filepath of envFiles) {
+      if (!existsSync(filepath)) {
+        throw new Error(`Missing env file for KEPPO_ENVIRONMENT=${environment}: ${filepath}`);
+      }
+    }
 
-  const envFiles = envSource.filepaths;
-  for (const filepath of envFiles) {
-    if (!existsSync(filepath)) {
-      throw new Error(`Missing env file for KEPPO_ENVIRONMENT=${environment}: ${filepath}`);
+    for (const filepath of envFiles) {
+      applyRuntimeEnv(readFileSync(filepath, "utf8"));
     }
   }
 
-  for (const filepath of envFiles) {
-    applyRuntimeEnv(readFileSync(filepath, "utf8"));
-  }
-
   runtimeEnvLoaded = true;
+  console.log("[keppo-runtime] STRIPE_STARTER_PRICE_ID=", process.env.STRIPE_STARTER_PRICE_ID);
 };
 
 export const maybeLoadApiRuntimeEnv = (): void => {
