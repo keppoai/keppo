@@ -49,6 +49,7 @@ import {
   EmptyIllustration,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -844,8 +845,103 @@ function IntegrationDetailPage() {
             <CardContent className="grid gap-3">
               {editor.fields.map((field) => {
                 const fieldId = `${editor.id}-${field.id}-${normalizedProvider}`;
-                const value = getFieldValue(values, field);
                 const disabled = isSubmitting || !connected || !workspaceProviderEnabled;
+
+                if (field.type === "checkboxes" && field.options) {
+                  const checkboxMap =
+                    values[field.id] &&
+                    typeof values[field.id] === "object" &&
+                    !Array.isArray(values[field.id])
+                      ? (values[field.id] as Record<string, boolean>)
+                      : {};
+
+                  const setCheckboxValue = (optionValue: string, checked: boolean) => {
+                    setMetadataEditorValues((previous) => {
+                      const prevEditorValues = previous[editor.id] ?? {};
+                      const prevCheckboxMap =
+                        prevEditorValues[field.id] &&
+                        typeof prevEditorValues[field.id] === "object" &&
+                        !Array.isArray(prevEditorValues[field.id])
+                          ? (prevEditorValues[field.id] as Record<string, boolean>)
+                          : {};
+                      return {
+                        ...previous,
+                        [editor.id]: {
+                          ...prevEditorValues,
+                          [field.id]: {
+                            ...prevCheckboxMap,
+                            [optionValue]: checked,
+                          },
+                        },
+                      };
+                    });
+                  };
+
+                  const setAllCheckboxes = (checked: boolean) => {
+                    const nextMap = Object.fromEntries(
+                      (field.options ?? []).map((opt) => [opt.value, checked]),
+                    );
+                    setMetadataEditorValues((previous) => ({
+                      ...previous,
+                      [editor.id]: {
+                        ...previous[editor.id],
+                        [field.id]: nextMap,
+                      },
+                    }));
+                  };
+
+                  return (
+                    <div key={field.id} className="grid gap-2">
+                      <Label>{field.label}</Label>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto px-0 text-xs"
+                          disabled={disabled}
+                          onClick={() => setAllCheckboxes(true)}
+                        >
+                          Select all
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="link"
+                          size="sm"
+                          className="h-auto px-0 text-xs"
+                          disabled={disabled}
+                          onClick={() => setAllCheckboxes(false)}
+                        >
+                          Select none
+                        </Button>
+                      </div>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {field.options.map((option) => {
+                          const optionId = `${fieldId}-${option.value}`;
+                          return (
+                            <label
+                              key={option.value}
+                              htmlFor={optionId}
+                              className="flex items-center gap-2 text-sm"
+                            >
+                              <Checkbox
+                                id={optionId}
+                                checked={checkboxMap[option.value] === true}
+                                onCheckedChange={(checked) =>
+                                  setCheckboxValue(option.value, checked === true)
+                                }
+                                disabled={disabled}
+                              />
+                              {option.label}
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+
+                const value = getFieldValue(values, field);
 
                 return (
                   <div key={field.id} className="grid gap-2">

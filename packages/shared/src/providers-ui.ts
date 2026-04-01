@@ -1,6 +1,13 @@
 import { CANONICAL_PROVIDER_IDS, type CanonicalProviderId } from "./provider-catalog.js";
 
-export type ProviderUiFieldType = "text" | "textarea" | "number" | "email" | "json" | "csv";
+export type ProviderUiFieldType =
+  | "text"
+  | "textarea"
+  | "number"
+  | "email"
+  | "json"
+  | "csv"
+  | "checkboxes";
 
 export type ProviderUiField = {
   id: string;
@@ -8,6 +15,7 @@ export type ProviderUiField = {
   type: ProviderUiFieldType;
   placeholder?: string;
   required?: boolean;
+  options?: Array<{ value: string; label: string }>;
 };
 
 export type ProviderUiStateContext = {
@@ -319,6 +327,21 @@ const googleUiConfig: ProviderDetailUiConfig = {
   },
 };
 
+export const STRIPE_WRITE_MODES = [
+  { value: "refund", label: "Refund" },
+  { value: "cancel_subscription", label: "Cancel subscription" },
+  { value: "adjust_balance", label: "Adjust balance" },
+  { value: "update_customer", label: "Update customer" },
+  { value: "update_subscription", label: "Update subscription" },
+  { value: "resume_subscription", label: "Resume subscription" },
+  { value: "invoice_actions", label: "Invoice actions" },
+  { value: "credit_notes", label: "Credit notes" },
+  { value: "disputes", label: "Disputes" },
+  { value: "portal_session", label: "Portal session" },
+  { value: "payment_methods", label: "Payment methods" },
+  { value: "invoice_items", label: "Invoice items" },
+] as const;
+
 const stripeWriteModesEditor: ProviderMetadataEditorConfig = {
   id: "stripe-write-modes",
   title: "Stripe write mode policy",
@@ -326,35 +349,54 @@ const stripeWriteModesEditor: ProviderMetadataEditorConfig = {
   fields: [
     {
       id: "allowed_write_modes",
-      label: "Allowed write modes (comma-separated)",
-      type: "csv",
-      placeholder: "refund, cancel_subscription, adjust_balance",
+      label: "Allowed write modes",
+      type: "checkboxes",
+      options: STRIPE_WRITE_MODES.map((mode) => ({ value: mode.value, label: mode.label })),
     },
   ],
   defaults: {
-    allowed_write_modes: "refund, cancel_subscription, adjust_balance",
+    allowed_write_modes: Object.fromEntries(STRIPE_WRITE_MODES.map((mode) => [mode.value, true])),
   },
   submitLabel: "Save write modes",
   successMessage: "Stripe write modes saved.",
   hydrateValues: (context) => {
     const configured = context.integrationMetadata.allowed_write_modes;
+    if (configured === undefined || configured === null) {
+      return {};
+    }
     if (Array.isArray(configured)) {
+      const modeSet = new Set(configured.map((entry) => String(entry).toLowerCase()));
       return {
-        allowed_write_modes: configured.map((entry) => String(entry)).join(", "),
+        allowed_write_modes: Object.fromEntries(
+          STRIPE_WRITE_MODES.map((mode) => [mode.value, modeSet.has(mode.value)]),
+        ),
       };
     }
     if (typeof configured === "string") {
+      const modeSet = new Set(
+        configured
+          .split(",")
+          .map((entry) => entry.trim().toLowerCase())
+          .filter(Boolean),
+      );
       return {
-        allowed_write_modes: configured,
+        allowed_write_modes: Object.fromEntries(
+          STRIPE_WRITE_MODES.map((mode) => [mode.value, modeSet.has(mode.value)]),
+        ),
       };
     }
     return {};
   },
   buildMetadataPatch: (values) => {
-    const allowed = parseCsvValue(values.allowed_write_modes).map((entry) => entry.toLowerCase());
-    return {
-      allowed_write_modes: [...new Set(allowed)],
-    };
+    const checkboxMap = values.allowed_write_modes;
+    if (!checkboxMap || typeof checkboxMap !== "object" || Array.isArray(checkboxMap)) {
+      return { allowed_write_modes: [] };
+    }
+    const record = checkboxMap as Record<string, unknown>;
+    const allowed = STRIPE_WRITE_MODES.filter((mode) => record[mode.value] === true).map(
+      (mode) => mode.value,
+    );
+    return { allowed_write_modes: allowed };
   },
 };
 
