@@ -1016,10 +1016,83 @@ describe("start-owned billing api", () => {
     expect(response!.status).toBe(403);
     await expect(response!.json()).resolves.toEqual({
       error: {
-        code: "forbidden",
+        code: "billing.forbidden",
         message: "Only owners and admins can change subscription plans.",
       },
     });
+  });
+
+  it("rejects billing Stripe session routes for non-owner members", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
+    vi.stubEnv("STRIPE_CREDIT_PRODUCT_ID", "prod_credits");
+    vi.stubEnv("STRIPE_AUTOMATION_RUN_PRODUCT_ID", "prod_run_topups");
+
+    const cases = [
+      {
+        pathname: "/api/billing/checkout",
+        body: {
+          orgId: "org_test",
+          tier: "starter",
+        },
+        expectedMessage: "Only owners and admins can start checkout.",
+      },
+      {
+        pathname: "/api/billing/credits/checkout",
+        body: {
+          orgId: "org_test",
+          packageIndex: 0,
+        },
+        expectedMessage: "Only owners and admins can buy AI credits.",
+      },
+      {
+        pathname: "/api/billing/automation-runs/checkout",
+        body: {
+          orgId: "org_test",
+          packageIndex: 0,
+        },
+        expectedMessage: "Only owners and admins can buy automation run top-ups.",
+      },
+      {
+        pathname: "/api/billing/portal",
+        body: {
+          orgId: "org_test",
+        },
+        expectedMessage: "Only owners and admins can manage billing.",
+      },
+    ] as const;
+
+    for (const role of ["viewer", "approver"] as const) {
+      for (const testCase of cases) {
+        const deps = createDeps();
+        vi.mocked(deps.resolveApiSessionIdentity).mockResolvedValueOnce({
+          userId: `user_${role}`,
+          orgId: "org_test",
+          role,
+        });
+
+        const response = await dispatchStartOwnedBillingRequest(
+          new Request(`http://127.0.0.1${testCase.pathname}`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              cookie: "better-auth.session_token=session_token_test",
+            },
+            body: JSON.stringify(testCase.body),
+          }),
+          deps,
+        );
+
+        expect(response).not.toBeNull();
+        expect(response!.status).toBe(403);
+        await expect(response!.json()).resolves.toEqual({
+          error: {
+            code: "billing.forbidden",
+            message: testCase.expectedMessage,
+          },
+        });
+      }
+    }
   });
 
   it("allows cancel-to-free without billing details or a payment method", async () => {

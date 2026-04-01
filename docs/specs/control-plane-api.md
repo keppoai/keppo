@@ -102,7 +102,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
   - webhook verification attempt/success/failure counters,
   - MCP capability mismatch blocks.
 - Fire-and-forget API side effects (rate-limit audit writes, provider metrics, PagerDuty incident emission) are no longer best-effort drops: after bounded Convex retries they enqueue `dead_letter_queue` rows with `source_table=fire_and_forget` so the maintenance tick can re-drive recovery paths.
-- Billing checkout/portal endpoints require authenticated session identity, resolve org scope from session, and fail closed when Stripe keys or price IDs are missing.
+- Billing checkout, one-time purchase, portal, and subscription-change endpoints require authenticated session identity, resolve org scope from session, and reject non-`owner`/`admin` org members with `403 forbidden` before creating Stripe sessions or mutating subscription state.
 - Billing checkout/portal redirect targets (`successUrl`, `cancelUrl`, `returnUrl`) must be same-origin with `KEPPO_DASHBOARD_ORIGIN`; off-origin values are rejected with typed `invalid_redirect_url` errors.
 - Billing AI-credit checkout endpoint validates `packageIndex`, resolves org scope from authenticated session, and stamps org/credit metadata for webhook fulfillment.
 - Stripe billing webhook endpoint uses `stripe-signature` verification with `STRIPE_BILLING_WEBHOOK_SECRET` before any subscription mutations (falling back to legacy `STRIPE_WEBHOOK_SECRET` only when the split secret is unset).

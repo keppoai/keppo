@@ -32,6 +32,7 @@ import {
 } from "@/lib/server-functions/internal-api";
 import { parseAiCreditBalance } from "@/lib/automations-view-model";
 import { ErrorBoundary } from "@/components/error-boundary";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -69,12 +70,17 @@ type OptimisticInvitePromo = {
   expiresAt: string;
 };
 
+const BILLING_ADMIN_NOTE =
+  "Billing is managed by organization owners and admins. Ask them to handle plan changes, checkout, top-ups, or billing portal access.";
+
 function BillingCapacityTopups({
+  canManageBilling,
   currentBilling,
   busyAction,
   onCreditPackCheckout,
   onAutomationRunPackCheckout,
 }: {
+  canManageBilling: boolean;
   currentBilling: {
     org_id: string;
     tier: "free" | "starter" | "pro";
@@ -206,24 +212,34 @@ function BillingCapacityTopups({
               </div>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={() => {
-                  onCreditPackCheckout(0);
-                }}
-                disabled={busyAction !== null}
+            {canManageBilling ? (
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={() => {
+                    onCreditPackCheckout(0);
+                  }}
+                  disabled={busyAction !== null}
+                >
+                  {busyAction === "credit_pack_0" ? "Opening..." : "Buy 100 credits ($10)"}
+                </Button>
+                <Button
+                  onClick={() => {
+                    onCreditPackCheckout(1);
+                  }}
+                  disabled={busyAction !== null}
+                >
+                  {busyAction === "credit_pack_1" ? "Opening..." : "Buy 250 credits ($25)"}
+                </Button>
+              </div>
+            ) : (
+              <div
+                data-testid="billing-topups-note"
+                role="status"
+                className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
               >
-                {busyAction === "credit_pack_0" ? "Opening..." : "Buy 100 credits ($10)"}
-              </Button>
-              <Button
-                onClick={() => {
-                  onCreditPackCheckout(1);
-                }}
-                disabled={busyAction !== null}
-              >
-                {busyAction === "credit_pack_1" ? "Opening..." : "Buy 250 credits ($25)"}
-              </Button>
-            </div>
+                Ask an owner or admin to purchase AI credit packs for this organization.
+              </div>
+            )}
             <p className="text-xs text-muted-foreground">
               Purchased AI credits stay available for 90 days after checkout completion.
             </p>
@@ -320,21 +336,31 @@ function BillingCapacityTopups({
 
             {currentBilling.tier === "free" ? null : (
               <>
-                <div className="flex flex-wrap gap-2">
-                  {automationRunPackages.map((pkg, index) => (
-                    <Button
-                      key={`${pkg.multiplier}-${pkg.runs}`}
-                      onClick={() => {
-                        onAutomationRunPackCheckout(index);
-                      }}
-                      disabled={busyAction !== null}
-                    >
-                      {busyAction === `run_pack_${index}`
-                        ? "Opening..."
-                        : `Buy ${pkg.runs.toLocaleString()} runs (${formatCurrency(pkg.price_cents)})`}
-                    </Button>
-                  ))}
-                </div>
+                {canManageBilling ? (
+                  <div className="flex flex-wrap gap-2">
+                    {automationRunPackages.map((pkg, index) => (
+                      <Button
+                        key={`${pkg.multiplier}-${pkg.runs}`}
+                        onClick={() => {
+                          onAutomationRunPackCheckout(index);
+                        }}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction === `run_pack_${index}`
+                          ? "Opening..."
+                          : `Buy ${pkg.runs.toLocaleString()} runs (${formatCurrency(pkg.price_cents)})`}
+                      </Button>
+                    ))}
+                  </div>
+                ) : (
+                  <div
+                    role="status"
+                    data-testid="billing-automation-topups-note"
+                    className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+                  >
+                    Ask an owner or admin to purchase automation run top-ups for this organization.
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground">
                   Each top-up also adds proportional tool calls and total tool runtime for 90 days
                   after checkout completion.
@@ -373,6 +399,7 @@ function BillingCapacityTopupsFallback() {
 }
 
 function BillingPage() {
+  const { canManage } = useAuth();
   const runtime = useDashboardRuntime();
   const billing = runtime.useQuery(billingQueryRef, {});
   const redeemInviteCode = runtime.useMutation(redeemInviteCodeRef);
@@ -931,6 +958,7 @@ function BillingPage() {
   }
 
   const currentBilling = displayBilling;
+  const canManageBilling = canManage();
 
   return (
     <div className="flex flex-col gap-6">
@@ -938,6 +966,16 @@ function BillingPage() {
         <h1 className="text-3xl font-bold tracking-tight">Billing</h1>
         <p className="text-muted-foreground">Manage your plan, limits, and current usage.</p>
       </div>
+
+      {!canManageBilling ? (
+        <div
+          data-testid="billing-management-note"
+          role="status"
+          className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+        >
+          {BILLING_ADMIN_NOTE}
+        </div>
+      ) : null}
 
       {error ? <UserFacingErrorView error={error} /> : null}
 
@@ -955,17 +993,27 @@ function BillingPage() {
                 You will move to the Free plan afterward.
               </span>
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-11 shrink-0 sm:min-h-10"
-              onClick={() => void handleUndoCancel()}
-              disabled={busyAction !== null}
-              data-testid="billing-undo-cancel"
-            >
-              {busyAction === "undo_cancel" ? "Updating..." : "Keep subscription"}
-            </Button>
+            {canManageBilling ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11 shrink-0 sm:min-h-10"
+                onClick={() => void handleUndoCancel()}
+                disabled={busyAction !== null}
+                data-testid="billing-undo-cancel"
+              >
+                {busyAction === "undo_cancel" ? "Updating..." : "Keep subscription"}
+              </Button>
+            ) : (
+              <p
+                role="status"
+                className="text-sm text-muted-foreground sm:max-w-xs sm:text-right"
+                data-testid="billing-undo-cancel-note"
+              >
+                Ask an owner or admin to keep this subscription active.
+              </p>
+            )}
           </div>
         </div>
       ) : null}
@@ -1042,6 +1090,7 @@ function BillingPage() {
 
       <ErrorBoundary boundary="layout" fallback={<BillingCapacityTopupsFallback />}>
         <BillingCapacityTopups
+          canManageBilling={canManageBilling}
           currentBilling={{
             org_id: currentBilling.org_id,
             tier: currentBilling.tier,
@@ -1157,7 +1206,7 @@ function BillingPage() {
               ? `This plan includes ${currentBilling.limits.included_ai_credits.total} bundled AI credits each billing cycle for prompt generation and bundled automation runtime.`
               : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation only. Automation runtime still requires Bring your own key.`}
           </div>
-          {usageView.showUpgradeStarter ? (
+          {canManageBilling && usageView.showUpgradeStarter ? (
             <Button
               data-testid="billing-upgrade-starter"
               variant={
@@ -1175,7 +1224,7 @@ function BillingPage() {
                   : "Upgrade to Starter"}
             </Button>
           ) : null}
-          {usageView.showUpgradePro ? (
+          {canManageBilling && usageView.showUpgradePro ? (
             <Button
               data-testid="billing-upgrade-pro"
               variant={
@@ -1193,7 +1242,7 @@ function BillingPage() {
                   : "Upgrade to Pro"}
             </Button>
           ) : null}
-          {usageView.showChangePlan ? (
+          {canManageBilling && usageView.showChangePlan ? (
             <div className="grid gap-2">
               <Button
                 data-testid="billing-change-plan"
@@ -1219,7 +1268,7 @@ function BillingPage() {
               ) : null}
             </div>
           ) : null}
-          {billingSource !== "invite_promo" ? (
+          {canManageBilling && billingSource !== "invite_promo" ? (
             <Button
               data-testid="billing-manage-subscription"
               variant="outline"

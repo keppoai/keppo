@@ -386,6 +386,34 @@ export const seedUserOrg = internalMutation({
   },
 });
 
+export const setUserActiveOrganizationForTesting = internalMutation({
+  args: {
+    userId: v.string(),
+    orgId: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    await requireE2EIdentity(ctx);
+    await safeRunMutation("mcp.setUserActiveOrganizationForTesting.updateSessions", () =>
+      ctx.runMutation(components.betterAuth.adapter.updateMany, {
+        input: {
+          model: "session",
+          where: [{ field: "userId", value: args.userId }],
+          update: {
+            activeOrganizationId: args.orgId,
+            updatedAt: Date.now(),
+          },
+        },
+        paginationOpts: {
+          numItems: 200,
+          cursor: null,
+        },
+      }),
+    );
+    return null;
+  },
+});
+
 export const createWorkspaceForOrg = internalMutation({
   args: {
     orgId: v.string(),

@@ -1,4 +1,5 @@
 import { makeFunctionReference } from "convex/server";
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { getTierConfig } from "../../packages/shared/src/subscriptions";
 import type { DbSchema } from "../../packages/shared/src/types";
@@ -27,6 +28,12 @@ const refs = {
   resetNamespace: makeFunctionReference<"mutation">("e2e:resetNamespace"),
   createInviteCodeForTesting: makeFunctionReference<"mutation">("e2e:createInviteCodeForTesting"),
   seedInvitePromoForOrg: makeFunctionReference<"mutation">("e2e:seedInvitePromoForOrg"),
+  createInviteInternal: makeFunctionReference<"mutation">("invites:createInviteInternal"),
+  acceptInviteInternal: makeFunctionReference<"mutation">("invites:acceptInviteInternal"),
+  getAuthUserForTesting: makeFunctionReference<"query">("mcp:getAuthUserForTesting"),
+  setUserActiveOrganizationForTesting: makeFunctionReference<"mutation">(
+    "mcp:setUserActiveOrganizationForTesting",
+  ),
   createWorkspaceForOrgWithLimitCheck: makeFunctionReference<"mutation">(
     "e2e:createWorkspaceForOrgWithLimitCheck",
   ),
@@ -212,6 +219,55 @@ const createAuthenticatedHeaders = async (params: {
     email: params.email,
     password: BILLING_TEST_PASSWORD,
     name: params.name ?? "E2E User",
+  });
+  return {
+    ...params.headers,
+    cookie,
+  };
+};
+
+const createSharedOrgMemberHeaders = async (params: {
+  headers: Record<string, string>;
+  orgId: string;
+  inviterEmail: string;
+  role: "viewer" | "approver";
+  suffix: string;
+}): Promise<Record<string, string>> => {
+  const memberEmail = `e2e+${params.suffix}.${params.role}.${createRandomToken()}@example.com`;
+  await ensureLocalEmailPasswordUser({
+    headers: params.headers,
+    email: memberEmail,
+    password: BILLING_TEST_PASSWORD,
+    name: `${params.role} member`,
+  });
+  const cookie = await createApiSessionCookie({
+    headers: params.headers,
+    email: memberEmail,
+    password: BILLING_TEST_PASSWORD,
+    name: `${params.role} member`,
+  });
+  const client = createAdminClient();
+  const inviterUser = (await client.query(refs.getAuthUserForTesting, {
+    email: params.inviterEmail,
+  })) as { id: string } | null;
+  expect(inviterUser?.id).toBeTruthy();
+  const invite = (await client.mutation(refs.createInviteInternal, {
+    orgId: params.orgId,
+    inviterUserId: inviterUser!.id,
+    email: memberEmail,
+    role: params.role,
+  })) as { rawToken: string };
+  const invitedUser = (await client.query(refs.getAuthUserForTesting, {
+    email: memberEmail,
+  })) as { id: string } | null;
+  expect(invitedUser?.id).toBeTruthy();
+  await client.mutation(refs.acceptInviteInternal, {
+    tokenHash: createHash("sha256").update(invite.rawToken).digest("hex"),
+    userId: invitedUser!.id,
+  });
+  await client.mutation(refs.setUserActiveOrganizationForTesting, {
+    userId: invitedUser!.id,
+    orgId: params.orgId,
   });
   return {
     ...params.headers,
@@ -647,6 +703,96 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
         const proPayload = (await proResponse.json()) as { url?: string; session_id?: string };
         expect(proPayload.url).toContain("checkout.stripe.test/");
         expect(proPayload.session_id).toContain("cs_");
+      },
+    );
+  });
+
+  it("billing checkout endpoints reject viewer and approver roles", async () => {
+    await withLocalConvexNamespace(
+      "vitest.billing",
+      "billing-role-restrictions",
+      async ({ namespace, headers }) => {
+        const store = createStore();
+
+        for (const role of ["viewer", "approver"] as const) {
+          const seeded = await seedWorkspace({
+            namespace,
+            suffix: `billing-role-restrictions-${role}`,
+            subscriptionTier: "starter",
+          });
+          await store.setOrgSubscription({
+            org_id: seeded.orgId,
+            tier: "starter",
+            status: "active",
+            stripe_customer_id: `cus_role_restrictions_${role}`,
+            stripe_subscription_id: `sub_role_restrictions_${role}`,
+          });
+
+          const memberHeaders = await createSharedOrgMemberHeaders({
+            headers,
+            orgId: seeded.orgId,
+            inviterEmail: seeded.userEmail,
+            role,
+            suffix: `${namespace}-billing-role-restrictions-${role}`,
+          });
+
+          const checkoutResponse = await createCheckoutSessionFetch({
+            baseUrl: apiBaseUrl,
+            headers: memberHeaders,
+            orgId: seeded.orgId,
+            tier: "pro",
+            customerEmail: `e2e+${namespace}.${role}.checkout@example.com`,
+          });
+          expect(checkoutResponse.status).toBe(403);
+          expect(
+            ((await checkoutResponse.json()) as { error?: { code?: string } }).error?.code,
+          ).toBe("billing.forbidden");
+
+          const creditsResponse = await fetch(`${apiBaseUrl}/api/billing/credits/checkout`, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              ...memberHeaders,
+            },
+            body: JSON.stringify({
+              orgId: seeded.orgId,
+              packageIndex: 0,
+            }),
+          });
+          expect(creditsResponse.status).toBe(403);
+          expect(
+            ((await creditsResponse.json()) as { error?: { code?: string } }).error?.code,
+          ).toBe("billing.forbidden");
+
+          const automationRunsResponse = await fetch(
+            `${apiBaseUrl}/api/billing/automation-runs/checkout`,
+            {
+              method: "POST",
+              headers: {
+                "content-type": "application/json",
+                ...memberHeaders,
+              },
+              body: JSON.stringify({
+                orgId: seeded.orgId,
+                packageIndex: 0,
+              }),
+            },
+          );
+          expect(automationRunsResponse.status).toBe(403);
+          expect(
+            ((await automationRunsResponse.json()) as { error?: { code?: string } }).error?.code,
+          ).toBe("billing.forbidden");
+
+          const portalResponse = await createPortalSessionFetch({
+            baseUrl: apiBaseUrl,
+            headers: memberHeaders,
+            orgId: seeded.orgId,
+          });
+          expect(portalResponse.status).toBe(403);
+          expect(((await portalResponse.json()) as { error?: { code?: string } }).error?.code).toBe(
+            "billing.forbidden",
+          );
+        }
       },
     );
   });

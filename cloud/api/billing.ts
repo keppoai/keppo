@@ -697,6 +697,27 @@ const canManageBillingPlan = (role: UserRole): boolean => {
   return role === "owner" || role === "admin";
 };
 
+const billingManagementForbiddenResponse = (
+  request: Request,
+  action:
+    | "manage billing"
+    | "start checkout"
+    | "buy AI credits"
+    | "buy automation run top-ups"
+    | "change subscription plans",
+): Response => {
+  return jsonResponse(
+    request,
+    {
+      error: {
+        code: "billing.forbidden",
+        message: `Only owners and admins can ${action}.`,
+      },
+    },
+    403,
+  );
+};
+
 const resolveOrgIdForRequest = (params: {
   requestedOrgId: string;
   identityOrgId: string;
@@ -757,6 +778,9 @@ export const handleBillingCheckoutRequest = async (
         },
         403,
       );
+    }
+    if (!canManageBillingPlan(authSession.identity.role)) {
+      return billingManagementForbiddenResponse(request, "start checkout");
     }
 
     const tier = parseString(body.tier, "tier");
@@ -863,6 +887,9 @@ export const handleBillingCreditsCheckoutRequest = async (
         },
         403,
       );
+    }
+    if (!canManageBillingPlan(authSession.identity.role)) {
+      return billingManagementForbiddenResponse(request, "buy AI credits");
     }
 
     const packageIndex = parseInteger(body.packageIndex, "packageIndex");
@@ -973,6 +1000,9 @@ export const handleBillingAutomationRunCheckoutRequest = async (
         },
         403,
       );
+    }
+    if (!canManageBillingPlan(authSession.identity.role)) {
+      return billingManagementForbiddenResponse(request, "buy automation run top-ups");
     }
 
     const packageIndex = parseInteger(body.packageIndex, "packageIndex");
@@ -1110,6 +1140,9 @@ export const handleBillingPortalRequest = async (
         403,
       );
     }
+    if (!canManageBillingPlan(authSession.identity.role)) {
+      return billingManagementForbiddenResponse(request, "manage billing");
+    }
 
     const activeStripeSubscription = getActiveStripeBilling(
       await deps.convex.getSubscriptionForOrg(resolvedOrg.orgId),
@@ -1221,16 +1254,7 @@ export const handleBillingSubscriptionChangeRequest = async (
     }
 
     if (!canManageBillingPlan(authSession.identity.role)) {
-      return jsonResponse(
-        request,
-        {
-          error: {
-            code: "forbidden",
-            message: "Only owners and admins can change subscription plans.",
-          },
-        },
-        403,
-      );
+      return billingManagementForbiddenResponse(request, "change subscription plans");
     }
 
     const activeStripeSubscription = getActiveStripeBilling(
