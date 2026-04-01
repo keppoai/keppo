@@ -583,15 +583,6 @@ export function DashboardPage() {
       action.status === "pending" &&
       (action.risk_level === "high" || action.risk_level === "critical"),
   ).length;
-  const degradedIntegrations = integrations.filter(
-    (integration) =>
-      integration.connected &&
-      (Boolean(integration.degraded_reason) ||
-        Boolean(integration.last_error_code) ||
-        (integration.last_health_check_at &&
-          integration.last_successful_health_check_at &&
-          integration.last_health_check_at > integration.last_successful_health_check_at)),
-  );
   const reconnectRequiredIntegrations = integrations.filter((integration) => {
     const expiresAtMillis = integration.credential_expires_at
       ? Date.parse(integration.credential_expires_at)
@@ -602,6 +593,19 @@ export function DashboardPage() {
       lastErrorCategory: integration.last_error_category,
     });
   });
+  const reconnectRequiredIntegrationIds = new Set(
+    reconnectRequiredIntegrations.map((integration) => integration.id),
+  );
+  const degradedIntegrations = integrations.filter(
+    (integration) =>
+      integration.connected &&
+      !reconnectRequiredIntegrationIds.has(integration.id) &&
+      (Boolean(integration.degraded_reason) ||
+        Boolean(integration.last_error_code) ||
+        (integration.last_health_check_at &&
+          integration.last_successful_health_check_at &&
+          integration.last_health_check_at > integration.last_successful_health_check_at)),
+  );
   const expiringCredentials = integrations.filter(
     (integration) =>
       integration.connected &&

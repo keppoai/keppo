@@ -457,13 +457,25 @@ export const loadConnectorContext = internalQuery({
         : (workspaceIntegrations.find((entry) => entry.provider === provider)?.enabled ?? false);
 
     const integration = await findOrgIntegrationByProvider(ctx, workspace.org_id, provider);
+    const account = integration
+      ? await ctx.db
+          .query("integration_accounts")
+          .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
+          .unique()
+      : null;
+    const credential = account
+      ? await ctx.db
+          .query("integration_credentials")
+          .withIndex("by_integration_account", (q) => q.eq("integration_account_id", account.id))
+          .unique()
+      : null;
 
     if (
       !integration ||
       !isIntegrationConnected({
         status: integration.status,
         lastErrorCategory: integration.last_error_category,
-        credentialExpiresAt: undefined,
+        credentialExpiresAt: credential?.expires_at,
       })
     ) {
       const payload = {
@@ -482,16 +494,6 @@ export const loadConnectorContext = internalQuery({
       return payload;
     }
 
-    const account = await ctx.db
-      .query("integration_accounts")
-      .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
-      .unique();
-    const credential = account
-      ? await ctx.db
-          .query("integration_credentials")
-          .withIndex("by_integration_account", (q) => q.eq("integration_account_id", account.id))
-          .unique()
-      : null;
     const accessToken =
       credential === null
         ? null

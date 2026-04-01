@@ -1,7 +1,11 @@
 import { query, type QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { requireOrgMember } from "../_auth";
-import type { IntegrationErrorCategory, IntegrationStatus } from "../domain_constants";
+import {
+  INTEGRATION_STATUS,
+  type IntegrationErrorCategory,
+  type IntegrationStatus,
+} from "../domain_constants";
 import { assertCanonicalStoredProvider, type ProviderId } from "../provider_ids";
 import {
   PROVIDER_CATALOG_CONFIGURATION_STATUS,
@@ -15,6 +19,11 @@ import {
 const hasEnvValue = (value: string | undefined): boolean =>
   typeof value === "string" && value.trim().length > 0;
 
+type IntegrationWithCredential<T extends { id: string; provider: string }> = {
+  integration: T;
+  credentialExpiresAt: string | null | undefined;
+};
+
 const selectPreferredIntegrationsByProvider = <
   T extends {
     id: string;
@@ -24,46 +33,86 @@ const selectPreferredIntegrationsByProvider = <
     last_error_category?: IntegrationErrorCategory | null;
   },
 >(
-  integrations: T[],
-): Map<ProviderId, T> => {
-  const dedupedByProvider = new Map<ProviderId, T>();
-  for (const integration of integrations) {
+  integrations: IntegrationWithCredential<T>[],
+): Map<ProviderId, IntegrationWithCredential<T>> => {
+  const dedupedByProvider = new Map<ProviderId, IntegrationWithCredential<T>>();
+  for (const candidate of integrations) {
+    const integration = candidate.integration;
     const canonical = assertCanonicalStoredProvider(
       integration.provider,
       `integrations:${integration.id}`,
     );
     const existing = dedupedByProvider.get(canonical);
     if (!existing) {
-      dedupedByProvider.set(canonical, integration);
+      dedupedByProvider.set(canonical, candidate);
+      continue;
+    }
+    const existingConnected = isIntegrationConnected({
+      status: existing.integration.status,
+      lastErrorCategory: existing.integration.last_error_category,
+      credentialExpiresAt: existing.credentialExpiresAt,
+    });
+    const candidateConnected = isIntegrationConnected({
+      status: integration.status,
+      lastErrorCategory: integration.last_error_category,
+      credentialExpiresAt: candidate.credentialExpiresAt,
+    });
+    if (!existingConnected && candidateConnected) {
+      dedupedByProvider.set(canonical, candidate);
       continue;
     }
     if (
-      !isIntegrationConnected({
-        status: existing.status,
-        lastErrorCategory: existing.last_error_category,
-        credentialExpiresAt: undefined,
-      }) &&
-      isIntegrationConnected({
-        status: integration.status,
-        lastErrorCategory: integration.last_error_category,
-        credentialExpiresAt: undefined,
-      })
+      existingConnected &&
+      candidateConnected &&
+      existing.integration.status !== integration.status &&
+      integration.status === INTEGRATION_STATUS.connected
     ) {
-      dedupedByProvider.set(canonical, integration);
+      dedupedByProvider.set(canonical, candidate);
       continue;
     }
     if (
-      existing.status === integration.status &&
-      integration.created_at.localeCompare(existing.created_at) > 0
+      existing.integration.status === integration.status &&
+      integration.created_at.localeCompare(existing.integration.created_at) > 0
     ) {
-      dedupedByProvider.set(canonical, integration);
+      dedupedByProvider.set(canonical, candidate);
       continue;
     }
-    if (existing.provider !== canonical && integration.provider === canonical) {
-      dedupedByProvider.set(canonical, integration);
+    if (existing.integration.provider !== canonical && integration.provider === canonical) {
+      dedupedByProvider.set(canonical, candidate);
     }
   }
   return dedupedByProvider;
+};
+
+const loadCredentialExpiryByIntegrationId = async (
+  ctx: QueryCtx,
+  integrations: Array<{ id: string }>,
+) => {
+  const accountRows = await Promise.all(
+    integrations.map(async (integration) => ({
+      integrationId: integration.id,
+      account: await ctx.db
+        .query("integration_accounts")
+        .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
+        .unique(),
+    })),
+  );
+
+  const credentialRows = await Promise.all(
+    accountRows.map(async ({ integrationId, account }) => ({
+      integrationId,
+      credential: account
+        ? await ctx.db
+            .query("integration_credentials")
+            .withIndex("by_integration_account", (q) => q.eq("integration_account_id", account.id))
+            .unique()
+        : null,
+    })),
+  );
+
+  return new Map(
+    credentialRows.map(({ integrationId, credential }) => [integrationId, credential?.expires_at]),
+  );
 };
 
 export const listConnectedProviderIdsForOrg = async (
@@ -74,13 +123,24 @@ export const listConnectedProviderIdsForOrg = async (
     .query("integrations")
     .withIndex("by_org", (q) => q.eq("org_id", orgId))
     .collect();
+  const credentialExpiryByIntegrationId = await loadCredentialExpiryByIntegrationId(
+    ctx,
+    integrations,
+  );
 
-  return [...selectPreferredIntegrationsByProvider(integrations).entries()]
-    .filter(([, integration]) =>
+  return [
+    ...selectPreferredIntegrationsByProvider(
+      integrations.map((integration) => ({
+        integration,
+        credentialExpiresAt: credentialExpiryByIntegrationId.get(integration.id),
+      })),
+    ).entries(),
+  ]
+    .filter(([, { integration }]) =>
       isIntegrationConnected({
         status: integration.status,
         lastErrorCategory: integration.last_error_category,
-        credentialExpiresAt: undefined,
+        credentialExpiresAt: credentialExpiryByIntegrationId.get(integration.id),
       }),
     )
     .map(([provider]) => provider);
@@ -153,8 +213,19 @@ export const listForCurrentOrg = query({
       .query("integrations")
       .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
       .collect();
+    const credentialExpiryByIntegrationId = await loadCredentialExpiryByIntegrationId(
+      ctx,
+      integrations,
+    );
 
-    const selectedIntegrations = [...selectPreferredIntegrationsByProvider(integrations).values()];
+    const selectedIntegrations = [
+      ...selectPreferredIntegrationsByProvider(
+        integrations.map((integration) => ({
+          integration,
+          credentialExpiresAt: credentialExpiryByIntegrationId.get(integration.id),
+        })),
+      ).values(),
+    ].map(({ integration }) => integration);
     const accounts = (
       await Promise.all(
         selectedIntegrations.map((integration) =>

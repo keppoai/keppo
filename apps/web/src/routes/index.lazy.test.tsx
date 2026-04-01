@@ -205,7 +205,7 @@ describe("DashboardPage", () => {
     expect(screen.queryByText("Workspace readiness")).not.toBeInTheDocument();
   });
 
-  it("surfaces reconnect attention separately from transient degradation", async () => {
+  it("keeps reconnect-required integrations out of the degraded attention count", async () => {
     const runtime = createFakeDashboardRuntime({
       queryHandlers: {
         "actions:listPendingByWorkspace": () => [],
@@ -217,7 +217,7 @@ describe("DashboardPage", () => {
             provider: GOOGLE_PROVIDER_ID,
             display_name: "Google",
             status: "degraded",
-            connected: false,
+            connected: true,
             scopes: ["gmail.readonly"],
             external_account_id: "automation@example.com",
             credential_expires_at: null,
@@ -347,5 +347,6 @@ describe("DashboardPage", () => {
 
     expect((await screen.findAllByText("1 integration needs reconnect")).length).toBeGreaterThan(0);
     expect(screen.getAllByText("1 integration degraded").length).toBeGreaterThan(0);
+    expect(screen.queryByText("2 integrations degraded")).not.toBeInTheDocument();
   });
 });
