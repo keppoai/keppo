@@ -33,7 +33,7 @@ Izzy runs on `http://localhost:3201` by default.
 
 ## Auth
 
-Izzy uses direct GitHub App auth through `next-auth`. Access is blocked unless the signed-in GitHub login appears in the comma-separated `IZZY_ALLOWED_GITHUB_USERS` env var. The GitHub App token is restricted to `IZZY_TARGET_REPO_ID`, so the app can work against the private issue repo without requesting broad OAuth repo scopes.
+Izzy uses direct GitHub App auth through `next-auth`. Access is blocked unless the signed-in GitHub login appears in the comma-separated `IZZY_ALLOWED_GITHUB_USERS` env var. If an allowlisted login is later removed, Izzy immediately revokes the stored repo token, blocks refresh, and requires a newly approved sign-in before any protected route can call GitHub again. The GitHub App token is restricted to `IZZY_TARGET_REPO_ID`, stays server-side, and is not exposed in the browser session payload.
 
 ## Uploads
 

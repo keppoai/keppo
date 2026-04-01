@@ -58,6 +58,15 @@ const toUnixTimestampMs = (value: unknown): number | undefined => {
 const isExpired = (expiresAt: number | undefined): boolean =>
   typeof expiresAt === "number" && Date.now() >= expiresAt - 60_000;
 
+const revokeGithubAccess = (token: JwtToken): JwtToken => ({
+  ...token,
+  accessToken: undefined,
+  refreshToken: undefined,
+  accessTokenExpiresAt: undefined,
+  refreshTokenExpiresAt: undefined,
+  errorCode: "github_not_allowed",
+});
+
 const refreshGitHubAppAccessToken = async (refreshToken: string) => {
   const env = getServerEnv();
   const response = await fetch("https://github.com/login/oauth/access_token", {
@@ -167,14 +176,11 @@ export const getAuthOptions = (): NextAuthOptions => {
           nextToken.githubLogin = githubLogin;
         }
         if (nextToken.githubLogin && !isAllowedGithubLogin(nextToken.githubLogin)) {
-          nextToken.errorCode = "github_not_allowed";
+          return revokeGithubAccess(nextToken);
         }
         return await withRefreshedAccessToken(nextToken);
       },
       async session({ session, token }) {
-        if (token.accessToken) {
-          session.accessToken = token.accessToken;
-        }
         if (token.errorCode) {
           session.errorCode = token.errorCode;
         }

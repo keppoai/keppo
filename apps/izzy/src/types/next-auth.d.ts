@@ -2,7 +2,6 @@ import type { DefaultSession } from "next-auth";
 
 declare module "next-auth" {
   interface Session {
-    accessToken?: string | undefined;
     errorCode?: string | undefined;
     user: DefaultSession["user"] & {
       githubLogin?: string;

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { getAuthOptions, hasAuthConfiguration } from "./auth";
 import type { OAuthConfig } from "next-auth/providers/oauth";
 
@@ -36,5 +36,70 @@ describe("izzy auth", () => {
         repository_id: "123456789",
       },
     });
+  });
+
+  it("revokes stored github tokens before a disallowed login can refresh them", async () => {
+    const authOptions = getAuthOptions();
+    const jwt = authOptions.callbacks?.jwt;
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    const jwtArgs = {
+      account: null,
+      token: {
+        accessToken: "stale-access-token",
+        refreshToken: "refresh-token",
+        githubLogin: "removed-user",
+        accessTokenExpiresAt: Date.now() - 120_000,
+        refreshTokenExpiresAt: Date.now() + 3_600_000,
+      },
+      user: undefined,
+    } as unknown as Parameters<NonNullable<typeof jwt>>[0];
+
+    const result = await jwt?.(jwtArgs);
+
+    expect(result).toMatchObject({
+      accessToken: undefined,
+      refreshToken: undefined,
+      accessTokenExpiresAt: undefined,
+      refreshTokenExpiresAt: undefined,
+      errorCode: "github_not_allowed",
+      githubLogin: "removed-user",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps the repo token out of the client-visible session payload", async () => {
+    const authOptions = getAuthOptions();
+    const sessionCallback = authOptions.callbacks?.session;
+    expect(sessionCallback).toBeDefined();
+    if (!sessionCallback) {
+      throw new Error("missing session callback");
+    }
+    const sessionArgs = {
+      session: {
+        expires: new Date(Date.now() + 60_000).toISOString(),
+        user: {
+          name: null,
+          email: null,
+          image: null,
+        },
+      },
+      token: {
+        accessToken: "repo-token",
+        errorCode: "github_session_expired",
+        githubLogin: "will",
+      },
+      user: undefined,
+    } as unknown as Parameters<typeof sessionCallback>[0];
+    const session = await sessionCallback(sessionArgs);
+
+    expect(session).toBeDefined();
+
+    expect(session).toMatchObject({
+      errorCode: "github_session_expired",
+      user: {
+        githubLogin: "will",
+      },
+    });
+    expect(session).not.toHaveProperty("accessToken");
   });
 });

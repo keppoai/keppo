@@ -17,6 +17,7 @@
 - Internal maintenance routes use a shared bearer secret verified with constant-time comparison and a fail-closed missing-secret path.
 - Automation log and completion callbacks use HMAC-signed requests.
 - Provider webhooks are accepted only after provider-specific signature verification.
+- Izzy treats the repo-scoped GitHub App user token as server-only session state: removing a login from `IZZY_ALLOWED_GITHUB_USERS` clears stored GitHub tokens, blocks refresh, and denies protected routes immediately.
 - Provider-trigger delivery history stores only queue/match metadata plus payload references; operator-facing diagnostics must not expose raw provider payload bodies when skip reasons or lifecycle failures are enough.
 - E2E-only Convex helper mutations/queries are callable only when `KEPPO_E2E_MODE=true` and the runtime is local/test (`NODE_ENV in {development,test}`, `CONVEX_DEPLOYMENT=local:*`, or loopback Convex runtime URLs such as `CONVEX_CLOUD_URL=http://127.0.0.1:*`).
 
