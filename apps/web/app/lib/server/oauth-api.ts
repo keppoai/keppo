@@ -376,6 +376,19 @@ const buildConnectedRedirect = (
   return redirectResponse(request, returnUrl.toString());
 };
 
+const buildCallbackErrorRedirect = (
+  request: Request,
+  deps: Pick<StartOwnedOAuthDeps, "safeReturnToPath">,
+  state: OAuthStatePayload,
+  provider: ManagedOAuthProvider,
+  code: "forbidden" | "unauthorized",
+): Response => {
+  const returnUrl = new URL(deps.safeReturnToPath(state.return_to), new URL(request.url).origin);
+  returnUrl.searchParams.set("oauth_error", code);
+  returnUrl.searchParams.set("oauth_provider", provider);
+  return redirectResponse(request, returnUrl.toString());
+};
+
 export const handleOAuthProviderConnectRequest = async (
   request: Request,
   deps = getDefaultDeps(),
@@ -829,16 +842,7 @@ export const handleOAuthProviderCallbackRequest = async (
       outcome: PROVIDER_METRIC_OUTCOME.failure,
       reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
     });
-    return jsonResponse(
-      request,
-      oauthErrorPayload({
-        provider,
-        code: "unauthorized",
-        message: "Authentication required.",
-        correlationId,
-      }),
-      401,
-    );
+    return buildCallbackErrorRedirect(request, deps, state, provider, "unauthorized");
   }
   deps.logger.info("oauth.flow", {
     provider,
@@ -869,10 +873,7 @@ export const handleOAuthProviderCallbackRequest = async (
       scope: API_DEDUPE_SCOPE.oauthCallback,
       dedupeKey: exchangeKey,
     });
-    const replayPayload =
-      replayedCallback?.status === API_DEDUPE_STATUS.completed
-        ? parseOAuthCallbackReplayPayload(replayedCallback.payload)
-        : null;
+    const replayPayload = parseOAuthCallbackReplayPayload(replayedCallback?.payload ?? null);
 
     if (
       replayPayload?.initiatingUserId === sessionIdentity.userId &&
@@ -935,16 +936,7 @@ export const handleOAuthProviderCallbackRequest = async (
       outcome: PROVIDER_METRIC_OUTCOME.failure,
       reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
     });
-    return jsonResponse(
-      request,
-      oauthErrorPayload({
-        provider,
-        code: "forbidden",
-        message: "Only the initiating owner or admin can complete this organization integration.",
-        correlationId,
-      }),
-      403,
-    );
+    return buildCallbackErrorRedirect(request, deps, state, provider, "forbidden");
   }
 
   try {

@@ -509,14 +509,10 @@ describe("start-owned oauth api handlers", () => {
       deps,
     );
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "forbidden",
-        message: "Only the initiating owner or admin can complete this organization integration.",
-        provider: "google",
-      },
-    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "http://127.0.0.1/integrations?oauth_error=forbidden&oauth_provider=google",
+    );
     expect(deps.exchangeCredentials).not.toHaveBeenCalled();
     expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
   });
@@ -552,14 +548,10 @@ describe("start-owned oauth api handlers", () => {
       deps,
     );
 
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      error: {
-        code: "forbidden",
-        message: "Only the initiating owner or admin can complete this organization integration.",
-        provider: "google",
-      },
-    });
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "http://127.0.0.1/integrations?oauth_error=forbidden&oauth_provider=google",
+    );
     expect(deps.exchangeCredentials).not.toHaveBeenCalled();
     expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
   });
@@ -569,6 +561,44 @@ describe("start-owned oauth api handlers", () => {
     deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue(null);
     deps.convex.getApiDedupeKey = vi.fn().mockResolvedValue({
       status: "completed",
+      payload: {
+        initiatingUserId: "user_test",
+      },
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "http://127.0.0.1/integrations?integration_connected=google",
+    );
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+  });
+
+  it("replays a pending callback redirect once the dedupe payload records the initiating manager", async () => {
+    const deps = createDeps();
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue(null);
+    deps.convex.getApiDedupeKey = vi.fn().mockResolvedValue({
+      status: "pending",
       payload: {
         initiatingUserId: "user_test",
       },
@@ -641,6 +671,37 @@ describe("start-owned oauth api handlers", () => {
         provider: "google",
       },
     });
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+  });
+
+  it("redirects unauthenticated callback requests back to the integrations page", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue(null);
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "http://127.0.0.1/integrations?oauth_error=unauthorized&oauth_provider=google",
+    );
     expect(deps.exchangeCredentials).not.toHaveBeenCalled();
   });
 

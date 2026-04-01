@@ -1,12 +1,28 @@
 import { act, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api-errors";
 import { createFakeDashboardRuntime } from "@/test/fake-dashboard-runtime";
 import { createAuthState, renderDashboardHook } from "@/test/render-dashboard";
 import { useIntegrations } from "./use-integrations";
 
+const { requestOAuthProviderConnectMock, showUserFacingErrorToastMock } = vi.hoisted(() => ({
+  requestOAuthProviderConnectMock: vi.fn(),
+  showUserFacingErrorToastMock: vi.fn(),
+}));
+
+vi.mock("@/lib/server-functions/internal-api", () => ({
+  requestOAuthProviderConnect: requestOAuthProviderConnectMock,
+}));
+
+vi.mock("@/lib/show-user-facing-error-toast", () => ({
+  showUserFacingErrorToast: showUserFacingErrorToastMock,
+}));
+
 describe("useIntegrations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    requestOAuthProviderConnectMock.mockReset();
+    showUserFacingErrorToastMock.mockReset();
   });
 
   it("deduplicates provider state and forwards manager mutations through canonical providers", async () => {
@@ -178,5 +194,67 @@ describe("useIntegrations", () => {
 
     expect(disconnectProvider).not.toHaveBeenCalled();
     expect(registerCustomIntegration).not.toHaveBeenCalled();
+  });
+
+  it("surfaces auth failures from the Start-owned OAuth connect endpoint without falling back", async () => {
+    const connectProviderMutation = vi.fn(async () => ({
+      oauth_start_url: null,
+    }));
+    requestOAuthProviderConnectMock.mockRejectedValue(
+      new ApiError("Only owners and admins can manage organization integrations.", 403, {
+        envelope: {
+          code: "forbidden",
+          message: "Only owners and admins can manage organization integrations.",
+          status: 403,
+        },
+      }),
+    );
+
+    const runtime = createFakeDashboardRuntime({
+      queryHandlers: {
+        "integrations:listForCurrentOrg": () => [],
+        "integrations:providerCatalog": () => [
+          {
+            provider: "google",
+            supported_tools: [],
+          },
+        ],
+      },
+      convexQueryHandlers: {
+        "integrations:listForCurrentOrg": () => [],
+        "integrations:providerCatalog": () => [],
+      },
+      mutationHandlers: {
+        "integrations:connectProvider": connectProviderMutation,
+      },
+    });
+
+    const { result } = renderDashboardHook(() => useIntegrations(), {
+      runtime,
+      route: "/acme/workspace-1/integrations",
+      auth: createAuthState({
+        isAuthenticated: true,
+        getOrgId: () => "org_1",
+        getOrgSlug: () => "acme",
+        canManage: () => true,
+      }),
+    });
+
+    await waitFor(() => {
+      expect(result.current).not.toBeNull();
+    });
+
+    await act(async () => {
+      await result.current.connectProvider("google");
+    });
+
+    expect(requestOAuthProviderConnectMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        provider: "google",
+        org_id: "org_1",
+      }),
+    );
+    expect(showUserFacingErrorToastMock).toHaveBeenCalledTimes(1);
+    expect(connectProviderMutation).not.toHaveBeenCalled();
   });
 });

@@ -1,0 +1,13 @@
+- [x] Review workflow-generated PR context and summary for current branch
+- [x] Investigate CI non-success check `fix-pr` from PR context and confirm whether any external failing check needs a code fix
+- [x] Self-review trusted PR context, including `trustedReviews` and `trustedIssueComments`, against product principles
+- [x] Triage trusted thread `PRRT_kwDORysWq854HMYz` about OAuth replay detection and make any needed code change
+- [x] Triage trusted thread `PRRT_kwDORysWq854HOSa` about callback auth error UX and make any needed code/spec change
+- [x] Triage trusted thread `PRRT_kwDORysWq854HOSf` about frontend 403 handling and make any needed code change
+- [x] Update or add tests for any code-path changes required by the trusted feedback
+- [x] Run targeted verification for changed OAuth logic
+- [x] Run `pnpm check` and fix every error until it passes
+- [ ] Create a local Conventional Commit for the completed fixes
+- [ ] Re-read `TODOS.md` and confirm every item is complete before writing actions
+- [ ] Write `tmp/pr-review-responder/actions.json`
+- [ ] Delete `TODOS.md`

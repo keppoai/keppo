@@ -3,8 +3,10 @@ import { makeFunctionReference } from "convex/server";
 import type { CanonicalProviderId } from "@keppo/shared/provider-ids";
 import { MANAGED_OAUTH_PROVIDER_IDS } from "@keppo/shared/providers/boundaries/common";
 import { parseProviderId } from "@keppo/shared/providers/boundaries/error-boundary";
+import { ApiError } from "@/lib/api-errors";
 import { parseIntegrationsPayload, parseProviderCatalogPayload } from "@/lib/boundary-contracts";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
+import { showUserFacingErrorToast } from "@/lib/show-user-facing-error-toast";
 import { requestOAuthProviderConnect } from "@/lib/server-functions/internal-api";
 import { getRuntimeBetterAuthCookieHeader } from "@/lib/better-auth-cookie";
 import type { IntegrationDetail, ProviderCatalogEntry } from "@/lib/types";
@@ -151,7 +153,13 @@ export function useIntegrations() {
               }
               return;
             }
-          } catch {
+          } catch (error) {
+            if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+              showUserFacingErrorToast(error, {
+                fallback: "OAuth connection could not be started.",
+              });
+              return;
+            }
             // Fallback for local dev environments where OAuth modules may be intentionally unconfigured.
           }
         }

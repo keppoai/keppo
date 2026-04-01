@@ -7,6 +7,8 @@ import { useAuth } from "@/hooks/use-auth";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { UserFacingErrorView } from "@/components/ui/user-facing-error";
+import type { UserFacingError } from "@/lib/user-facing-errors";
 import { PlusIcon } from "lucide-react";
 import { getProviderMeta } from "@/components/integrations/provider-icons";
 import { useRouteParams } from "@/hooks/use-route-params";
@@ -15,9 +17,54 @@ export const integrationsRouteLazy = createLazyRoute(integrationsRoute.id)({
   component: IntegrationsPage,
 });
 
-function IntegrationsPage() {
+const buildOAuthCallbackError = (
+  code: "unauthorized" | "forbidden",
+  providerLabel: string,
+): UserFacingError => {
+  if (code === "unauthorized") {
+    return {
+      code: "oauth.unauthorized",
+      title: "Sign in again",
+      summary: `${providerLabel} could not finish connecting because your session expired.`,
+      nextSteps: [
+        "Sign back in to Keppo.",
+        "Restart the provider connection from the integrations page.",
+      ],
+      technicalDetails: "code: oauth.unauthorized",
+      publicTechnicalDetails: null,
+      status: 401,
+      severity: "warning",
+      publicSafe: true,
+      metadata: null,
+      rawMessage: null,
+      sourceMessage: "Authentication required.",
+    };
+  }
+
+  return {
+    code: "oauth.forbidden",
+    title: "Access blocked",
+    summary: `${providerLabel} can only be connected by the same owner or admin who started the flow.`,
+    nextSteps: [
+      "Restart the connection with the initiating owner or admin account.",
+      "If your role changed, ask an owner or admin to restore access before retrying.",
+    ],
+    technicalDetails: "code: oauth.forbidden",
+    publicTechnicalDetails: null,
+    status: 403,
+    severity: "warning",
+    publicSafe: true,
+    metadata: null,
+    rawMessage: null,
+    sourceMessage: "Only the initiating owner or admin can complete this organization integration.",
+  };
+};
+
+export function IntegrationsPage() {
   const { canManage } = useAuth();
   const navigate = useNavigate();
+  const searchNavigate = integrationsRoute.useNavigate();
+  const search = integrationsRoute.useSearch();
   const { buildWorkspacePath } = useRouteParams();
   const {
     isLoading,
@@ -32,6 +79,26 @@ function IntegrationsPage() {
   const visibleProviderCatalog = providerCatalog.filter((entry) => entry.provider !== "custom");
   const deprecations = listProviderDeprecations(visibleProviderCatalog);
   const browseProvider = visibleProviders[0] ?? visibleProviderCatalog[0]?.provider ?? null;
+  const feedbackProviderLabel = search.oauth_provider
+    ? getProviderMeta(search.oauth_provider).label
+    : "This provider";
+  const oauthCallbackError: UserFacingError | null =
+    search.oauth_error === "unauthorized"
+      ? buildOAuthCallbackError("unauthorized", feedbackProviderLabel)
+      : search.oauth_error === "forbidden"
+        ? buildOAuthCallbackError("forbidden", feedbackProviderLabel)
+        : null;
+  const clearFeedback = () => {
+    void searchNavigate({
+      search: (previous) => ({
+        ...previous,
+        integration_connected: undefined,
+        oauth_error: undefined,
+        oauth_provider: undefined,
+      }),
+      replace: true,
+    });
+  };
 
   return (
     <div className="flex flex-col gap-6">
@@ -56,6 +123,29 @@ function IntegrationsPage() {
           </Button>
         ) : null}
       </div>
+
+      {search.integration_connected ? (
+        <Alert className="border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+          <AlertTitle>{getProviderMeta(search.integration_connected).label} connected</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <span>Keppo can now use this integration in the current workspace.</span>
+            <Button variant="outline" size="sm" onClick={clearFeedback}>
+              Dismiss
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {oauthCallbackError ? (
+        <UserFacingErrorView
+          error={oauthCallbackError}
+          action={
+            <Button variant="outline" size="sm" onClick={clearFeedback}>
+              Dismiss
+            </Button>
+          }
+        />
+      ) : null}
 
       {isLoading ? (
         <div className="space-y-3">
