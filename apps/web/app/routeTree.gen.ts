@@ -41,19 +41,15 @@ import { Route as ApiBillingCheckoutRouteImport } from "./routes/api/billing/che
 import { Route as ApiAutomationsGenerateQuestionsRouteImport } from "./routes/api/automations/generate-questions";
 import { Route as ApiAutomationsGeneratePromptRouteImport } from "./routes/api/automations/generate-prompt";
 import { Route as OauthIntegrationsProviderCallbackRouteImport } from "./routes/oauth/integrations/$provider/callback";
-import { Route as DownloadsOauthHelperPlatformLatestRouteImport } from "./routes/downloads/oauth-helper/$platform/latest";
 import { Route as ApiNotificationsPushSubscribeRouteImport } from "./routes/api/notifications/push/subscribe";
 import { Route as ApiBillingCreditsCheckoutRouteImport } from "./routes/api/billing/credits/checkout";
 import { Route as ApiBillingAutomationRunsCheckoutRouteImport } from "./routes/api/billing/automation-runs/checkout";
-import { Route as ApiAutomationsOpenaiHelperSessionRouteImport } from "./routes/api/automations/openai/helper-session";
-import { Route as ApiAutomationsOpenaiHelperArtifactsRouteImport } from "./routes/api/automations/openai/helper-artifacts";
 import { Route as ApiAutomationsOpenaiConnectRouteImport } from "./routes/api/automations/openai/connect";
 import { Route as ApiAutomationsOpenaiCompleteRouteImport } from "./routes/api/automations/openai/complete";
 import { Route as ApiAutomationsOpenaiCallbackRouteImport } from "./routes/api/automations/openai/callback";
 import { Route as ApiOauthIntegrationsProviderConnectRouteImport } from "./routes/api/oauth/integrations/$provider/connect";
 import { Route as ApiHealthDlqIdReplayRouteImport } from "./routes/api/health/dlq/$id/replay";
 import { Route as ApiHealthDlqIdAbandonRouteImport } from "./routes/api/health/dlq/$id/abandon";
-import { Route as ApiAutomationsOpenaiHelperCallbackRouteImport } from "./routes/api/automations/openai/helper/callback";
 
 const HealthRoute = HealthRouteImport.update({
   id: "/health",
@@ -223,12 +219,6 @@ const OauthIntegrationsProviderCallbackRoute =
     path: "/oauth/integrations/$provider/callback",
     getParentRoute: () => rootRouteImport,
   } as any);
-const DownloadsOauthHelperPlatformLatestRoute =
-  DownloadsOauthHelperPlatformLatestRouteImport.update({
-    id: "/downloads/oauth-helper/$platform/latest",
-    path: "/downloads/oauth-helper/$platform/latest",
-    getParentRoute: () => rootRouteImport,
-  } as any);
 const ApiNotificationsPushSubscribeRoute =
   ApiNotificationsPushSubscribeRouteImport.update({
     id: "/api/notifications/push/subscribe",
@@ -245,18 +235,6 @@ const ApiBillingAutomationRunsCheckoutRoute =
   ApiBillingAutomationRunsCheckoutRouteImport.update({
     id: "/api/billing/automation-runs/checkout",
     path: "/api/billing/automation-runs/checkout",
-    getParentRoute: () => rootRouteImport,
-  } as any);
-const ApiAutomationsOpenaiHelperSessionRoute =
-  ApiAutomationsOpenaiHelperSessionRouteImport.update({
-    id: "/api/automations/openai/helper-session",
-    path: "/api/automations/openai/helper-session",
-    getParentRoute: () => rootRouteImport,
-  } as any);
-const ApiAutomationsOpenaiHelperArtifactsRoute =
-  ApiAutomationsOpenaiHelperArtifactsRouteImport.update({
-    id: "/api/automations/openai/helper-artifacts",
-    path: "/api/automations/openai/helper-artifacts",
     getParentRoute: () => rootRouteImport,
   } as any);
 const ApiAutomationsOpenaiConnectRoute =
@@ -293,12 +271,6 @@ const ApiHealthDlqIdAbandonRoute = ApiHealthDlqIdAbandonRouteImport.update({
   path: "/$id/abandon",
   getParentRoute: () => ApiHealthDlqRoute,
 } as any);
-const ApiAutomationsOpenaiHelperCallbackRoute =
-  ApiAutomationsOpenaiHelperCallbackRouteImport.update({
-    id: "/api/automations/openai/helper/callback",
-    path: "/api/automations/openai/helper/callback",
-    getParentRoute: () => rootRouteImport,
-  } as any);
 
 export interface FileRoutesByFullPath {
   "/health": typeof HealthRoute;
@@ -335,14 +307,10 @@ export interface FileRoutesByFullPath {
   "/api/automations/openai/callback": typeof ApiAutomationsOpenaiCallbackRoute;
   "/api/automations/openai/complete": typeof ApiAutomationsOpenaiCompleteRoute;
   "/api/automations/openai/connect": typeof ApiAutomationsOpenaiConnectRoute;
-  "/api/automations/openai/helper-artifacts": typeof ApiAutomationsOpenaiHelperArtifactsRoute;
-  "/api/automations/openai/helper-session": typeof ApiAutomationsOpenaiHelperSessionRoute;
   "/api/billing/automation-runs/checkout": typeof ApiBillingAutomationRunsCheckoutRoute;
   "/api/billing/credits/checkout": typeof ApiBillingCreditsCheckoutRoute;
   "/api/notifications/push/subscribe": typeof ApiNotificationsPushSubscribeRoute;
-  "/downloads/oauth-helper/$platform/latest": typeof DownloadsOauthHelperPlatformLatestRoute;
   "/oauth/integrations/$provider/callback": typeof OauthIntegrationsProviderCallbackRoute;
-  "/api/automations/openai/helper/callback": typeof ApiAutomationsOpenaiHelperCallbackRoute;
   "/api/health/dlq/$id/abandon": typeof ApiHealthDlqIdAbandonRoute;
   "/api/health/dlq/$id/replay": typeof ApiHealthDlqIdReplayRoute;
   "/api/oauth/integrations/$provider/connect": typeof ApiOauthIntegrationsProviderConnectRoute;
@@ -382,14 +350,10 @@ export interface FileRoutesByTo {
   "/api/automations/openai/callback": typeof ApiAutomationsOpenaiCallbackRoute;
   "/api/automations/openai/complete": typeof ApiAutomationsOpenaiCompleteRoute;
   "/api/automations/openai/connect": typeof ApiAutomationsOpenaiConnectRoute;
-  "/api/automations/openai/helper-artifacts": typeof ApiAutomationsOpenaiHelperArtifactsRoute;
-  "/api/automations/openai/helper-session": typeof ApiAutomationsOpenaiHelperSessionRoute;
   "/api/billing/automation-runs/checkout": typeof ApiBillingAutomationRunsCheckoutRoute;
   "/api/billing/credits/checkout": typeof ApiBillingCreditsCheckoutRoute;
   "/api/notifications/push/subscribe": typeof ApiNotificationsPushSubscribeRoute;
-  "/downloads/oauth-helper/$platform/latest": typeof DownloadsOauthHelperPlatformLatestRoute;
   "/oauth/integrations/$provider/callback": typeof OauthIntegrationsProviderCallbackRoute;
-  "/api/automations/openai/helper/callback": typeof ApiAutomationsOpenaiHelperCallbackRoute;
   "/api/health/dlq/$id/abandon": typeof ApiHealthDlqIdAbandonRoute;
   "/api/health/dlq/$id/replay": typeof ApiHealthDlqIdReplayRoute;
   "/api/oauth/integrations/$provider/connect": typeof ApiOauthIntegrationsProviderConnectRoute;
@@ -430,14 +394,10 @@ export interface FileRoutesById {
   "/api/automations/openai/callback": typeof ApiAutomationsOpenaiCallbackRoute;
   "/api/automations/openai/complete": typeof ApiAutomationsOpenaiCompleteRoute;
   "/api/automations/openai/connect": typeof ApiAutomationsOpenaiConnectRoute;
-  "/api/automations/openai/helper-artifacts": typeof ApiAutomationsOpenaiHelperArtifactsRoute;
-  "/api/automations/openai/helper-session": typeof ApiAutomationsOpenaiHelperSessionRoute;
   "/api/billing/automation-runs/checkout": typeof ApiBillingAutomationRunsCheckoutRoute;
   "/api/billing/credits/checkout": typeof ApiBillingCreditsCheckoutRoute;
   "/api/notifications/push/subscribe": typeof ApiNotificationsPushSubscribeRoute;
-  "/downloads/oauth-helper/$platform/latest": typeof DownloadsOauthHelperPlatformLatestRoute;
   "/oauth/integrations/$provider/callback": typeof OauthIntegrationsProviderCallbackRoute;
-  "/api/automations/openai/helper/callback": typeof ApiAutomationsOpenaiHelperCallbackRoute;
   "/api/health/dlq/$id/abandon": typeof ApiHealthDlqIdAbandonRoute;
   "/api/health/dlq/$id/replay": typeof ApiHealthDlqIdReplayRoute;
   "/api/oauth/integrations/$provider/connect": typeof ApiOauthIntegrationsProviderConnectRoute;
@@ -479,14 +439,10 @@ export interface FileRouteTypes {
     | "/api/automations/openai/callback"
     | "/api/automations/openai/complete"
     | "/api/automations/openai/connect"
-    | "/api/automations/openai/helper-artifacts"
-    | "/api/automations/openai/helper-session"
     | "/api/billing/automation-runs/checkout"
     | "/api/billing/credits/checkout"
     | "/api/notifications/push/subscribe"
-    | "/downloads/oauth-helper/$platform/latest"
     | "/oauth/integrations/$provider/callback"
-    | "/api/automations/openai/helper/callback"
     | "/api/health/dlq/$id/abandon"
     | "/api/health/dlq/$id/replay"
     | "/api/oauth/integrations/$provider/connect";
@@ -526,14 +482,10 @@ export interface FileRouteTypes {
     | "/api/automations/openai/callback"
     | "/api/automations/openai/complete"
     | "/api/automations/openai/connect"
-    | "/api/automations/openai/helper-artifacts"
-    | "/api/automations/openai/helper-session"
     | "/api/billing/automation-runs/checkout"
     | "/api/billing/credits/checkout"
     | "/api/notifications/push/subscribe"
-    | "/downloads/oauth-helper/$platform/latest"
     | "/oauth/integrations/$provider/callback"
-    | "/api/automations/openai/helper/callback"
     | "/api/health/dlq/$id/abandon"
     | "/api/health/dlq/$id/replay"
     | "/api/oauth/integrations/$provider/connect";
@@ -573,14 +525,10 @@ export interface FileRouteTypes {
     | "/api/automations/openai/callback"
     | "/api/automations/openai/complete"
     | "/api/automations/openai/connect"
-    | "/api/automations/openai/helper-artifacts"
-    | "/api/automations/openai/helper-session"
     | "/api/billing/automation-runs/checkout"
     | "/api/billing/credits/checkout"
     | "/api/notifications/push/subscribe"
-    | "/downloads/oauth-helper/$platform/latest"
     | "/oauth/integrations/$provider/callback"
-    | "/api/automations/openai/helper/callback"
     | "/api/health/dlq/$id/abandon"
     | "/api/health/dlq/$id/replay"
     | "/api/oauth/integrations/$provider/connect";
@@ -617,14 +565,10 @@ export interface RootRouteChildren {
   ApiAutomationsOpenaiCallbackRoute: typeof ApiAutomationsOpenaiCallbackRoute;
   ApiAutomationsOpenaiCompleteRoute: typeof ApiAutomationsOpenaiCompleteRoute;
   ApiAutomationsOpenaiConnectRoute: typeof ApiAutomationsOpenaiConnectRoute;
-  ApiAutomationsOpenaiHelperArtifactsRoute: typeof ApiAutomationsOpenaiHelperArtifactsRoute;
-  ApiAutomationsOpenaiHelperSessionRoute: typeof ApiAutomationsOpenaiHelperSessionRoute;
   ApiBillingAutomationRunsCheckoutRoute: typeof ApiBillingAutomationRunsCheckoutRoute;
   ApiBillingCreditsCheckoutRoute: typeof ApiBillingCreditsCheckoutRoute;
   ApiNotificationsPushSubscribeRoute: typeof ApiNotificationsPushSubscribeRoute;
-  DownloadsOauthHelperPlatformLatestRoute: typeof DownloadsOauthHelperPlatformLatestRoute;
   OauthIntegrationsProviderCallbackRoute: typeof OauthIntegrationsProviderCallbackRoute;
-  ApiAutomationsOpenaiHelperCallbackRoute: typeof ApiAutomationsOpenaiHelperCallbackRoute;
   ApiOauthIntegrationsProviderConnectRoute: typeof ApiOauthIntegrationsProviderConnectRoute;
 }
 
@@ -854,13 +798,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof OauthIntegrationsProviderCallbackRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/downloads/oauth-helper/$platform/latest": {
-      id: "/downloads/oauth-helper/$platform/latest";
-      path: "/downloads/oauth-helper/$platform/latest";
-      fullPath: "/downloads/oauth-helper/$platform/latest";
-      preLoaderRoute: typeof DownloadsOauthHelperPlatformLatestRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/api/notifications/push/subscribe": {
       id: "/api/notifications/push/subscribe";
       path: "/api/notifications/push/subscribe";
@@ -880,20 +817,6 @@ declare module "@tanstack/react-router" {
       path: "/api/billing/automation-runs/checkout";
       fullPath: "/api/billing/automation-runs/checkout";
       preLoaderRoute: typeof ApiBillingAutomationRunsCheckoutRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/api/automations/openai/helper-session": {
-      id: "/api/automations/openai/helper-session";
-      path: "/api/automations/openai/helper-session";
-      fullPath: "/api/automations/openai/helper-session";
-      preLoaderRoute: typeof ApiAutomationsOpenaiHelperSessionRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/api/automations/openai/helper-artifacts": {
-      id: "/api/automations/openai/helper-artifacts";
-      path: "/api/automations/openai/helper-artifacts";
-      fullPath: "/api/automations/openai/helper-artifacts";
-      preLoaderRoute: typeof ApiAutomationsOpenaiHelperArtifactsRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/api/automations/openai/connect": {
@@ -937,13 +860,6 @@ declare module "@tanstack/react-router" {
       fullPath: "/api/health/dlq/$id/abandon";
       preLoaderRoute: typeof ApiHealthDlqIdAbandonRouteImport;
       parentRoute: typeof ApiHealthDlqRoute;
-    };
-    "/api/automations/openai/helper/callback": {
-      id: "/api/automations/openai/helper/callback";
-      path: "/api/automations/openai/helper/callback";
-      fullPath: "/api/automations/openai/helper/callback";
-      preLoaderRoute: typeof ApiAutomationsOpenaiHelperCallbackRouteImport;
-      parentRoute: typeof rootRouteImport;
     };
   }
 }
@@ -1012,19 +928,11 @@ const rootRouteChildren: RootRouteChildren = {
   ApiAutomationsOpenaiCallbackRoute: ApiAutomationsOpenaiCallbackRoute,
   ApiAutomationsOpenaiCompleteRoute: ApiAutomationsOpenaiCompleteRoute,
   ApiAutomationsOpenaiConnectRoute: ApiAutomationsOpenaiConnectRoute,
-  ApiAutomationsOpenaiHelperArtifactsRoute:
-    ApiAutomationsOpenaiHelperArtifactsRoute,
-  ApiAutomationsOpenaiHelperSessionRoute:
-    ApiAutomationsOpenaiHelperSessionRoute,
   ApiBillingAutomationRunsCheckoutRoute: ApiBillingAutomationRunsCheckoutRoute,
   ApiBillingCreditsCheckoutRoute: ApiBillingCreditsCheckoutRoute,
   ApiNotificationsPushSubscribeRoute: ApiNotificationsPushSubscribeRoute,
-  DownloadsOauthHelperPlatformLatestRoute:
-    DownloadsOauthHelperPlatformLatestRoute,
   OauthIntegrationsProviderCallbackRoute:
     OauthIntegrationsProviderCallbackRoute,
-  ApiAutomationsOpenaiHelperCallbackRoute:
-    ApiAutomationsOpenaiHelperCallbackRoute,
   ApiOauthIntegrationsProviderConnectRoute:
     ApiOauthIntegrationsProviderConnectRoute,
 };

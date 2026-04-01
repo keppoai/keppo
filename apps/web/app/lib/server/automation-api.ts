@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import OpenAI from "openai";
 import {
   automationMermaidJsonSchema,
@@ -20,7 +20,6 @@ import {
 } from "@keppo/shared/ai_generation";
 import { AI_CREDIT_ERROR_CODE, parseAiCreditErrorCode } from "@keppo/shared/ai-credit-errors";
 import {
-  API_DEDUPE_SCOPE,
   type DefaultActionBehavior,
   type PolicyMode,
   type UserRole,
@@ -50,7 +49,6 @@ import {
 import { createDurableRateLimiter } from "./api-runtime/rate-limit.ts";
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { getEnv } from "./api-runtime/env.ts";
-import { withIdempotency } from "./api-runtime/idempotency.ts";
 
 type ApiSessionIdentity = {
   userId: string;
@@ -66,17 +64,6 @@ type OpenAiOauthState = {
   verifier: string;
   issued_at: number;
   session_id?: string;
-};
-
-type OpenAiHelperSessionToken = {
-  kind: "openai_helper_session";
-  session_id: string;
-  org_id: string;
-  user_id: string;
-  return_to: string;
-  verifier: string;
-  issued_at: number;
-  expires_at: number;
 };
 
 type StoredOpenAiOauthCredentials = {
@@ -95,14 +82,9 @@ type StartOwnedAutomationApiConvex = Pick<
   ConvexInternalClient,
   | "deductAiCredit"
   | "checkRateLimit"
-  | "claimApiDedupeKey"
-  | "completeApiDedupeKey"
-  | "getApiDedupeKey"
   | "getWorkspaceCodeModeContext"
   | "listToolCatalogForWorkspace"
-  | "releaseApiDedupeKey"
   | "resolveApiSessionFromToken"
-  | "setApiDedupePayload"
   | "upsertOpenAiOauthKey"
 >;
 
@@ -151,16 +133,11 @@ type StartOwnedAutomationApiDeps = {
 const OPENAI_OAUTH_ALLOWED_ROLES = new Set<UserRole>(["owner", "admin"]);
 const OPENAI_AUTOMATION_CONNECT_PATH = "/api/automations/openai/connect";
 const OPENAI_AUTOMATION_CALLBACK_PATH = "/api/automations/openai/callback";
-const OPENAI_AUTOMATION_HELPER_ARTIFACTS_PATH = "/api/automations/openai/helper-artifacts";
 const OPENAI_OAUTH_SCOPE = ["openid", "profile", "email", "offline_access"].join(" ");
 const OPENAI_OAUTH_ORIGINATOR = "pi";
 const OPENAI_OAUTH_STATE_TTL_MS = 15 * 60_000;
-const OPENAI_HELPER_SESSION_TTL_MS = 10 * 60_000;
-const OPENAI_HELPER_CALLBACK_DEDUPE_TTL_MS = 15 * 60_000;
 const OPENAI_LOCALHOST_REDIRECT_URI = "http://localhost:1455/auth/callback";
 const AUTOMATION_QUESTION_RATE_LIMIT_WINDOW_MS = 60_000;
-const OPENAI_HELPER_PROTOCOL = "keppo-oauth-helper";
-const OPENAI_AUTOMATION_HELPER_CALLBACK_PATH = "/api/automations/openai/helper/callback";
 const AUTOMATION_QUESTION_BILLING = {
   stage: "questions",
   charged_credits: 0,
@@ -168,15 +145,6 @@ const AUTOMATION_QUESTION_BILLING = {
   summary:
     "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
 } as const;
-const OPENAI_LOCALHOST_HELPER_COMMAND =
-  `node --input-type=module --eval 'import http from "node:http";` +
-  `const PORT=1455,HOST="127.0.0.1",SUCCESS="<!doctype html><html><body><p>Callback captured. Return to Keppo and paste the full localhost callback URL.</p></body></html>";` +
-  `http.createServer((req,res)=>{try{const url=new URL(req.url||"/",\`http://\${HOST}:\${PORT}\`);` +
-  `if(url.pathname!=="/auth/callback"){res.statusCode=404;res.end("Not found");return}` +
-  `const fullUrl=\`http://\${HOST}:\${PORT}\${url.pathname}\${url.search}\`;` +
-  `process.stdout.write("\\nCaptured localhost callback URL:\\n"+fullUrl+"\\n\\nPaste that full URL into Keppo and then press Ctrl+C here.\\n");` +
-  `res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(SUCCESS)}` +
-  `catch{res.statusCode=500;res.end("Internal error")}}).listen(PORT,HOST,()=>process.stdout.write(\`Listening for OpenAI OAuth callback on http://\${HOST}:\${PORT}/auth/callback\\n\`));'`;
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -458,28 +426,6 @@ const parseOpenAiOauthCompletePayload = (
   };
 };
 
-const parseOpenAiHelperCallbackPayload = (
-  value: unknown,
-): {
-  callback_url: string;
-  helper_session_token: string;
-} => {
-  const body = value as Record<string, unknown>;
-  const callbackUrl = typeof body.callback_url === "string" ? body.callback_url.trim() : "";
-  const helperSessionToken =
-    typeof body.helper_session_token === "string" ? body.helper_session_token.trim() : "";
-  if (callbackUrl.length === 0) {
-    throw createAutomationRouteError("invalid_payload", "callback_url is required");
-  }
-  if (helperSessionToken.length === 0) {
-    throw createAutomationRouteError("invalid_payload", "helper_session_token is required");
-  }
-  return {
-    callback_url: callbackUrl,
-    helper_session_token: helperSessionToken,
-  };
-};
-
 const parseJsonRecordOrThrow = (raw: string, message: string): Record<string, unknown> => {
   const parsed = parseJsonValue(raw, { message });
   if (!isJsonRecord(parsed)) {
@@ -594,91 +540,6 @@ const buildOpenAiOauthAuthorizationUrl = (params: {
   authUrl.searchParams.set("codex_cli_simplified_flow", "true");
   authUrl.searchParams.set("originator", OPENAI_OAUTH_ORIGINATOR);
   return authUrl.toString();
-};
-
-const buildHelperLaunchUrl = (params: {
-  helperSessionToken: string;
-  oauthStartUrl: string;
-  callbackSubmitUrl: string;
-}): string => {
-  const launchUrl = new URL(`${OPENAI_HELPER_PROTOCOL}://connect`);
-  launchUrl.searchParams.set("session_token", params.helperSessionToken);
-  launchUrl.searchParams.set("oauth_start_url", params.oauthStartUrl);
-  launchUrl.searchParams.set("callback_submit_url", params.callbackSubmitUrl);
-  return launchUrl.toString();
-};
-
-const buildHelperArtifactMetadata = (requestUrl: string, deps: StartOwnedAutomationApiDeps) => {
-  const apiOrigin = new URL(requestUrl).origin;
-  const env = deps.getEnv();
-  return [
-    {
-      platform: "macos",
-      label: "Download for macOS",
-      filename: env.KEPPO_OAUTH_HELPER_MACOS_FILENAME ?? "keppo-oauth-helper-macos.dmg",
-      download_url:
-        env.KEPPO_OAUTH_HELPER_MACOS_URL ?? `${apiOrigin}/downloads/oauth-helper/macos/latest`,
-      available: Boolean(env.KEPPO_OAUTH_HELPER_MACOS_URL),
-    },
-    {
-      platform: "windows",
-      label: "Download for Windows",
-      filename: env.KEPPO_OAUTH_HELPER_WINDOWS_FILENAME ?? "keppo-oauth-helper-windows-x64.msi",
-      download_url:
-        env.KEPPO_OAUTH_HELPER_WINDOWS_URL ?? `${apiOrigin}/downloads/oauth-helper/windows/latest`,
-      available: Boolean(env.KEPPO_OAUTH_HELPER_WINDOWS_URL),
-    },
-  ];
-};
-
-const parseOpenAiHelperSessionToken = (
-  tokenRaw: string,
-  deps: StartOwnedAutomationApiDeps,
-): OpenAiHelperSessionToken => {
-  const decoded = deps.verifyAndDecodeOAuthStatePayload(tokenRaw);
-  if ("reason" in decoded) {
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "Invalid OpenAI helper session token.",
-    );
-  }
-  try {
-    const parsed = parseJsonRecordOrThrow(
-      decoded.payloadRaw,
-      "Invalid OpenAI helper session token.",
-    );
-    if (
-      parsed.kind !== "openai_helper_session" ||
-      typeof parsed.session_id !== "string" ||
-      typeof parsed.org_id !== "string" ||
-      typeof parsed.user_id !== "string" ||
-      typeof parsed.return_to !== "string" ||
-      typeof parsed.verifier !== "string" ||
-      typeof parsed.issued_at !== "number" ||
-      typeof parsed.expires_at !== "number"
-    ) {
-      throw new Error("Invalid OpenAI helper session token.");
-    }
-    if (Date.now() > parsed.expires_at) {
-      throw createAutomationRouteError(
-        "automation_route_failed",
-        "OpenAI helper session has expired.",
-      );
-    }
-    return parsed as OpenAiHelperSessionToken;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      parseAutomationRouteErrorCode(error.message) === "automation_route_failed" &&
-      error.message.includes("OpenAI helper session has expired.")
-    ) {
-      throw error;
-    }
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "Invalid OpenAI helper session token.",
-    );
-  }
 };
 
 const parseOpenAiOauthCallbackInput = (value: string): { code: string; state: string } => {
@@ -1374,85 +1235,6 @@ export const handleGenerateAutomationPromptRequest = async (
   }
 };
 
-export const handleOpenAiHelperSessionRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  const sessionIdentity = await resolveSessionFromRequest(request, deps);
-  if (!sessionIdentity) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.unauthorized,
-      },
-      401,
-    );
-  }
-
-  if (!canManageOpenAiOauthKey(sessionIdentity)) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
-      },
-      403,
-    );
-  }
-
-  const verifier = toBase64Url(randomBytes(32));
-  const sessionId = randomUUID();
-  const returnTo = deps.safeReturnToPath(
-    new URL(request.url).searchParams.get("return_to") ?? "/settings",
-  );
-  const now = Date.now();
-  const statePayload: OpenAiOauthState = {
-    kind: "openai_automation_key",
-    org_id: sessionIdentity.orgId,
-    user_id: sessionIdentity.userId,
-    return_to: returnTo,
-    verifier,
-    issued_at: now,
-    session_id: sessionId,
-  };
-  const helperSessionToken = deps.signOAuthStatePayload(
-    JSON.stringify({
-      kind: "openai_helper_session",
-      session_id: sessionId,
-      org_id: sessionIdentity.orgId,
-      user_id: sessionIdentity.userId,
-      return_to: returnTo,
-      verifier,
-      issued_at: now,
-      expires_at: now + OPENAI_HELPER_SESSION_TTL_MS,
-    } satisfies OpenAiHelperSessionToken),
-  );
-  const oauthStartUrl = buildOpenAiOauthAuthorizationUrl({
-    requestUrl: request.url,
-    verifier,
-    signedState: deps.signOAuthStatePayload(JSON.stringify(statePayload)),
-    deps,
-  });
-  const helperCallbackUrl = new URL(OPENAI_AUTOMATION_HELPER_CALLBACK_PATH, request.url).toString();
-
-  return jsonResponse(request, {
-    ok: true,
-    helper_session_id: sessionId,
-    helper_session_token: helperSessionToken,
-    oauth_start_url: oauthStartUrl,
-    localhost_redirect_uri: resolveOpenAiOauthRedirectUri(request.url, deps),
-    helper_callback_url: helperCallbackUrl,
-    helper_launch_url: buildHelperLaunchUrl({
-      helperSessionToken,
-      oauthStartUrl,
-      callbackSubmitUrl: helperCallbackUrl,
-    }),
-    expires_at: new Date(now + OPENAI_HELPER_SESSION_TTL_MS).toISOString(),
-    download_artifacts: buildHelperArtifactMetadata(request.url, deps),
-  });
-};
-
 export const handleOpenAiConnectRequest = async (
   request: Request,
   deps = getDefaultDeps(),
@@ -1501,7 +1283,6 @@ export const handleOpenAiConnectRequest = async (
     return jsonResponse(request, {
       ok: true,
       oauth_start_url: authUrl,
-      localhost_helper_command: OPENAI_LOCALHOST_HELPER_COMMAND,
       localhost_redirect_uri: resolveOpenAiOauthRedirectUri(request.url, deps),
     });
   }
@@ -1509,30 +1290,6 @@ export const handleOpenAiConnectRequest = async (
     null,
     withSecurityHeaders(request, { status: 302, headers: { Location: authUrl } }),
   );
-};
-
-export const handleOpenAiHelperArtifactsRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  const sessionIdentity = await resolveSessionFromRequest(request, deps);
-  if (!sessionIdentity) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.unauthorized,
-      },
-      401,
-    );
-  }
-
-  return jsonResponse(request, {
-    ok: true,
-    version: deps.getEnv().KEPPO_OAUTH_HELPER_VERSION ?? "dev",
-    protocol: OPENAI_HELPER_PROTOCOL,
-    download_artifacts: buildHelperArtifactMetadata(request.url, deps),
-  });
 };
 
 export const handleCompleteOpenAiOauthRequest = async (
@@ -1603,92 +1360,6 @@ export const handleCompleteOpenAiOauthRequest = async (
         ...(code ? { error_code: code } : {}),
       },
       400,
-    );
-  }
-};
-
-export const handleOpenAiHelperCallbackRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  try {
-    const payload = parseOpenAiHelperCallbackPayload(deps.parseJsonPayload(await request.text()));
-    const helperSession = parseOpenAiHelperSessionToken(payload.helper_session_token, deps);
-    const parsedCallback = parseOpenAiOauthCallbackInput(payload.callback_url);
-    const decodedState = deps.verifyAndDecodeOAuthStatePayload(parsedCallback.state);
-    if ("reason" in decodedState) {
-      throw createAutomationRouteError("automation_route_failed", "Invalid OpenAI OAuth state.");
-    }
-    const state = parseOpenAiOauthState(decodedState.payloadRaw, deps);
-    if (
-      state.org_id !== helperSession.org_id ||
-      state.user_id !== helperSession.user_id ||
-      state.verifier !== helperSession.verifier ||
-      state.session_id !== helperSession.session_id
-    ) {
-      throw createAutomationRouteError(
-        "automation_route_failed",
-        "OpenAI helper callback does not match the issued helper session.",
-      );
-    }
-
-    const dedupeKey = `openai_helper:${helperSession.session_id}`;
-    return await withIdempotency<Response>({
-      client: deps.convex,
-      scope: API_DEDUPE_SCOPE.oauthCallback,
-      dedupeKey,
-      ttlMs: OPENAI_HELPER_CALLBACK_DEDUPE_TTL_MS,
-      execute: async ({ setPayload }) => {
-        await completeOpenAiOauthCredentialUpsert({
-          convex: deps.convex,
-          orgId: helperSession.org_id,
-          userId: helperSession.user_id,
-          code: parsedCallback.code,
-          verifier: helperSession.verifier,
-          redirectUri: resolveOpenAiOauthRedirectUri(request.url, deps),
-          deps,
-        });
-        await setPayload({
-          status: "connected",
-          helper_session_id: helperSession.session_id,
-        });
-        return jsonResponse(request, {
-          ok: true,
-          status: "connected",
-          helper_session_id: helperSession.session_id,
-        });
-      },
-      onReplay: () =>
-        jsonResponse(
-          request,
-          {
-            ok: false,
-            status: "helper_callback_replayed",
-            error: "OpenAI helper session has already been used.",
-            error_code: "automation_route_failed",
-          },
-          409,
-        ),
-    });
-  } catch (error) {
-    const payloadError = mapInvalidPayloadError(error);
-    if (payloadError) {
-      return jsonResponse(request, payloadError, 400);
-    }
-    const { code, message } = extractAutomationRouteError(error);
-    const status = message.includes("has expired")
-      ? "helper_session_expired"
-      : AUTOMATION_ROUTE_STATUS.dispatchFailed;
-    const httpStatus = status === "helper_session_expired" ? 410 : 400;
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status,
-        error: message,
-        ...(code ? { error_code: code } : {}),
-      },
-      httpStatus,
     );
   }
 };
@@ -1772,14 +1443,8 @@ export const dispatchStartOwnedAutomationApiRequest = async (
   if (request.method === "POST" && pathname === "/api/automations/generate-prompt") {
     return await handleGenerateAutomationPromptRequest(request, deps);
   }
-  if (request.method === "GET" && pathname === "/api/automations/openai/helper-session") {
-    return await handleOpenAiHelperSessionRequest(request, deps);
-  }
   if (request.method === "GET" && pathname === OPENAI_AUTOMATION_CONNECT_PATH) {
     return await handleOpenAiConnectRequest(request, deps);
-  }
-  if (request.method === "GET" && pathname === OPENAI_AUTOMATION_HELPER_ARTIFACTS_PATH) {
-    return await handleOpenAiHelperArtifactsRequest(request, deps);
   }
   if (request.method === "GET" && pathname === OPENAI_AUTOMATION_CALLBACK_PATH) {
     return await handleOpenAiCallbackRequest(request, deps);
@@ -1787,9 +1452,5 @@ export const dispatchStartOwnedAutomationApiRequest = async (
   if (request.method === "POST" && pathname === "/api/automations/openai/complete") {
     return await handleCompleteOpenAiOauthRequest(request, deps);
   }
-  if (request.method === "POST" && pathname === OPENAI_AUTOMATION_HELPER_CALLBACK_PATH) {
-    return await handleOpenAiHelperCallbackRequest(request, deps);
-  }
-
   return null;
 };

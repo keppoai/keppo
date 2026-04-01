@@ -4,7 +4,6 @@ import { makeFunctionReference } from "convex/server";
 import { AUTOMATION_SUBSCRIPTION_AUTH_FEATURE_FLAG } from "@keppo/shared/feature-flags";
 import {
   completeOpenAiOauth,
-  getOpenAiHelperSession,
   startBillingCreditsCheckout,
 } from "@/lib/server-functions/internal-api";
 import { buildBillingReturnUrl } from "@/lib/billing-redirects";
@@ -13,7 +12,7 @@ import { useDashboardRuntime } from "@/lib/dashboard-runtime";
 import { useGlobalFeatureFlag } from "@/hooks/use-feature-flags";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
 import { Badge } from "@/components/ui/badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -42,36 +41,6 @@ type AutomationKeyUsage = {
   key_mode: "byok" | "bundled" | "subscription_token";
   count: number;
 };
-
-type OpenAiHelperPlatform = "macos" | "windows";
-
-type OpenAiHelperArtifact = {
-  platform: OpenAiHelperPlatform;
-  label: string;
-  filename: string;
-  download_url: string;
-};
-
-type OpenAiHelperSession = {
-  helper_session_id: string;
-  helper_session_token: string;
-  helper_launch_url: string;
-  helper_callback_url: string;
-  oauth_start_url: string;
-  localhost_redirect_uri: string;
-  expires_at: string;
-  download_artifacts: OpenAiHelperArtifact[];
-};
-
-const OPENAI_LOCALHOST_HELPER_COMMAND =
-  `node --input-type=module --eval 'import http from "node:http";` +
-  `const PORT=1455,HOST="127.0.0.1",SUCCESS="<!doctype html><html><body><p>Callback captured. Return to Keppo and paste the full localhost callback URL.</p></body></html>";` +
-  `http.createServer((req,res)=>{try{const url=new URL(req.url||"/",\`http://\${HOST}:\${PORT}\`);` +
-  `if(url.pathname!=="/auth/callback"){res.statusCode=404;res.end("Not found");return}` +
-  `const fullUrl=\`http://\${HOST}:\${PORT}\${url.pathname}\${url.search}\`;` +
-  `process.stdout.write("\\nCaptured localhost callback URL:\\n"+fullUrl+"\\n\\nPaste that full URL into Keppo and then press Ctrl+C here.\\n");` +
-  `res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(SUCCESS)}` +
-  `catch{res.statusCode=500;res.end("Internal error")}}).listen(PORT,HOST,()=>process.stdout.write(\`Listening for OpenAI OAuth callback on http://\${HOST}:\${PORT}/auth/callback\\n\`));'`;
 
 const parseCreditPurchases = (value: unknown): CreditPurchase[] => {
   if (!Array.isArray(value)) {
@@ -124,90 +93,6 @@ const parseUsage = (value: unknown): AutomationKeyUsage[] => {
       };
     })
     .filter((entry): entry is AutomationKeyUsage => entry !== null);
-};
-
-const parseOpenAiHelperSession = (value: unknown): OpenAiHelperSession => {
-  if (!value || typeof value !== "object") {
-    throw new Error("Invalid OpenAI helper session response.");
-  }
-  const record = value as Record<string, unknown>;
-  const downloadArtifacts = Array.isArray(record.download_artifacts)
-    ? record.download_artifacts
-        .map((item) => {
-          if (!item || typeof item !== "object") {
-            return null;
-          }
-          const artifact = item as Record<string, unknown>;
-          const platform = artifact.platform;
-          if (platform !== "macos" && platform !== "windows") {
-            return null;
-          }
-          return {
-            platform,
-            label: typeof artifact.label === "string" ? artifact.label : "",
-            filename: typeof artifact.filename === "string" ? artifact.filename : "",
-            download_url: typeof artifact.download_url === "string" ? artifact.download_url : "",
-          } satisfies OpenAiHelperArtifact;
-        })
-        .filter((artifact): artifact is OpenAiHelperArtifact => artifact !== null)
-    : [];
-
-  const helperSessionId =
-    typeof record.helper_session_id === "string" ? record.helper_session_id : "";
-  const helperSessionToken =
-    typeof record.helper_session_token === "string" ? record.helper_session_token : "";
-  const oauthStartUrl = typeof record.oauth_start_url === "string" ? record.oauth_start_url : "";
-  const helperCallbackUrl =
-    typeof record.helper_callback_url === "string" ? record.helper_callback_url : "";
-  const helperLaunchUrl =
-    typeof record.helper_launch_url === "string" ? record.helper_launch_url : "";
-  const localhostRedirectUri =
-    typeof record.localhost_redirect_uri === "string" ? record.localhost_redirect_uri : "";
-  const expiresAt = typeof record.expires_at === "string" ? record.expires_at : "";
-
-  if (
-    !helperSessionId ||
-    !helperSessionToken ||
-    !oauthStartUrl ||
-    !helperCallbackUrl ||
-    !helperLaunchUrl ||
-    !localhostRedirectUri ||
-    !expiresAt
-  ) {
-    throw new Error("OpenAI helper session response is missing required launch metadata.");
-  }
-
-  return {
-    helper_session_id: helperSessionId,
-    helper_session_token: helperSessionToken,
-    oauth_start_url: oauthStartUrl,
-    helper_callback_url: helperCallbackUrl,
-    helper_launch_url: helperLaunchUrl,
-    localhost_redirect_uri: localhostRedirectUri,
-    expires_at: expiresAt,
-    download_artifacts: downloadArtifacts,
-  };
-};
-
-const resolveOpenAiHelperPlatform = (): OpenAiHelperPlatform | null => {
-  if (typeof navigator === "undefined") {
-    return null;
-  }
-  const platform = [
-    navigator.userAgent,
-    // `navigator.platform` is deprecated but still the simplest low-friction fallback here.
-    navigator.platform,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ")
-    .toLowerCase();
-  if (platform.includes("mac")) {
-    return "macos";
-  }
-  if (platform.includes("win")) {
-    return "windows";
-  }
-  return null;
 };
 
 const sortOrgAiKeys = (keys: OrgAiKey[]): OrgAiKey[] =>
@@ -271,12 +156,8 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [isBuying, setIsBuying] = useState<number | null>(null);
   const [error, setError] = useState<UserFacingError | null>(null);
-  const [isStartingOpenAiHelper, setIsStartingOpenAiHelper] = useState(false);
-  const [openAiHelperSession, setOpenAiHelperSession] = useState<OpenAiHelperSession | null>(null);
   const [openAiOauthCallbackUrl, setOpenAiOauthCallbackUrl] = useState("");
   const [isCompletingOpenAiOauth, setIsCompletingOpenAiOauth] = useState(false);
-  const [copiedHelperScript, setCopiedHelperScript] = useState(false);
-  const [copiedHelperLaunchUrl, setCopiedHelperLaunchUrl] = useState(false);
   const [optimisticKeys, setOptimisticKeys] = useState<OrgAiKey[] | null>(null);
 
   const keysRaw = useQuery(
@@ -326,17 +207,6 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
       ) ?? null,
     [keys],
   );
-  const helperPlatform = useMemo(() => resolveOpenAiHelperPlatform(), []);
-  const recommendedHelperArtifact = useMemo(
-    () =>
-      openAiHelperSession && helperPlatform
-        ? (openAiHelperSession.download_artifacts.find(
-            (artifact) => artifact.platform === helperPlatform,
-          ) ?? null)
-        : null,
-    [helperPlatform, openAiHelperSession],
-  );
-
   useEffect(() => {
     const url = new URL(window.location.href);
     const status = url.searchParams.get("ai_key_status");
@@ -346,7 +216,6 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
     }
     if (status === "connected") {
       setError(null);
-      setOpenAiHelperSession(null);
     } else if (status === "error") {
       setError(
         toUserFacingError(
@@ -368,7 +237,6 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
     if (!activeOpenAiOauthKey) {
       return;
     }
-    setOpenAiHelperSession(null);
     setOpenAiOauthCallbackUrl("");
     setError(null);
   }, [activeOpenAiOauthKey]);
@@ -464,34 +332,6 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
     }
   };
 
-  const handleOpenInstalledHelper = (session: OpenAiHelperSession) => {
-    window.location.assign(session.helper_launch_url);
-  };
-
-  const handleStartOpenAiHelper = async () => {
-    const returnTo = `${window.location.pathname}${window.location.search || ""}`;
-    setError(null);
-    setIsStartingOpenAiHelper(true);
-    try {
-      const session = parseOpenAiHelperSession(
-        await getOpenAiHelperSession({
-          return_to: returnTo || "/settings",
-          betterAuthCookie: getRuntimeBetterAuthCookieHeader(),
-        }),
-      );
-      setOpenAiHelperSession(session);
-      handleOpenInstalledHelper(session);
-    } catch (caught) {
-      setError(
-        toUserFacingError(caught, {
-          fallback: "Failed to start the OpenAI helper.",
-        }),
-      );
-    } finally {
-      setIsStartingOpenAiHelper(false);
-    }
-  };
-
   const handleCompleteOpenAi = async () => {
     setError(null);
     setIsCompletingOpenAiOauth(true);
@@ -501,7 +341,6 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
         betterAuthCookie: getRuntimeBetterAuthCookieHeader(),
       });
       setOpenAiOauthCallbackUrl("");
-      setOpenAiHelperSession(null);
     } catch (caught) {
       setError(
         toUserFacingError(caught, {
@@ -510,37 +349,6 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
       );
     } finally {
       setIsCompletingOpenAiOauth(false);
-    }
-  };
-
-  const handleCopyOpenAiHelperScript = async () => {
-    try {
-      await navigator.clipboard.writeText(OPENAI_LOCALHOST_HELPER_COMMAND);
-      setCopiedHelperScript(true);
-      window.setTimeout(() => setCopiedHelperScript(false), 1500);
-    } catch (caught) {
-      setError(
-        toUserFacingError(caught, {
-          fallback: "Failed to copy helper script.",
-        }),
-      );
-    }
-  };
-
-  const handleCopyHelperLaunchUrl = async () => {
-    if (!openAiHelperSession) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(openAiHelperSession.helper_launch_url);
-      setCopiedHelperLaunchUrl(true);
-      window.setTimeout(() => setCopiedHelperLaunchUrl(false), 1500);
-    } catch (caught) {
-      setError(
-        toUserFacingError(caught, {
-          fallback: "Failed to copy helper launch link.",
-        }),
-      );
     }
   };
 
@@ -641,257 +449,27 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 {needsOpenAiOauth ? (
                   <div className="space-y-3 md:col-span-2">
                     <Label>OpenAI Subscription</Label>
-                    <div className="space-y-4 rounded-2xl border border-primary/20 bg-[linear-gradient(180deg,rgba(95,140,90,0.14),rgba(95,140,90,0.03))] p-5 text-sm shadow-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <Badge variant="secondary">Recommended</Badge>
-                            <span className="rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 font-medium text-foreground">
-                              Helper-first ChatGPT connection
-                            </span>
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-lg font-semibold tracking-tight">
-                              Connect OpenAI without copying localhost callback URLs.
-                            </p>
-                            <p className="max-w-3xl text-[13px] leading-6 text-foreground/80">
-                              Keppo prepares a short-lived helper session, opens the desktop helper,
-                              and waits for it to capture the OpenAI callback on{" "}
-                              <span className="font-mono text-xs">127.0.0.1:1455</span>. After
-                              sign-in, the helper sends the callback back to Keppo automatically and
-                              the credential refreshes server-side.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="min-w-44 rounded-xl border border-primary/15 bg-background/85 p-3 text-xs">
-                          <p className="font-medium text-foreground">What happens next</p>
-                          <ol className="mt-2 space-y-1.5 text-foreground/75">
-                            <li>1. Start or install the desktop helper.</li>
-                            <li>2. Finish ChatGPT sign-in in your browser.</li>
-                            <li>3. Return here after Keppo reconnects automatically.</li>
-                          </ol>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 rounded-xl border border-primary/15 bg-background/85 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                        <div className="space-y-1">
-                          <p className="font-medium text-foreground">
-                            {!helperPlatform
-                              ? "Install the helper on macOS or Windows"
-                              : helperPlatform === "macos"
-                                ? "Primary path: macOS helper"
-                                : "Primary path: Windows helper"}
-                          </p>
-                          <p className="text-[13px] leading-6 text-foreground/75">
-                            The primary action issues a signed helper session and tries the custom
-                            protocol handoff immediately. If the helper is not installed yet,
-                            download the platform build first.
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="lg"
-                            onClick={() => {
-                              void handleStartOpenAiHelper();
-                            }}
-                            disabled={isStartingOpenAiHelper}
-                          >
-                            {isStartingOpenAiHelper
-                              ? "Preparing helper..."
-                              : openAiHelperSession
-                                ? "Open Helper Again"
-                                : "Start in Helper"}
-                          </Button>
-                          {recommendedHelperArtifact ? (
-                            <button
-                              type="button"
-                              className={buttonVariants({
-                                variant: "outline",
-                                size: "lg",
-                              })}
-                              onClick={() => {
-                                window.open(
-                                  recommendedHelperArtifact.download_url,
-                                  "_blank",
-                                  "noopener,noreferrer",
-                                );
-                              }}
-                            >
-                              {helperPlatform === "macos"
-                                ? "Download macOS Helper"
-                                : helperPlatform === "windows"
-                                  ? "Download Windows Helper"
-                                  : recommendedHelperArtifact.label}
-                            </button>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      {openAiHelperSession ? (
-                        <div className="grid gap-3 rounded-xl border border-border/80 bg-background/75 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
-                          <div className="space-y-2">
-                            <p className="font-medium text-foreground">Helper session is ready</p>
-                            <p className="text-[13px] leading-6 text-foreground/75">
-                              Use the helper within this short window. If the browser blocked the
-                              custom protocol prompt, you can re-open the installed app or copy the
-                              launch URL from the fallback section below.
-                            </p>
-                            <div className="space-y-1 text-xs text-foreground/65">
-                              <p>
-                                Session expires: {fullTimestamp(openAiHelperSession.expires_at)}
-                              </p>
-                              <p className="break-all">
-                                Helper callback: {openAiHelperSession.helper_callback_url}
-                              </p>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap gap-2">
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => {
-                                handleOpenInstalledHelper(openAiHelperSession);
-                              }}
-                            >
-                              Open Installed Helper
-                            </Button>
-                            {(openAiHelperSession.download_artifacts ?? []).map((artifact) => (
-                              <button
-                                key={artifact.platform}
-                                type="button"
-                                className={buttonVariants({
-                                  variant: "ghost",
-                                })}
-                                onClick={() => {
-                                  window.open(
-                                    artifact.download_url,
-                                    "_blank",
-                                    "noopener,noreferrer",
-                                  );
-                                }}
-                              >
-                                {artifact.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <details className="group rounded-xl border border-dashed bg-background/70 p-4">
-                        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 font-medium text-foreground marker:hidden">
-                          <span>Manual fallback</span>
-                          <span className="text-xs text-foreground/60 group-open:hidden">
-                            Having trouble?
-                          </span>
-                          <span className="hidden text-xs text-foreground/60 group-open:inline">
-                            Hide fallback steps
-                          </span>
-                        </summary>
-                        <p className="mt-2 text-[13px] leading-6 text-foreground/75">
-                          Keep this for blocked custom protocols or local debugging. Start the
-                          helper session first so Keppo can mint the signed OpenAI auth metadata,
-                          then use the fallback steps below if launch handoff fails.
-                        </p>
-                        {openAiHelperSession ? (
-                          <div className="mt-4 space-y-3 text-sm">
-                            <div className="space-y-2 rounded-lg border bg-background/80 p-3">
-                              <div className="flex items-center justify-between gap-3">
-                                <p className="font-medium">1. Retry the signed helper handoff</p>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => {
-                                    void handleCopyHelperLaunchUrl();
-                                  }}
-                                >
-                                  {copiedHelperLaunchUrl ? "Copied" : "Copy Launch Link"}
-                                </Button>
-                              </div>
-                              <p className="text-muted-foreground">
-                                If the browser blocked the custom protocol, copy the launch URL and
-                                open it directly after installing the helper.
-                              </p>
-                            </div>
-                            <div className="space-y-2 rounded-lg border bg-background/80 p-3">
-                              <p className="font-medium">2. Open the ChatGPT auth URL manually</p>
-                              <a
-                                className="text-primary break-all underline-offset-4 hover:underline"
-                                href={openAiHelperSession.oauth_start_url}
-                                rel="noreferrer"
-                                target="_blank"
-                              >
-                                {openAiHelperSession.oauth_start_url}
-                              </a>
-                            </div>
-                          </div>
-                        ) : (
-                          <p className="mt-3 text-sm text-foreground/70">
-                            Press <span className="font-medium">Start in Helper</span> first to
-                            prepare a short-lived OpenAI helper session.
-                          </p>
-                        )}
-                      </details>
+                    <div className="space-y-2">
+                      <Label htmlFor="openai-callback-url">Paste the OAuth callback URL</Label>
+                      <Textarea
+                        id="openai-callback-url"
+                        className="min-h-24 font-mono text-xs"
+                        value={openAiOauthCallbackUrl}
+                        onChange={(event) => setOpenAiOauthCallbackUrl(event.currentTarget.value)}
+                        placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                      />
+                      <Button
+                        type="button"
+                        disabled={
+                          isCompletingOpenAiOauth || openAiOauthCallbackUrl.trim().length === 0
+                        }
+                        onClick={() => {
+                          void handleCompleteOpenAi();
+                        }}
+                      >
+                        {isCompletingOpenAiOauth ? "Completing..." : "Complete Connection"}
+                      </Button>
                     </div>
-                    {openAiHelperSession ? (
-                      <div className="space-y-3 rounded-md border border-dashed p-3 text-sm">
-                        <div>
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="font-medium">1. Run the localhost callback one-liner</p>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                void handleCopyOpenAiHelperScript();
-                              }}
-                            >
-                              {copiedHelperScript ? "Copied" : "Copy Script"}
-                            </Button>
-                          </div>
-                          <p className="text-muted-foreground mt-1">
-                            Run this in another terminal before finishing the browser auth flow.
-                          </p>
-                          <pre className="mt-2 max-h-72 overflow-auto rounded bg-muted px-3 py-2 text-xs">
-                            <code>{OPENAI_LOCALHOST_HELPER_COMMAND}</code>
-                          </pre>
-                        </div>
-                        <div>
-                          <p className="font-medium">2. Open the ChatGPT auth URL</p>
-                          <p className="text-muted-foreground mt-1 break-all">
-                            {openAiHelperSession.oauth_start_url}
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="openai-callback-url">
-                            3. Paste the final localhost callback URL
-                          </Label>
-                          <Textarea
-                            id="openai-callback-url"
-                            className="min-h-24 font-mono text-xs"
-                            value={openAiOauthCallbackUrl}
-                            onChange={(event) =>
-                              setOpenAiOauthCallbackUrl(event.currentTarget.value)
-                            }
-                            placeholder="http://localhost:1455/auth/callback?code=...&state=..."
-                          />
-                          <Button
-                            type="button"
-                            disabled={
-                              isCompletingOpenAiOauth || openAiOauthCallbackUrl.trim().length === 0
-                            }
-                            onClick={() => {
-                              void handleCompleteOpenAi();
-                            }}
-                          >
-                            {isCompletingOpenAiOauth
-                              ? "Completing..."
-                              : "Complete Manual Connection"}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 ) : (
                   <>
@@ -974,44 +552,9 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
 
           <div className="space-y-2">
             {keys.length === 0 ? (
-              needsOpenAiOauth ? (
-                <div className="rounded-xl border border-primary/15 bg-primary/5 p-4 text-sm">
-                  <div className="space-y-2">
-                    <p className="font-medium text-foreground">
-                      Waiting for your first OpenAI helper connection
-                    </p>
-                    <p className="max-w-2xl text-[13px] leading-6 text-foreground/75">
-                      Start the helper flow above. After you finish ChatGPT sign-in, this section
-                      will switch from setup guidance to an active credential record with validation
-                      and expiry details.
-                    </p>
-                  </div>
-                  <div className="mt-3 grid gap-2 text-xs md:grid-cols-3">
-                    <div className="rounded-lg border bg-background/80 p-3">
-                      <p className="font-medium text-foreground">Launch helper</p>
-                      <p className="mt-1 text-foreground/65">
-                        Keppo prepares a short-lived handoff for the desktop app.
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-background/80 p-3">
-                      <p className="font-medium text-foreground">Approve in ChatGPT</p>
-                      <p className="mt-1 text-foreground/65">
-                        The helper listens on localhost and captures the callback automatically.
-                      </p>
-                    </div>
-                    <div className="rounded-lg border bg-background/80 p-3">
-                      <p className="font-medium text-foreground">Return connected</p>
-                      <p className="mt-1 text-foreground/65">
-                        Keppo refreshes the credential server-side and shows the active key here.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-muted-foreground text-sm">
-                  No BYO or legacy subscription credentials configured yet.
-                </p>
-              )
+              <p className="text-muted-foreground text-sm">
+                No BYO or legacy subscription credentials configured yet.
+              </p>
             ) : (
               keys.map((key) => (
                 <div

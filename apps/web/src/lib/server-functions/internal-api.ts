@@ -203,11 +203,6 @@ const automationQuestionsInputSchema = z.object({
   betterAuthCookie: optionalBetterAuthCookieSchema,
 });
 
-const openAiHelperSessionInputSchema = z.object({
-  return_to: z.string().min(1),
-  betterAuthCookie: optionalBetterAuthCookieSchema,
-});
-
 const completeOpenAiOauthInputSchema = z.object({
   callback_url: z.string().min(1),
   betterAuthCookie: optionalBetterAuthCookieSchema,
@@ -256,7 +251,6 @@ export type BillingSubscriptionUndoCancelInput = z.infer<
 export type BillingSubscriptionPendingInput = z.infer<typeof billingSubscriptionPendingInputSchema>;
 export type AutomationPromptInput = z.infer<typeof automationPromptInputSchema>;
 export type AutomationQuestionsInput = z.infer<typeof automationQuestionsInputSchema>;
-export type OpenAiHelperSessionInput = z.infer<typeof openAiHelperSessionInputSchema>;
 export type CompleteOpenAiOauthInput = z.infer<typeof completeOpenAiOauthInputSchema>;
 export type WorkspaceMcpTestInput = z.infer<typeof workspaceMcpTestInputSchema>;
 export type OAuthProviderConnectInput = z.infer<typeof oauthProviderConnectInputSchema>;
@@ -602,16 +596,6 @@ const generateAutomationQuestionsServerFn = createServerFn({ method: "POST" })
       ),
   );
 
-const openAiHelperSessionServerFn = createServerFn({ method: "POST" })
-  .inputValidator(openAiHelperSessionInputSchema)
-  .handler(async ({ data }) => {
-    const search = new URLSearchParams({ return_to: data.return_to }).toString();
-    return await getJson<JsonRecord>(
-      `/api/automations/openai/helper-session?${search}`,
-      normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
-    );
-  });
-
 const completeOpenAiOauthServerFn = createServerFn({ method: "POST" })
   .inputValidator(completeOpenAiOauthInputSchema)
   .handler(
@@ -843,16 +827,6 @@ export const generateAutomationQuestions = async (
     })) as ApiResult<JsonRecord>,
   );
 };
-
-export const getOpenAiHelperSession = async (data: OpenAiHelperSessionInput): Promise<JsonRecord> =>
-  unwrapApiResult(
-    (await openAiHelperSessionServerFn({
-      data: {
-        ...data,
-        betterAuthCookie: normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
-      },
-    })) as ApiResult<JsonRecord>,
-  );
 
 export const completeOpenAiOauth = async (data: CompleteOpenAiOauthInput): Promise<JsonRecord> =>
   unwrapApiResult(

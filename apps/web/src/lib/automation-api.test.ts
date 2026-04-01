@@ -3,12 +3,9 @@ import {
   dispatchStartOwnedAutomationApiRequest,
   handleOpenAiCallbackRequest,
   handleOpenAiConnectRequest,
-  handleOpenAiHelperArtifactsRequest,
-  handleOpenAiHelperCallbackRequest,
   handleCompleteOpenAiOauthRequest,
   handleGenerateAutomationQuestionsRequest,
   handleGenerateAutomationPromptRequest,
-  handleOpenAiHelperSessionRequest,
 } from "../../app/lib/server/automation-api";
 
 const createDeps = () => {
@@ -28,14 +25,6 @@ const createDeps = () => {
       purchased_remaining: 25,
       total_available: 124,
     }),
-    claimApiDedupeKey: vi.fn().mockResolvedValue({
-      claimed: true,
-      status: "pending",
-      payload: null,
-      expiresAtMs: Date.now() + 60_000,
-    }),
-    completeApiDedupeKey: vi.fn().mockResolvedValue(true),
-    getApiDedupeKey: vi.fn().mockResolvedValue(null),
     getWorkspaceCodeModeContext: vi.fn().mockResolvedValue({
       workspace: {
         id: "ws_test",
@@ -60,8 +49,6 @@ const createDeps = () => {
       orgId: "org_test",
       role: "owner",
     }),
-    releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
-    setApiDedupePayload: vi.fn().mockResolvedValue(true),
     upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
   };
 
@@ -109,8 +96,6 @@ const createDeps = () => {
       () =>
         ({
           KEPPO_DASHBOARD_ORIGIN: "http://127.0.0.1:3000",
-          KEPPO_OAUTH_HELPER_MACOS_FILENAME: "helper.dmg",
-          KEPPO_OAUTH_HELPER_WINDOWS_FILENAME: "helper.msi",
           KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE: 10,
           OPENAI_OAUTH_CLIENT_ID: "openai_client_test",
           OPENAI_OAUTH_REDIRECT_URI: "http://localhost:1455/auth/callback",
@@ -517,32 +502,6 @@ describe("start-owned automation api handlers", () => {
     );
   });
 
-  it("issues OpenAI helper sessions from the Start-owned route", async () => {
-    const deps = createDeps();
-
-    const response = await handleOpenAiHelperSessionRequest(
-      new Request("http://127.0.0.1/api/automations/openai/helper-session?return_to=%2Fsettings", {
-        headers: {
-          cookie: "better-auth.session_token=session_token_test",
-        },
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      localhost_redirect_uri: "http://localhost:1455/auth/callback",
-      helper_callback_url: "http://127.0.0.1/api/automations/openai/helper/callback",
-      download_artifacts: expect.arrayContaining([
-        expect.objectContaining({
-          platform: "macos",
-          download_url: "http://127.0.0.1/downloads/oauth-helper/macos/latest",
-        }),
-      ]),
-    });
-  });
-
   it("returns OpenAI connect launch metadata for authenticated admins", async () => {
     const deps = createDeps();
 
@@ -560,32 +519,6 @@ describe("start-owned automation api handlers", () => {
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
       localhost_redirect_uri: "http://localhost:1455/auth/callback",
-    });
-  });
-
-  it("returns helper artifact metadata from the Start-owned route", async () => {
-    const deps = createDeps();
-
-    const response = await handleOpenAiHelperArtifactsRequest(
-      new Request("http://127.0.0.1/api/automations/openai/helper-artifacts", {
-        headers: {
-          cookie: "better-auth.session_token=session_token_test",
-        },
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      protocol: "keppo-oauth-helper",
-      version: "dev",
-      download_artifacts: expect.arrayContaining([
-        expect.objectContaining({
-          platform: "macos",
-          download_url: "http://127.0.0.1/downloads/oauth-helper/macos/latest",
-        }),
-      ]),
     });
   });
 
@@ -652,164 +585,6 @@ describe("start-owned automation api handlers", () => {
       }),
     );
     fetchMock.mockRestore();
-  });
-
-  it("accepts a helper callback submission and stores the OpenAI OAuth credential", async () => {
-    const deps = createDeps();
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          access_token: "access_test",
-          refresh_token: "refresh_test",
-          expires_in: 3600,
-          token_type: "Bearer",
-          scope: "openid profile email offline_access",
-          id_token: "header.eyJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.signature",
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      ),
-    );
-
-    const verifier = "helper-verifier-test";
-    const sessionId = "helper_session_test";
-    const helperSessionToken = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_helper_session",
-        session_id: sessionId,
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier,
-        issued_at: Date.now(),
-        expires_at: Date.now() + 60_000,
-      }),
-    );
-    const oauthState = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_automation_key",
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier,
-        issued_at: Date.now(),
-        session_id: sessionId,
-      }),
-    );
-
-    const response = await handleOpenAiHelperCallbackRequest(
-      withJson("/api/automations/openai/helper/callback", {
-        helper_session_token: helperSessionToken,
-        callback_url: `http://localhost:1455/auth/callback?code=oauth_code_test&state=${encodeURIComponent(oauthState)}`,
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      status: "connected",
-      helper_session_id: sessionId,
-    });
-    expect(deps.convex.upsertOpenAiOauthKey).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_test",
-        userId: "user_test",
-      }),
-    );
-    expect(deps.convex.completeApiDedupeKey).toHaveBeenCalledWith({
-      scope: "oauth_callback",
-      dedupeKey: `openai_helper:${sessionId}`,
-    });
-    fetchMock.mockRestore();
-  });
-
-  it("rejects replayed helper callback submissions", async () => {
-    const deps = createDeps();
-    deps.convex.claimApiDedupeKey.mockResolvedValueOnce({
-      claimed: false,
-      status: "completed",
-      payload: {
-        status: "connected",
-      },
-      expiresAtMs: Date.now() + 60_000,
-    });
-    const helperSessionToken = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_helper_session",
-        session_id: "helper_session_test",
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier: "helper-verifier-test",
-        issued_at: Date.now(),
-        expires_at: Date.now() + 60_000,
-      }),
-    );
-    const oauthState = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_automation_key",
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier: "helper-verifier-test",
-        issued_at: Date.now(),
-        session_id: "helper_session_test",
-      }),
-    );
-
-    const response = await handleOpenAiHelperCallbackRequest(
-      withJson("/api/automations/openai/helper/callback", {
-        helper_session_token: helperSessionToken,
-        callback_url: `http://localhost:1455/auth/callback?code=oauth_code_test&state=${encodeURIComponent(oauthState)}`,
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(409);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      status: "helper_callback_replayed",
-      error: "OpenAI helper session has already been used.",
-      error_code: "automation_route_failed",
-    });
-  });
-
-  it("rejects expired helper sessions with a typed status", async () => {
-    const deps = createDeps();
-    const helperSessionToken = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_helper_session",
-        session_id: "helper_session_test",
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier: "helper-verifier-test",
-        issued_at: Date.now() - 120_000,
-        expires_at: Date.now() - 60_000,
-      }),
-    );
-
-    const response = await handleOpenAiHelperCallbackRequest(
-      withJson("/api/automations/openai/helper/callback", {
-        helper_session_token: helperSessionToken,
-        callback_url:
-          "http://localhost:1455/auth/callback?code=oauth_code_test&state=ignored_for_expiry",
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(410);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      status: "helper_session_expired",
-      error: "OpenAI helper session has expired.",
-      error_code: "automation_route_failed",
-    });
   });
 
   it("redirects successful direct OpenAI callbacks back into the dashboard", async () => {
