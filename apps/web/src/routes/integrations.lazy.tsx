@@ -1,3 +1,4 @@
+import { useEffect } from "react";
 import { integrationsRoute } from "./integrations";
 import { createLazyRoute, useNavigate } from "@tanstack/react-router";
 import { useIntegrations } from "@/hooks/use-integrations";
@@ -16,6 +17,8 @@ import { useRouteParams } from "@/hooks/use-route-params";
 export const integrationsRouteLazy = createLazyRoute(integrationsRoute.id)({
   component: IntegrationsPage,
 });
+
+const OAUTH_SUCCESS_BANNER_TIMEOUT_MS = 8_000;
 
 const buildOAuthCallbackError = (
   code: "unauthorized" | "forbidden",
@@ -99,6 +102,39 @@ export function IntegrationsPage() {
       replace: true,
     });
   };
+  const clearSuccessFeedback = () => {
+    void searchNavigate({
+      search: (previous) => ({
+        integration_connected: undefined,
+        oauth_error: previous.oauth_error,
+        oauth_provider: previous.oauth_provider,
+      }),
+      replace: true,
+    });
+  };
+  const handleSignIn = () => {
+    const returnTo = `${window.location.pathname}${window.location.search}`;
+    void navigate({
+      to: "/login",
+      search: {
+        returnTo,
+      },
+    });
+  };
+
+  useEffect(() => {
+    if (!search.integration_connected) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      clearSuccessFeedback();
+    }, OAUTH_SUCCESS_BANNER_TIMEOUT_MS);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [search.integration_connected]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -140,9 +176,15 @@ export function IntegrationsPage() {
         <UserFacingErrorView
           error={oauthCallbackError}
           action={
-            <Button variant="outline" size="sm" onClick={clearFeedback}>
-              Dismiss
-            </Button>
+            search.oauth_error === "unauthorized" ? (
+              <Button size="sm" onClick={handleSignIn}>
+                Sign in
+              </Button>
+            ) : (
+              <Button variant="outline" size="sm" onClick={clearFeedback}>
+                Dismiss
+              </Button>
+            )
           }
         />
       ) : null}

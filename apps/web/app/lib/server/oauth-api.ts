@@ -834,7 +834,14 @@ export const handleOAuthProviderCallbackRequest = async (
   }
 
   const orgId = state.org_id;
-  const sessionIdentity = await resolveSessionFromRequest(request, deps);
+  const [sessionIdentity, managedOAuthConnectState] = await Promise.all([
+    resolveSessionFromRequest(request, deps),
+    deps.convex.getManagedOAuthConnectState({
+      orgId,
+      provider,
+      correlationId: state.correlation_id,
+    }),
+  ]);
   if (!sessionIdentity) {
     recordOAuthCallbackMetric({
       provider,
@@ -862,11 +869,6 @@ export const handleOAuthProviderCallbackRequest = async (
   const redirectUri = deps.getRedirectUri(request.url, provider);
   const namespace = state.e2e_namespace ?? deps.getE2ENamespace(parsedQuery.namespace);
   const exchangeKey = `${provider}:${orgId}:${code}`;
-  const managedOAuthConnectState = await deps.convex.getManagedOAuthConnectState({
-    orgId,
-    provider,
-    correlationId: state.correlation_id,
-  });
 
   if (!managedOAuthConnectState?.initiatingUserId) {
     const replayedCallback = await deps.convex.getApiDedupeKey({
