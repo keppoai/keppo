@@ -835,16 +835,25 @@ function IntegrationDetailPage() {
                       : {};
 
                   const setCheckboxValue = (optionValue: string, checked: boolean) => {
-                    setMetadataEditorValues((previous) => ({
-                      ...previous,
-                      [editor.id]: {
-                        ...previous[editor.id],
-                        [field.id]: {
-                          ...checkboxMap,
-                          [optionValue]: checked,
+                    setMetadataEditorValues((previous) => {
+                      const prevEditorValues = previous[editor.id] ?? {};
+                      const prevCheckboxMap =
+                        prevEditorValues[field.id] &&
+                        typeof prevEditorValues[field.id] === "object" &&
+                        !Array.isArray(prevEditorValues[field.id])
+                          ? (prevEditorValues[field.id] as Record<string, boolean>)
+                          : {};
+                      return {
+                        ...previous,
+                        [editor.id]: {
+                          ...prevEditorValues,
+                          [field.id]: {
+                            ...prevCheckboxMap,
+                            [optionValue]: checked,
+                          },
                         },
-                      },
-                    }));
+                      };
+                    });
                   };
 
                   const setAllCheckboxes = (checked: boolean) => {
