@@ -107,8 +107,7 @@ const AI_KEY_MODE_META: Record<AiKeyMode, AutomationChoiceMeta> = {
   },
   bundled: {
     label: "Bundled",
-    description:
-      "Uses Keppo-managed bundled credits first and falls back to an active BYO key when bundled credits are exhausted.",
+    description: "Uses Keppo-managed bundled AI credits.",
   },
   subscription_token: {
     label: "Subscription login (legacy)",
@@ -163,10 +162,10 @@ export const getAutomationExecutionModeMeta = (
   return mode === "bundled"
     ? {
         label: "Bundled runtime",
-        description: "Runs on the org's paid bundled credits while credits remain available.",
+        description: "Runs on the org's bundled AI credits while credits remain available.",
       }
     : {
-        label: "Organization API key",
+        label: "Self-managed API key",
         description: "Runs on an active org-managed provider API key in Settings.",
       };
 };
@@ -183,15 +182,22 @@ export const resolveAutomationExecutionState = (params: {
       (key.key_mode === "byok" ||
         (params.provider === "openai" && key.key_mode === "subscription_token")),
   );
-  const mode: AutomationExecutionMode =
-    params.creditBalance?.bundled_runtime_enabled && (params.creditBalance.total_available ?? 0) > 0
-      ? "bundled"
-      : "byok";
+  const bundledRuntimeEnabled = params.creditBalance?.bundled_runtime_enabled === true;
+  const bundledCreditsAvailable =
+    bundledRuntimeEnabled && (params.creditBalance?.total_available ?? 0) > 0;
+  if (bundledRuntimeEnabled) {
+    return {
+      mode: "bundled",
+      requires_active_byok_key: false,
+      has_active_byok_key: hasActiveByokKey,
+      can_run: bundledCreditsAvailable,
+    };
+  }
   return {
-    mode,
-    requires_active_byok_key: mode === "byok",
+    mode: "byok",
+    requires_active_byok_key: true,
     has_active_byok_key: hasActiveByokKey,
-    can_run: mode === "bundled" || hasActiveByokKey,
+    can_run: hasActiveByokKey,
   };
 };
 

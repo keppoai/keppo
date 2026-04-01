@@ -45,8 +45,8 @@
   - button "Watch for new GitHub bugs and open a matching Notion page with triage notes."
   - button "Each Friday, assemble a short approvals digest for the operations team."
   - paragraph: What happens next
-  - paragraph: "Step 2 of 4: Configure an AI key"
-  - paragraph: Generate the draft first. Keppo will guide provider and key setup in the next step, and nothing goes live until you review the automation.
-  - text: Done Connect a provider Up next Configure an AI key
+  - paragraph: "Step 2 of 4: Confirm AI access"
+  - paragraph: Generate the draft first. Keppo will guide provider and AI access setup in the next step, and nothing goes live until you review the automation.
+  - text: Done Connect a provider Up next Confirm AI access
 - heading "Operator command palette" [level=2]
 - paragraph: Jump between entities, open key surfaces, run automations, and launch the guided builder.

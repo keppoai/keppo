@@ -63,10 +63,6 @@ const createDeps = () => {
     }),
     getAutomationRunDispatchContext: vi.fn().mockResolvedValue(null),
     getOrgAiKey: vi.fn().mockResolvedValue(null),
-    getSubscriptionForOrg: vi.fn().mockResolvedValue({
-      tier: "starter",
-      status: "active",
-    }),
     issueAutomationWorkspaceCredential: vi.fn().mockResolvedValue("keppo_secret_test"),
     updateAutomationRunStatus: vi.fn().mockResolvedValue(undefined),
     upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
@@ -81,7 +77,9 @@ const createDeps = () => {
       ok: authorizationHeader === "Bearer secret_token",
       ...(authorizationHeader === "Bearer secret_token"
         ? {}
-        : { reason: authorizationHeader ? "invalid_secret" : "missing_secret" }),
+        : {
+            reason: authorizationHeader ? "invalid_secret" : "missing_secret",
+          }),
     })),
     convex,
     createSandboxProvider: vi.fn(() => sandboxProvider),
@@ -623,12 +621,8 @@ describe("start-owned automation runtime handlers", () => {
     expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
   });
 
-  it("requires a BYO key when the org has no bundled runtime available", async () => {
+  it("requires a self-managed key when the org has no bundled runtime available", async () => {
     const deps = createDeps();
-    deps.convex.getSubscriptionForOrg.mockResolvedValueOnce({
-      tier: "free",
-      status: "active",
-    });
     deps.convex.getAiCreditBalance.mockResolvedValueOnce({
       org_id: "org_test",
       period_start: "2026-03-01T00:00:00.000Z",
@@ -1110,7 +1104,10 @@ describe("start-owned automation runtime handlers", () => {
     );
 
     expect(logResponse?.status).toBe(200);
-    await expect(logResponse?.json()).resolves.toMatchObject({ ok: true, ingested: 3 });
+    await expect(logResponse?.json()).resolves.toMatchObject({
+      ok: true,
+      ingested: 3,
+    });
     expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         automationRunId: "arun_dispatch_test",
@@ -1156,7 +1153,9 @@ describe("start-owned automation runtime handlers", () => {
       deps,
     );
     const forwarded = await dispatchStartOwnedAutomationRuntimeRequest(
-      withJson("/internal/queue/dispatch-approved-action", { actionId: "act_1" }),
+      withJson("/internal/queue/dispatch-approved-action", {
+        actionId: "act_1",
+      }),
       deps,
     );
 

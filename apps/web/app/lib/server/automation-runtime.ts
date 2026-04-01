@@ -66,7 +66,6 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   | "getAiCreditBalance"
   | "getAutomationRunDispatchContext"
   | "getOrgAiKey"
-  | "getSubscriptionForOrg"
   | "issueAutomationWorkspaceCredential"
   | "updateAutomationRunStatus"
   | "upsertOpenAiOauthKey"
@@ -384,8 +383,7 @@ export const handleInternalAutomationDispatchRequest = async (
     const callbackBaseUrl = resolveAutomationCallbackBaseUrl(request.url);
     const providerMode = resolveAutomationSandboxProviderMode();
     assertSandboxCallbackBaseUrlReachable(callbackBaseUrl, providerMode);
-    const [subscription, creditBalance, byoKey, legacyOpenAiKey] = await Promise.all([
-      deps.convex.getSubscriptionForOrg(context.automation.org_id),
+    const [creditBalance, byoKey, legacyOpenAiKey] = await Promise.all([
       deps.convex.getAiCreditBalance({ orgId: context.automation.org_id }),
       gatewayEnabled
         ? Promise.resolve(null)
@@ -409,7 +407,7 @@ export const handleInternalAutomationDispatchRequest = async (
           ? legacyOpenAiKey
           : null;
     const resolvedKeyMode = resolveAutomationExecutionReadiness({
-      tierId: subscription?.tier ?? "free",
+      bundledRuntimeEnabled: creditBalance.bundled_runtime_enabled,
       totalCreditsAvailable: creditBalance.total_available,
       hasActiveByokKey: activeNonBundledKey !== null,
     }).mode;
@@ -556,7 +554,7 @@ export const handleInternalAutomationDispatchRequest = async (
               automationRunId: context.run.id,
               status: AUTOMATION_RUN_STATUS.cancelled,
               errorMessage:
-                "Bundled AI credits are exhausted. Add credits or configure an active BYO key and retry.",
+                "Bundled AI credits are exhausted. Add credits or change the plan and retry.",
             })
             .catch(() => undefined);
           return jsonResponse(

@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireWorkspaceRole } from "./_auth";
+import { getAiCreditBalanceForOrg } from "./ai_credits";
 import { listConnectedProviderIdsForOrg } from "./integrations/read_model";
 
 const onboardingReadinessValidator = v.object({
@@ -27,6 +28,7 @@ export const getReadiness = query({
       .query("org_ai_keys")
       .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
       .take(50);
+    const aiCreditBalance = await getAiCreditBalanceForOrg(ctx, auth.orgId);
     const automations = await ctx.db
       .query("automations")
       .withIndex("by_workspace", (q) => q.eq("workspace_id", args.workspaceId))
@@ -56,7 +58,7 @@ export const getReadiness = query({
       has_enabled_workspace_integration: workspaceIntegrations.some(
         (integration) => integration.enabled,
       ),
-      has_ai_key: aiKeys.some((key) => key.is_active),
+      has_ai_key: aiCreditBalance.bundled_runtime_enabled || aiKeys.some((key) => key.is_active),
       has_automation: automations.length > 0,
       has_first_action: hasFirstAction,
     };

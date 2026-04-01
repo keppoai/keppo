@@ -16,7 +16,7 @@ function SettingsPagePending() {
   return (
     <ShellTransitionState
       title="Loading settings"
-      detail="Keppo is restoring account, notification, and AI key settings."
+      detail="Keppo is restoring account, notification, and AI configuration settings."
     />
   );
 }

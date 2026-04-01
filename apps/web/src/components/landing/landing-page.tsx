@@ -1034,7 +1034,11 @@ function TimelineMockup() {
                   initial: { opacity: 0, x: -8 },
                   whileInView: { opacity: 1, x: 0 },
                   viewport: { once: true },
-                  transition: { duration: 0.4, delay: i * 0.1, ease: [0.22, 1, 0.36, 1] },
+                  transition: {
+                    duration: 0.4,
+                    delay: i * 0.1,
+                    ease: [0.22, 1, 0.36, 1],
+                  },
                 })}
           >
             {i < steps.length - 1 ? (
@@ -1155,7 +1159,7 @@ const FAQ_ITEMS = [
   {
     question: "Is it really free?",
     answer:
-      "Keppo offers a Free trial with a one-time 20-credit grant for prompt generation, plus all integrations and the full approval engine. You can also self-host the entire platform for free because it's open-source.",
+      "Keppo offers a Free trial with a one-time 20-credit grant that covers both prompt generation and automation runtime, plus all integrations and the full approval engine. You can also self-host the entire platform for free because it's open-source.",
   },
   {
     question: "How is this different from Zapier or Make?",

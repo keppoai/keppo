@@ -9,7 +9,6 @@ import {
 } from "@/lib/server-functions/internal-api";
 import { buildBillingReturnUrl } from "@/lib/billing-redirects";
 import { getRuntimeBetterAuthCookieHeader } from "@/lib/better-auth-cookie";
-import { useDashboardRuntime } from "@/lib/dashboard-runtime";
 import { useGlobalFeatureFlag } from "@/hooks/use-feature-flags";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
 import { Badge } from "@/components/ui/badge";
@@ -177,7 +176,6 @@ const hasServerCaughtUp = (serverKeys: OrgAiKey[], optimisticKeys: OrgAiKey[]): 
 };
 
 export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
-  const runtime = useDashboardRuntime();
   const subscriptionAuthEnabled = useGlobalFeatureFlag(AUTOMATION_SUBSCRIPTION_AUTH_FEATURE_FLAG);
   const [provider, setProvider] = useState<"openai" | "anthropic">("openai");
   const [keyMode, setKeyMode] = useState<"byok" | "subscription_token">("byok");
@@ -230,6 +228,11 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
     [keys],
   );
   const bundledRuntimeAvailable = balance?.bundled_runtime_enabled ?? false;
+  const hostedBundledRuntime = bundledRuntimeAvailable;
+  const visibleKeys = useMemo(
+    () => (hostedBundledRuntime ? keys.filter((key) => key.key_mode === "bundled") : keys),
+    [hostedBundledRuntime, keys],
+  );
   const activeOpenAiOauthKey = useMemo(
     () =>
       keys.find(
@@ -436,7 +439,9 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
         <CardHeader>
           <CardTitle>AI Configuration</CardTitle>
           <CardDescription>
-            Manage bundled access, BYO keys, and legacy subscription login.
+            {hostedBundledRuntime
+              ? "Keppo manages hosted AI access and credits for this organization."
+              : "Manage self-hosted provider credentials and legacy subscription login."}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -448,16 +453,18 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 </p>
                 <div className="flex flex-wrap items-center gap-2">
                   <p className="text-base font-semibold text-foreground">
-                    Choose how this org authenticates AI runs
+                    {hostedBundledRuntime
+                      ? "Hosted AI access is managed for this org"
+                      : "Choose how this org authenticates AI runs"}
                   </p>
-                  <Badge variant={bundledRuntimeAvailable ? "outline" : "secondary"}>
-                    {bundledRuntimeAvailable ? "Bundled available" : "Paid plans only"}
+                  <Badge variant={hostedBundledRuntime ? "outline" : "secondary"}>
+                    {hostedBundledRuntime ? "Hosted bundled runtime" : "Self-managed auth"}
                   </Badge>
                 </div>
                 <p className="max-w-3xl text-sm leading-6 text-foreground/75">
-                  {bundledRuntimeAvailable
-                    ? "Paid plans can run automations with Keppo-managed gateway credentials. Add a BYO key here only if you want a fallback path when bundled credits run out."
-                    : "Free trial keeps a one-time 20-credit grant for prompt generation only. Add your own API key for runtime, or upgrade to Starter or Pro to unlock bundled execution."}
+                  {hostedBundledRuntime
+                    ? "Keppo-managed credits power both prompt generation and automation runtime here. Free-trial and paid credits use the same bundled pool."
+                    : "This deployment does not expose hosted bundled runtime. Add a self-managed provider key, or use the legacy OpenAI subscription login flow if you still rely on it."}
                 </p>
               </div>
 
@@ -467,268 +474,285 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                   <span className="text-muted-foreground text-xs">Billing-managed credentials</span>
                 </div>
                 <p className="mt-2 text-foreground/75">
-                  {bundledRuntimeAvailable
-                    ? "Keppo provisions and rotates bundled gateway credentials automatically. You do not edit bundled keys here."
-                    : "Bundled execution is locked on free. This settings form manages BYO and legacy subscription credentials until the org upgrades."}
+                  {hostedBundledRuntime
+                    ? "Keppo provisions and rotates bundled gateway credentials automatically. API key entry is not available in hosted mode."
+                    : "Bundled hosted runtime is unavailable in this deployment. Use this form for self-managed provider keys or legacy OpenAI subscription login."}
                 </p>
                 <p className="mt-2 text-xs text-foreground/65">
                   {bundledKeyRows.length > 0
                     ? `Billing currently manages ${bundledKeyRows.length} active bundled credential${bundledKeyRows.length === 1 ? "" : "s"} for this org.`
-                    : bundledRuntimeAvailable
-                      ? "Billing reconciliation provisions bundled credentials automatically when the org is eligible."
-                      : "Upgrade to Starter or Pro to unlock billing-managed bundled credentials."}
+                    : hostedBundledRuntime
+                      ? "Billing reconciliation provisions bundled credentials automatically for hosted workspaces."
+                      : "Self-hosted deployments keep provider credentials under your control."}
                 </p>
               </div>
 
-              <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
-                <div className="space-y-1">
-                  <Label htmlFor="ai-key-provider">Provider</Label>
-                  <NativeSelect
-                    className="w-full"
-                    id="ai-key-provider"
-                    value={provider}
-                    onChange={(event) =>
-                      setProvider(
-                        event.currentTarget.value === "anthropic" ? "anthropic" : "openai",
-                      )
-                    }
-                  >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                  </NativeSelect>
+              {hostedBundledRuntime ? (
+                <div className="mt-5 rounded-2xl border border-primary/15 bg-primary/5 p-5 text-sm">
+                  <div className="space-y-2">
+                    <p className="font-medium text-foreground">
+                      Hosted mode keeps credentials managed
+                    </p>
+                    <p className="max-w-3xl leading-6 text-foreground/75">
+                      Operators do not paste provider API keys into Settings on hosted Keppo. OpenAI
+                      and Anthropic runtime credentials are managed automatically, and automation
+                      runs consume the same bundled credit pool shown on this page.
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-1">
-                  <Label htmlFor="ai-key-mode">Mode</Label>
-                  <NativeSelect
-                    className="w-full"
-                    id="ai-key-mode"
-                    value={keyMode}
-                    onChange={(event) =>
-                      setKeyMode(
-                        event.currentTarget.value === "subscription_token"
-                          ? "subscription_token"
-                          : "byok",
-                      )
-                    }
-                  >
-                    <option value="byok">Bring your own key</option>
-                    {subscriptionAuthEnabled ? (
-                      <option value="subscription_token">Subscription login (legacy)</option>
-                    ) : null}
-                    {showLegacySubscriptionMode ? (
-                      <option value="subscription_token">Subscription login (disabled)</option>
-                    ) : null}
-                  </NativeSelect>
-                </div>
-                <div className="rounded-lg border bg-background/80 p-3 text-xs leading-5 text-foreground/70 md:col-span-2">
-                  Bundled credentials are billing-managed. Use this form only for org-managed keys
-                  or legacy OpenAI subscription login when bundled runtime is unavailable.
-                </div>
-                {needsOpenAiOauth ? (
-                  <div className="space-y-3 md:col-span-2">
-                    <Label>OpenAI Subscription</Label>
-                    <div className="space-y-4 rounded-2xl border border-primary/20 bg-[linear-gradient(180deg,rgba(95,140,90,0.14),rgba(95,140,90,0.03))] p-5 text-sm shadow-sm">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="space-y-2">
-                          <div className="flex flex-wrap items-center gap-2 text-xs">
-                            <Badge variant="secondary">Recommended</Badge>
-                            <span className="rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 font-medium text-foreground">
-                              Helper-first ChatGPT connection
-                            </span>
-                          </div>
-                          <div className="space-y-1">
-                            <p className="text-lg font-semibold tracking-tight">
-                              Connect OpenAI from ChatGPT using the localhost callback flow.
-                            </p>
-                            <p className="max-w-3xl text-[13px] leading-6 text-foreground/80">
-                              Keppo prepares a signed OpenAI auth URL for{" "}
-                              <span className="font-mono text-xs">127.0.0.1:1455</span>. Run the
-                              local callback listener, finish the browser login, then paste the
-                              final localhost callback URL here so Keppo can store the refreshable
-                              OAuth credential server-side.
-                            </p>
-                          </div>
-                        </div>
-                        <div className="min-w-44 rounded-xl border border-primary/15 bg-background/85 p-3 text-xs">
-                          <p className="font-medium text-foreground">What happens next</p>
-                          <ol className="mt-2 space-y-1.5 text-foreground/75">
-                            <li>1. Prepare the OpenAI connect flow.</li>
-                            <li>2. Run the localhost callback command in a terminal.</li>
-                            <li>
-                              3. Finish ChatGPT sign-in in your browser and paste the callback URL.
-                            </li>
-                          </ol>
-                        </div>
-                      </div>
-
-                      <div className="grid gap-3 rounded-xl border border-primary/15 bg-background/85 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
-                        <div className="space-y-1">
-                          <p className="font-medium text-foreground">
-                            Prepare the direct OAuth flow
-                          </p>
-                          <p className="text-[13px] leading-6 text-foreground/75">
-                            This opens the ChatGPT authorization page in a new tab and reveals the
-                            callback command plus the localhost redirect target Keppo expects.
-                          </p>
-                        </div>
-                        <div className="flex flex-wrap gap-2">
-                          <Button
-                            type="button"
-                            size="lg"
-                            onClick={() => {
-                              void handlePrepareOpenAiConnect();
-                            }}
-                            disabled={isPreparingOpenAiConnect}
-                          >
-                            {isPreparingOpenAiConnect
-                              ? "Preparing..."
-                              : openAiConnectMetadata
-                                ? "Open ChatGPT Again"
-                                : "Prepare and Open ChatGPT"}
-                          </Button>
-                        </div>
-                      </div>
-
-                      {openAiConnectMetadata ? (
-                        <div className="grid gap-3 rounded-xl border border-border/80 bg-background/75 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+              ) : (
+                <form className="mt-5 grid gap-4 md:grid-cols-2" onSubmit={handleSubmit}>
+                  <div className="space-y-1">
+                    <Label htmlFor="ai-key-provider">Provider</Label>
+                    <NativeSelect
+                      className="w-full"
+                      id="ai-key-provider"
+                      value={provider}
+                      onChange={(event) =>
+                        setProvider(
+                          event.currentTarget.value === "anthropic" ? "anthropic" : "openai",
+                        )
+                      }
+                    >
+                      <option value="openai">OpenAI</option>
+                      <option value="anthropic">Anthropic</option>
+                    </NativeSelect>
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor="ai-key-mode">Mode</Label>
+                    <NativeSelect
+                      className="w-full"
+                      id="ai-key-mode"
+                      value={keyMode}
+                      onChange={(event) =>
+                        setKeyMode(
+                          event.currentTarget.value === "subscription_token"
+                            ? "subscription_token"
+                            : "byok",
+                        )
+                      }
+                    >
+                      <option value="byok">Bring your own key</option>
+                      {subscriptionAuthEnabled ? (
+                        <option value="subscription_token">Subscription login (legacy)</option>
+                      ) : null}
+                      {showLegacySubscriptionMode ? (
+                        <option value="subscription_token">Subscription login (disabled)</option>
+                      ) : null}
+                    </NativeSelect>
+                  </div>
+                  <div className="rounded-lg border bg-background/80 p-3 text-xs leading-5 text-foreground/70 md:col-span-2">
+                    Bundled credentials are billing-managed. Use this form only for self-managed
+                    provider keys or legacy OpenAI subscription login when hosted runtime is
+                    unavailable.
+                  </div>
+                  {needsOpenAiOauth ? (
+                    <div className="space-y-3 md:col-span-2">
+                      <Label>OpenAI Subscription</Label>
+                      <div className="space-y-4 rounded-2xl border border-primary/20 bg-[linear-gradient(180deg,rgba(95,140,90,0.14),rgba(95,140,90,0.03))] p-5 text-sm shadow-sm">
+                        <div className="flex flex-wrap items-start justify-between gap-3">
                           <div className="space-y-2">
-                            <p className="font-medium text-foreground">
-                              OpenAI connect metadata is ready
-                            </p>
-                            <p className="text-[13px] leading-6 text-foreground/75">
-                              Use this signed browser URL with the localhost callback listener
-                              running on your machine. The final pasted callback URL must resolve to
-                              the redirect URI below.
-                            </p>
-                            <div className="space-y-1 text-xs text-foreground/65">
-                              <p className="break-all">
-                                Redirect URI: {openAiConnectMetadata.localhost_redirect_uri}
+                            <div className="flex flex-wrap items-center gap-2 text-xs">
+                              <Badge variant="secondary">Recommended</Badge>
+                              <span className="rounded-full border border-primary/20 bg-background/85 px-2.5 py-1 font-medium text-foreground">
+                                Helper-first ChatGPT connection
+                              </span>
+                            </div>
+                            <div className="space-y-1">
+                              <p className="text-lg font-semibold tracking-tight">
+                                Connect OpenAI from ChatGPT using the localhost callback flow.
+                              </p>
+                              <p className="max-w-3xl text-[13px] leading-6 text-foreground/80">
+                                Keppo prepares a signed OpenAI auth URL for{" "}
+                                <span className="font-mono text-xs">127.0.0.1:1455</span>. Run the
+                                local callback listener, finish the browser login, then paste the
+                                final localhost callback URL here so Keppo can store the refreshable
+                                OAuth credential server-side.
                               </p>
                             </div>
+                          </div>
+                          <div className="min-w-44 rounded-xl border border-primary/15 bg-background/85 p-3 text-xs">
+                            <p className="font-medium text-foreground">What happens next</p>
+                            <ol className="mt-2 space-y-1.5 text-foreground/75">
+                              <li>1. Prepare the OpenAI connect flow.</li>
+                              <li>2. Run the localhost callback command in a terminal.</li>
+                              <li>
+                                3. Finish ChatGPT sign-in in your browser and paste the callback
+                                URL.
+                              </li>
+                            </ol>
+                          </div>
+                        </div>
+
+                        <div className="grid gap-3 rounded-xl border border-primary/15 bg-background/85 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                          <div className="space-y-1">
+                            <p className="font-medium text-foreground">
+                              Prepare the direct OAuth flow
+                            </p>
+                            <p className="text-[13px] leading-6 text-foreground/75">
+                              This opens the ChatGPT authorization page in a new tab and reveals the
+                              callback command plus the localhost redirect target Keppo expects.
+                            </p>
                           </div>
                           <div className="flex flex-wrap gap-2">
                             <Button
                               type="button"
-                              variant="outline"
+                              size="lg"
                               onClick={() => {
-                                window.open(
-                                  openAiConnectMetadata.oauth_start_url,
-                                  "_blank",
-                                  "noopener,noreferrer",
-                                );
+                                void handlePrepareOpenAiConnect();
                               }}
+                              disabled={isPreparingOpenAiConnect}
                             >
-                              Open ChatGPT Login
+                              {isPreparingOpenAiConnect
+                                ? "Preparing..."
+                                : openAiConnectMetadata
+                                  ? "Open ChatGPT Again"
+                                  : "Prepare and Open ChatGPT"}
                             </Button>
                           </div>
                         </div>
-                      ) : null}
 
-                      <div className="space-y-3 rounded-md border border-dashed p-3 text-sm">
-                        <div>
-                          <div className="flex items-center justify-between gap-3">
-                            <p className="font-medium">1. Run the localhost callback command</p>
+                        {openAiConnectMetadata ? (
+                          <div className="grid gap-3 rounded-xl border border-border/80 bg-background/75 p-4 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
+                            <div className="space-y-2">
+                              <p className="font-medium text-foreground">
+                                OpenAI connect metadata is ready
+                              </p>
+                              <p className="text-[13px] leading-6 text-foreground/75">
+                                Use this signed browser URL with the localhost callback listener
+                                running on your machine. The final pasted callback URL must resolve
+                                to the redirect URI below.
+                              </p>
+                              <div className="space-y-1 text-xs text-foreground/65">
+                                <p className="break-all">
+                                  Redirect URI: {openAiConnectMetadata.localhost_redirect_uri}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => {
+                                  window.open(
+                                    openAiConnectMetadata.oauth_start_url,
+                                    "_blank",
+                                    "noopener,noreferrer",
+                                  );
+                                }}
+                              >
+                                Open ChatGPT Login
+                              </Button>
+                            </div>
+                          </div>
+                        ) : null}
+
+                        <div className="space-y-3 rounded-md border border-dashed p-3 text-sm">
+                          <div>
+                            <div className="flex items-center justify-between gap-3">
+                              <p className="font-medium">1. Run the localhost callback command</p>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  void handleCopyOpenAiCallbackCommand();
+                                }}
+                                disabled={!openAiConnectMetadata}
+                              >
+                                {copiedCallbackCommand ? "Copied" : "Copy Command"}
+                              </Button>
+                            </div>
+                            <p className="text-muted-foreground mt-1">
+                              Run this in another terminal before finishing the browser auth flow.
+                            </p>
+                            <pre className="mt-2 max-h-72 overflow-auto rounded bg-muted px-3 py-2 text-xs">
+                              <code>
+                                {openAiConnectMetadata?.localhost_callback_command ??
+                                  "Prepare the connection first to get the localhost callback command."}
+                              </code>
+                            </pre>
+                          </div>
+                          <div>
+                            <p className="font-medium">2. Open the ChatGPT auth URL</p>
+                            {openAiConnectMetadata ? (
+                              <a
+                                className="text-primary mt-1 block break-all underline-offset-4 hover:underline"
+                                href={openAiConnectMetadata.oauth_start_url}
+                                rel="noreferrer"
+                                target="_blank"
+                              >
+                                {openAiConnectMetadata.oauth_start_url}
+                              </a>
+                            ) : (
+                              <p className="text-muted-foreground mt-1">
+                                Prepare the connection first to get the signed ChatGPT auth URL.
+                              </p>
+                            )}
+                          </div>
+                          <div className="space-y-2">
+                            <Label htmlFor="openai-callback-url">
+                              3. Paste the final localhost callback URL
+                            </Label>
+                            <Textarea
+                              id="openai-callback-url"
+                              className="min-h-24 font-mono text-xs"
+                              value={openAiOauthCallbackUrl}
+                              onChange={(event) =>
+                                setOpenAiOauthCallbackUrl(event.currentTarget.value)
+                              }
+                              placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                            />
                             <Button
                               type="button"
-                              variant="outline"
-                              size="sm"
+                              disabled={
+                                isCompletingOpenAiOauth ||
+                                openAiOauthCallbackUrl.trim().length === 0 ||
+                                !openAiConnectMetadata
+                              }
                               onClick={() => {
-                                void handleCopyOpenAiCallbackCommand();
+                                void handleCompleteOpenAi();
                               }}
-                              disabled={!openAiConnectMetadata}
                             >
-                              {copiedCallbackCommand ? "Copied" : "Copy Command"}
+                              {isCompletingOpenAiOauth ? "Completing..." : "Complete Connection"}
                             </Button>
                           </div>
-                          <p className="text-muted-foreground mt-1">
-                            Run this in another terminal before finishing the browser auth flow.
-                          </p>
-                          <pre className="mt-2 max-h-72 overflow-auto rounded bg-muted px-3 py-2 text-xs">
-                            <code>
-                              {openAiConnectMetadata?.localhost_callback_command ??
-                                "Prepare the connection first to get the localhost callback command."}
-                            </code>
-                          </pre>
-                        </div>
-                        <div>
-                          <p className="font-medium">2. Open the ChatGPT auth URL</p>
-                          {openAiConnectMetadata ? (
-                            <a
-                              className="text-primary mt-1 block break-all underline-offset-4 hover:underline"
-                              href={openAiConnectMetadata.oauth_start_url}
-                              rel="noreferrer"
-                              target="_blank"
-                            >
-                              {openAiConnectMetadata.oauth_start_url}
-                            </a>
-                          ) : (
-                            <p className="text-muted-foreground mt-1">
-                              Prepare the connection first to get the signed ChatGPT auth URL.
-                            </p>
-                          )}
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="openai-callback-url">
-                            3. Paste the final localhost callback URL
-                          </Label>
-                          <Textarea
-                            id="openai-callback-url"
-                            className="min-h-24 font-mono text-xs"
-                            value={openAiOauthCallbackUrl}
-                            onChange={(event) =>
-                              setOpenAiOauthCallbackUrl(event.currentTarget.value)
-                            }
-                            placeholder="http://localhost:1455/auth/callback?code=...&state=..."
-                          />
-                          <Button
-                            type="button"
-                            disabled={
-                              isCompletingOpenAiOauth ||
-                              openAiOauthCallbackUrl.trim().length === 0 ||
-                              !openAiConnectMetadata
-                            }
-                            onClick={() => {
-                              void handleCompleteOpenAi();
-                            }}
-                          >
-                            {isCompletingOpenAiOauth ? "Completing..." : "Complete Connection"}
-                          </Button>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
-                  <>
-                    <div className="space-y-1 md:col-span-2">
-                      <Label htmlFor="ai-raw-key">API key</Label>
-                      <Input
-                        id="ai-raw-key"
-                        type="password"
-                        value={rawKey}
-                        onChange={(event) => setRawKey(event.currentTarget.value)}
-                        placeholder="Paste API key"
-                        required
-                      />
-                      <p className="text-muted-foreground text-xs">
-                        Used only for BYO runs or as fallback when bundled runtime is unavailable.
-                      </p>
-                    </div>
-                    <div className="flex flex-col gap-2 md:col-span-2 md:flex-row md:items-center md:justify-between">
-                      <p className="text-muted-foreground text-xs leading-5">
-                        Add a BYO key only if you want a fallback path outside bundled access.
-                      </p>
-                      <Button
-                        type="submit"
-                        size="lg"
-                        className="w-full md:w-auto"
-                        disabled={isSaving}
-                      >
-                        {isSaving ? "Saving..." : "Save Key"}
-                      </Button>
-                    </div>
-                  </>
-                )}
-              </form>
+                  ) : (
+                    <>
+                      <div className="space-y-1 md:col-span-2">
+                        <Label htmlFor="ai-raw-key">API key</Label>
+                        <Input
+                          id="ai-raw-key"
+                          type="password"
+                          value={rawKey}
+                          onChange={(event) => setRawKey(event.currentTarget.value)}
+                          placeholder="Paste API key"
+                          required
+                        />
+                        <p className="text-muted-foreground text-xs">
+                          Used for self-managed runs when hosted bundled runtime is unavailable.
+                        </p>
+                      </div>
+                      <div className="flex flex-col gap-2 md:col-span-2 md:flex-row md:items-center md:justify-between">
+                        <p className="text-muted-foreground text-xs leading-5">
+                          Keep provider credentials here only for self-managed deployments.
+                        </p>
+                        <Button
+                          type="submit"
+                          size="lg"
+                          className="w-full md:w-auto"
+                          disabled={isSaving}
+                        >
+                          {isSaving ? "Saving..." : "Save Key"}
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </form>
+              )}
             </div>
 
             <div className="space-y-3">
@@ -744,7 +768,7 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                     <p className="text-muted-foreground text-sm">credits available now</p>
                   </div>
                   <p className="text-muted-foreground text-xs">
-                    {bundledRuntimeAvailable ? "Bundled runtime enabled" : "Generation only"}
+                    {bundledRuntimeAvailable ? "Hosted runtime enabled" : "Self-managed runtime"}
                   </p>
                 </div>
                 <dl className="mt-4 space-y-3 text-sm">
@@ -768,17 +792,17 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
               <div className="rounded-xl bg-muted/20 p-4 text-sm">
                 <p className="font-medium text-foreground">What this means</p>
                 <p className="mt-2 text-foreground/75">
-                  {bundledRuntimeAvailable
-                    ? "Bundled runs spend from this shared credit pool."
-                    : "Free trial credits cover prompt generation only. Upgrade to Starter or Pro for bundled runtime."}
+                  {hostedBundledRuntime
+                    ? "Prompt generation and automation runs both spend from this shared credit pool."
+                    : "These credits cover prompt generation here. Runtime still relies on self-managed provider credentials in this deployment."}
                 </p>
               </div>
             </div>
           </div>
 
           <div className="space-y-2">
-            {keys.length === 0 ? (
-              needsOpenAiOauth ? (
+            {visibleKeys.length === 0 ? (
+              !hostedBundledRuntime && needsOpenAiOauth ? (
                 <div className="rounded-xl border border-primary/15 bg-primary/5 p-4 text-sm">
                   <div className="space-y-2">
                     <p className="font-medium text-foreground">
@@ -813,11 +837,13 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 </div>
               ) : (
                 <p className="text-muted-foreground text-sm">
-                  No BYO or legacy subscription credentials configured yet.
+                  {hostedBundledRuntime
+                    ? "Keppo provisions hosted bundled credentials automatically."
+                    : "No BYO or legacy subscription credentials configured yet."}
                 </p>
               )
             ) : (
-              keys.map((key) => (
+              visibleKeys.map((key) => (
                 <div
                   key={key.id}
                   data-testid="ai-key-row"
@@ -861,7 +887,7 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
             )}
           </div>
 
-          {usage.length > 0 ? (
+          {!hostedBundledRuntime && usage.length > 0 ? (
             <div className="rounded-md border p-3 text-sm">
               <p className="mb-2 font-medium">Automation key mode usage</p>
               <ul className="space-y-1">

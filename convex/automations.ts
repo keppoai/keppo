@@ -534,11 +534,10 @@ const getAutomationExecutionState = async (
   const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
     orgId: params.orgId,
   });
-  const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
   const creditBalance = await getAiCreditBalanceForOrg(ctx, params.orgId, subscription);
   const activeKeyMode = await hasActiveByokKeyForProvider(ctx, params.orgId, params.provider);
   const readiness = resolveAutomationExecutionReadiness({
-    tierId: tier,
+    bundledRuntimeEnabled: creditBalance.bundled_runtime_enabled,
     totalCreditsAvailable: creditBalance.total_available,
     hasActiveByokKey: activeKeyMode !== null,
   });
@@ -564,6 +563,11 @@ export const assertAutomationExecutionReady = async (
   const readiness = await getAutomationExecutionState(ctx, params);
   if (readiness.can_run) {
     return;
+  }
+  if (readiness.mode === "bundled") {
+    throw new Error(
+      "automation.ai_credits_required: No bundled AI credits are available for this org. Add credits or change the plan in Settings -> Billing.",
+    );
   }
   throw new Error(
     `automation.byok_required: No active ${getAiModelProviderLabel(params.provider)} API key is configured for this org. Add one in Settings -> AI Keys.`,

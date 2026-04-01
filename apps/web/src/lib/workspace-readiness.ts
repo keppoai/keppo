@@ -44,9 +44,9 @@ export function buildWorkspaceReadinessSteps(
     },
     {
       id: "configure-ai-key",
-      label: "Configure an AI key",
+      label: "Confirm AI access",
       description:
-        "Generated automations stay blocked until the organization has an active AI key.",
+        "Generated automations stay blocked until the organization has bundled runtime access or an active self-managed AI key.",
       completed: readiness.has_ai_key,
       href: "/settings",
     },

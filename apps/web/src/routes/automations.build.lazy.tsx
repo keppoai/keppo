@@ -1,10 +1,6 @@
-import { useMemo } from "react";
 import { createLazyRoute, useNavigate } from "@tanstack/react-router";
-import { useQuery } from "convex/react";
-import { makeFunctionReference } from "convex/server";
 import { automationBuildRoute } from "./automations.build";
 import { AutomationPromptBox } from "@/components/automations/automation-prompt-box";
-import { InlineApiKeySetup } from "@/components/automations/inline-api-key-setup";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/hooks/use-auth";
@@ -17,28 +13,9 @@ export const automationBuildRouteLazy = createLazyRoute(automationBuildRoute.id)
 
 function BuildAutomationPage() {
   const navigate = useNavigate();
-  const { canManage, getOrgId } = useAuth();
+  const { canManage } = useAuth();
   const { buildWorkspacePath } = useRouteParams();
   const { selectedWorkspaceId } = useWorkspace();
-  const orgId = getOrgId();
-  const billing = useQuery(
-    makeFunctionReference<"query">("billing:getCurrentOrgBilling"),
-    orgId ? {} : "skip",
-  );
-  const orgAiKeys = useQuery(
-    makeFunctionReference<"query">("org_ai_keys:listOrgAiKeys"),
-    orgId ? { org_id: orgId } : "skip",
-  );
-  const hasActiveAiKey = useMemo(() => {
-    if (!Array.isArray(orgAiKeys)) {
-      return false;
-    }
-    return orgAiKeys.some(
-      (entry) =>
-        entry && typeof entry === "object" && (entry as { is_active?: unknown }).is_active === true,
-    );
-  }, [orgAiKeys]);
-  const needsInlineKeySetup = billing?.tier === "free" && !hasActiveAiKey;
 
   if (!canManage()) {
     return (
@@ -75,8 +52,6 @@ function BuildAutomationPage() {
           in one dedicated builder page.
         </p>
       </div>
-
-      {needsInlineKeySetup && orgId ? <InlineApiKeySetup orgId={orgId} /> : null}
 
       {selectedWorkspaceId ? (
         <AutomationPromptBox workspaceId={selectedWorkspaceId} variant="hero" />

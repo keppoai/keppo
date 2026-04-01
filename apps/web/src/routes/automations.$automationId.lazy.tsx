@@ -114,18 +114,17 @@ function AutomationExecutionSection({
     [provider, aiCreditBalance, orgAiKeys],
   );
   const executionStatePending = aiCreditBalanceRaw === undefined || orgAiKeys === undefined;
-  const showUpgradeAction = aiCreditBalance?.bundled_runtime_enabled !== true;
   const runBlockedByExecutionState = executionStatePending || !executionState.can_run;
   const runButtonTooltip = executionStatePending
     ? "Checking AI access before enabling manual runs."
-    : showUpgradeAction
-      ? "Upgrade your plan or add an API key before running automations."
+    : executionState.mode === "bundled"
+      ? "Open Billing to add credits or change the plan before running automations."
       : "Add an API key before running automations.";
   const resumeBlockedByExecutionState = automationStatus !== "active" && runBlockedByExecutionState;
   const resumeTooltip = executionStatePending
     ? "Checking AI access before enabling resume."
-    : showUpgradeAction
-      ? "Upgrade your plan or add an API key before resuming this automation."
+    : executionState.mode === "bundled"
+      ? "Open Billing to add credits or change the plan before resuming this automation."
       : "Add an API key before resuming this automation.";
 
   return (
@@ -136,7 +135,6 @@ function AutomationExecutionSection({
           state={executionState}
           billingPath={billingPath}
           settingsPath={settingsPath}
-          showUpgradeAction={showUpgradeAction}
         />
       ) : null}
 

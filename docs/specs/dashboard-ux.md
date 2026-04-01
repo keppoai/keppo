@@ -131,7 +131,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 
 - The user-facing readiness checklist is collapsed to four steps in the presentation layer:
   - `Connect a provider`
-  - `Configure an AI key`
+  - `Confirm AI access`
   - `Create your first automation`
   - `Run your first automation`
 - `Connect a provider` is only complete once both `has_connected_integration` and `has_enabled_workspace_integration` are true.
@@ -170,7 +170,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Billing page surfaces dedicated AI Credits and Automation Runs cards near the top so operators can see remaining prompt credits and current-period run capacity without digging through tool-call metrics.
 - Billing page includes one unified row of plan cards for `Free trial`, `Starter`, and `Pro` that compares monthly price, workspace capacity, included AI credits, and monthly tool-call limits while attaching the correct plan-specific CTA to each card.
 - The unified plan cards follow billing-source-aware actions: `free` orgs can start checkout only on higher paid tiers, the `Free trial` card explains there is no subscription to manage instead of offering cancellation, Stripe-paid orgs manage the current paid tier from its card and can change only to eligible adjacent tiers, and invite promos keep Stripe checkout available without exposing native Stripe manage/change controls.
-- Billing copy distinguishes free-tier prompt-generation credits from paid bundled runtime credits and explains that automation runtime mode is derived per org: paid bundled credits run first, otherwise an active BYO key is required.
+- Billing copy explains that hosted bundled credits, including the free-trial one-time grant, can power both prompt generation and automation runtime when bundled runtime is enabled; self-managed deployments continue to require org-managed provider keys when bundled runtime is unavailable.
 - Upgrade CTAs call API billing checkout endpoint (`/billing/checkout`) for starter/pro Stripe Managed Payments sessions.
 - Billing page includes AI credit-pack CTAs and paid-tier automation run top-up CTAs so one-time purchases live beside recurring subscription management.
 - Automation Runs card shows effective run capacity for the current billing period, including any active purchased top-ups, and breaks out purchased remaining runs when present.
@@ -266,7 +266,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - The draft stage exposes `name`, plain-language `description`, separate `mermaid_content`, the executable prompt, and a compact answer summary so operators can see which clarifications shaped the generated workflow before creation.
   - Provider recommendations are advisory metadata, not hard blockers; each recommendation includes the provider id, reason, and confidence (`required` or `recommended`).
   - The provider stage shows inline `Connect`, `Open`, and `Skip` actions so users can satisfy likely dependencies without leaving the builder context permanently.
-  - The settings stage keeps model/key/network choices explicit before creation instead of burying them behind a single review card, warns clearly when no active AI key is configured, and expresses network access as a web-access toggle instead of MCP jargon.
+  - The settings stage keeps model/runtime/network choices explicit before creation instead of burying them behind a single review card, warns clearly when no usable AI access is configured, and expresses network access as a web-access toggle instead of MCP jargon.
   - Success routes to the slugged automation detail URL, while the underlying create mutation still returns the stable automation id for internal lookups.
 - **Operator Command Palette** (`operator-command-palette.tsx` + `automation-prompt-modal.tsx`): global `Cmd+K` / `Ctrl+K` opens a centered command palette that can jump to automations, run active automations, open approvals/integrations/admin, connect providers, and launch the same staged builder in a follow-up dialog. It is only active when authenticated and a workspace is selected.
 - `/:orgSlug/:workspaceSlug/automations` route:
@@ -275,8 +275,8 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - `Create manually` routes to a dedicated page rather than opening an in-place dialog.
   - automation list with status, trigger, runner, and latest-run summary bundled into the initial list payload so rows render in a stable single pass without per-row pop-in.
   - dedicated child routes `/automations/build` and `/automations/create` provide focused entry points for the AI builder and the manual multi-step form.
-- the manual create page shows the derived runtime mode for the selected provider, blocks submission when bundled runtime is unavailable and no active BYO key exists, offers inline key setup, and keeps AI generation out of the flow entirely.
-- create-automation dialog (advanced/manual path) shows the same derived runtime state, blocks submission when neither bundled runtime nor an active provider BYO key is available, keeps prompt authoring in the primary flow, and tucks runner/model/network controls behind an `Advanced Settings` disclosure with inline help text for provider-trigger delivery and network access.
+- the manual create page shows the derived runtime mode for the selected provider, blocks submission when hosted bundled credits are unavailable or when a self-managed deployment has no active provider key, and keeps AI generation out of the flow entirely.
+- create-automation dialog (advanced/manual path) shows the same derived runtime state, blocks submission when neither hosted bundled credits nor a self-managed provider key is available, keeps prompt authoring in the primary flow, and tucks runner/model/network controls behind an `Advanced Settings` disclosure with inline help text for provider-trigger delivery and network access.
   - manual create, config-edit, and advanced create-dialog schedule forms share one dropdown-based cron builder that emits valid five-field cron strings under the hood, defaults to daily at 9:00 AM, and keeps inline validation through shared `react-hook-form` + `zod` wiring.
 - Trigger config UX:
   - schedule trigger uses a structured builder for frequency, time, weekday, and day-of-month choices; the stored value remains a cron expression and the UI shows a `humanizeCron()` summary (for example “Every day at 9:00 AM”).
@@ -328,17 +328,19 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - cold mode fetches archived blob from storage URL and renders decompressed lines.
   - expired mode renders explicit retention-expired state.
 
-#### M. Settings: AI keys and credits
+#### M. Settings: AI configuration and credits
 
-- Settings page includes org-level AI key manager:
-  - list stored active/inactive keys with provider/mode/hint and update time; user-removed BYOK and `subscription_token` credentials disappear after deletion instead of lingering as inactive rows.
-  - add/update key flow (`provider`, `key_mode`, secret input) via `org_ai_keys:upsertOrgAiKey`.
-  - OpenAI `subscription_token` mode uses the direct localhost callback flow:
-    - primary CTA issues `GET /api/automations/openai/connect` and opens the ChatGPT authorize URL in a new tab,
-    - UI presents the localhost callback command, the signed authorize URL, and the expected redirect URI,
-    - connect metadata stays visible until a live `openai_oauth` key appears in the org key list or the operator clears the flow.
-  - remove flow via `org_ai_keys:deleteOrgAiKey`; bundled keys remain billing-managed and cannot be removed from the dashboard.
-  - inline usage summary of which providers are currently running in bundled or BYO mode based on present org billing and key state, rather than storing per-automation mode selections.
+- Settings page includes org-level AI configuration:
+  - when hosted bundled runtime is enabled, the page hides self-managed API-key entry, explains that Keppo manages runtime credentials automatically, and shows any bundled credential rows as billing-managed records.
+  - when hosted bundled runtime is unavailable, the page falls back to the self-managed AI key manager:
+    - list stored active/inactive keys with provider/mode/hint and update time; user-removed BYOK and `subscription_token` credentials disappear after deletion instead of lingering as inactive rows.
+    - add/update key flow (`provider`, `key_mode`, secret input) via `org_ai_keys:upsertOrgAiKey`.
+    - OpenAI `subscription_token` mode uses the direct localhost callback flow:
+      - primary CTA issues `GET /api/automations/openai/connect` and opens the ChatGPT authorize URL in a new tab,
+      - UI presents the localhost callback command, the signed authorize URL, and the expected redirect URI,
+      - connect metadata stays visible until a live `openai_oauth` key appears in the org key list or the operator clears the flow.
+    - remove flow via `org_ai_keys:deleteOrgAiKey`; bundled keys remain billing-managed and cannot be removed from the dashboard.
+    - inline usage summary of which providers are currently running in bundled or self-managed mode based on present org billing and key state, rather than storing per-automation mode selections.
 - Settings page includes AI credit panel:
   - allowance usage + purchased balance from `ai_credits:getAiCreditBalance`.
   - Stripe checkout launch for credit packs via `/billing/credits/checkout`.
