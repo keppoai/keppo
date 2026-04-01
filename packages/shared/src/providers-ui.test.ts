@@ -78,15 +78,81 @@ describe("provider UI contracts", () => {
       },
     });
 
-    expect(hydrated.allowed_write_modes).toBe("refund, cancel_subscription");
+    const checkboxMap = hydrated.allowed_write_modes as Record<string, boolean>;
+    expect(checkboxMap.refund).toBe(true);
+    expect(checkboxMap.cancel_subscription).toBe(true);
+    expect(checkboxMap.adjust_balance).toBe(false);
+    expect(checkboxMap.update_customer).toBe(false);
 
     const patch = stripeEditor.buildMetadataPatch({
-      allowed_write_modes: "REFUND, cancel_subscription, refund",
+      allowed_write_modes: {
+        refund: true,
+        cancel_subscription: true,
+        adjust_balance: false,
+        update_customer: false,
+      },
     });
 
     expect(patch).toEqual({
       allowed_write_modes: ["refund", "cancel_subscription"],
     });
+  });
+
+  it("builds empty array from stripe editor when no modes are selected", () => {
+    const stripeEditor = getProviderDetailUi("stripe").metadataEditors[0];
+    if (!stripeEditor) {
+      throw new Error("Missing stripe metadata editor");
+    }
+
+    const patch = stripeEditor.buildMetadataPatch({
+      allowed_write_modes: {
+        refund: false,
+        cancel_subscription: false,
+        adjust_balance: false,
+      },
+    });
+
+    expect(patch).toEqual({ allowed_write_modes: [] });
+  });
+
+  it("defaults all stripe write modes to true when metadata is unset", () => {
+    const stripeEditor = getProviderDetailUi("stripe").metadataEditors[0];
+    if (!stripeEditor) {
+      throw new Error("Missing stripe metadata editor");
+    }
+
+    const hydrated = getProviderMetadataEditorDefaults(stripeEditor, {
+      externalAccountId: null,
+      signedInUserEmail: null,
+      integrationMetadata: {},
+    });
+
+    const checkboxMap = hydrated.allowed_write_modes as Record<string, boolean>;
+    expect(checkboxMap.refund).toBe(true);
+    expect(checkboxMap.cancel_subscription).toBe(true);
+    expect(checkboxMap.adjust_balance).toBe(true);
+    expect(checkboxMap.update_customer).toBe(true);
+    expect(checkboxMap.invoice_actions).toBe(true);
+  });
+
+  it("hydrates stripe write modes from legacy CSV string", () => {
+    const stripeEditor = getProviderDetailUi("stripe").metadataEditors[0];
+    if (!stripeEditor) {
+      throw new Error("Missing stripe metadata editor");
+    }
+
+    const hydrated = getProviderMetadataEditorDefaults(stripeEditor, {
+      externalAccountId: null,
+      signedInUserEmail: null,
+      integrationMetadata: {
+        allowed_write_modes: "refund, adjust_balance",
+      },
+    });
+
+    const checkboxMap = hydrated.allowed_write_modes as Record<string, boolean>;
+    expect(checkboxMap.refund).toBe(true);
+    expect(checkboxMap.adjust_balance).toBe(true);
+    expect(checkboxMap.cancel_subscription).toBe(false);
   });
 
   it("normalizes github metadata editor values", () => {

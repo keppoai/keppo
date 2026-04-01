@@ -179,11 +179,18 @@ const enforceWriteMode = (toolName: string, context: ConnectorContext): void => 
     return;
   }
 
-  const configuredModes = normalizeWriteModes(
-    context.metadata?.allowed_write_modes ?? context.metadata?.allowedWriteModes,
-  );
-  if (configuredModes.length === 0) {
+  const rawPolicy = context.metadata?.allowed_write_modes ?? context.metadata?.allowedWriteModes;
+
+  if (rawPolicy === undefined || rawPolicy === null) {
     return;
+  }
+
+  const configuredModes = normalizeWriteModes(rawPolicy);
+
+  if (configuredModes.length === 0) {
+    throw new Error(
+      `Stripe write mode policy blocks ${requiredMode} operations for this integration.`,
+    );
   }
   if (!configuredModes.includes(requiredMode)) {
     throw new Error(

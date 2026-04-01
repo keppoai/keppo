@@ -333,4 +333,59 @@ describe("Connector Contract Suite", () => {
       ),
     ).rejects.toThrow(/write mode policy/i);
   });
+
+  it("stripe: empty allowed_write_modes array blocks all write operations", async () => {
+    const stripe = connectors.stripe;
+    if (!stripe) {
+      throw new Error("Missing Stripe connector");
+    }
+    const context = {
+      workspaceId: "workspace_contract",
+      orgId: "org_contract",
+      scopes: ["stripe.read", "stripe.write"],
+      metadata: {
+        allowed_write_modes: [],
+      },
+    };
+
+    await expect(
+      stripe.prepareWrite(
+        "stripe.issueRefund",
+        getScenarioInput("stripe", "stripe.issueRefund"),
+        context,
+      ),
+    ).rejects.toThrow(/write mode policy/i);
+
+    await expect(
+      stripe.prepareWrite(
+        "stripe.cancelSubscription",
+        {
+          customerId: "cus_123",
+          subscriptionId: "sub_123",
+          atPeriodEnd: false,
+        },
+        context,
+      ),
+    ).rejects.toThrow(/write mode policy/i);
+  });
+
+  it("stripe: unset allowed_write_modes allows all write operations", async () => {
+    const stripe = connectors.stripe;
+    if (!stripe) {
+      throw new Error("Missing Stripe connector");
+    }
+    const context = {
+      workspaceId: "workspace_contract",
+      orgId: "org_contract",
+      scopes: ["stripe.read", "stripe.write"],
+      metadata: {},
+    };
+
+    const preparedRefund = await stripe.prepareWrite(
+      "stripe.issueRefund",
+      getScenarioInput("stripe", "stripe.issueRefund"),
+      context,
+    );
+    expect(preparedRefund.normalized_payload.type).toBe("refund");
+  });
 });

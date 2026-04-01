@@ -43,10 +43,25 @@ For new deployments, always use the split secrets. The legacy `STRIPE_WEBHOOK_SE
 
 ## Operator controls
 
-Integration metadata key `allowed_write_modes` (CSV or string array) limits write actions to:
+Integration metadata key `allowed_write_modes` (string array) limits write actions to specific modes. The dashboard renders these as checkboxes with **Select all** and **Select none** actions.
 
-- `refund`
-- `cancel_subscription`
-- `adjust_balance`
+Supported write modes:
 
-When unset, all Stripe write modes are enabled.
+- `refund` — issue, cancel, or update refunds
+- `cancel_subscription` — cancel subscriptions
+- `adjust_balance` — adjust customer balance
+- `update_customer` — update customer details, manage tax IDs, delete discounts
+- `update_subscription` — update subscriptions, manage subscription items/schedules, delete discounts
+- `resume_subscription` — resume paused subscriptions
+- `invoice_actions` — send/void/pay/finalize invoices, create coupons/promotions/checkout sessions/setup intents, update charges
+- `credit_notes` — create or void credit notes
+- `disputes` — update or close disputes
+- `portal_session` — create portal sessions
+- `payment_methods` — detach payment methods
+- `invoice_items` — create or delete invoice items
+
+**Semantics:**
+
+- **Unset / missing key** — all write modes are allowed (default for new integrations).
+- **Explicit empty array `[]`** — all write modes are blocked (no Stripe writes permitted).
+- **Non-empty array** — only the listed modes are allowed; unlisted modes are blocked.
