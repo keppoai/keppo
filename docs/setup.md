@@ -348,7 +348,7 @@ Required configuration:
 
 ## Nightly recent security review workflow
 
-The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. It runs Codex with the repo-local `security-review:recent` skill against commits from the last 7 days, writes confirmed `critical`/`high` findings to `out-security-review/findings.json`, files draft repository security advisories for new findings, deduplicates against existing advisories with a bounded Codex semantic check, attempts to attach `wwwillchen` to newly created advisories, and sends a Mailgun email when the run confirms any vulnerabilities.
+The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. It runs Codex with the repo-local `security-review:recent` skill against commits from the last 7 days, writes confirmed `critical`/`high` findings to `out-security-review/findings.json`, files draft repository security advisories for new findings, credits `wwwillchen` on newly created advisories, deduplicates against existing advisories with a bounded Codex semantic check, and sends a Mailgun email when the run confirms any vulnerabilities.
 
 Required configuration:
 

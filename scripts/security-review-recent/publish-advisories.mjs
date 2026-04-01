@@ -294,34 +294,6 @@ const createRepositoryAdvisory = async ({
   return response.json();
 };
 
-const addRepositoryAdvisoryCollaborator = async ({ apiBaseUrl, repo, ghsaId, token, username }) => {
-  if (!ghsaId || !username) {
-    return false;
-  }
-
-  const putResponse = await fetch(
-    `${apiBaseUrl}/repos/${repo}/security-advisories/${encodeURIComponent(ghsaId)}/collaborators/${encodeURIComponent(username)}`,
-    {
-      method: "PUT",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: "application/vnd.github+json",
-        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-      },
-    },
-  );
-
-  if (putResponse.ok) {
-    return true;
-  }
-
-  const putBody = await readResponseBody(putResponse);
-  console.warn(
-    `Unable to add security advisory collaborator via documented-style endpoint for ${ghsaId}: ${putResponse.status} ${putBody}`,
-  );
-  return false;
-};
-
 const findSemanticDuplicate = async ({ finding, advisories }) => {
   const candidates = advisories
     .filter(advisorySupportsSemanticDedupe)
@@ -489,17 +461,8 @@ const main = async () => {
       advisoryCollaborator,
     });
 
-    const collaboratorAttached = await addRepositoryAdvisoryCollaborator({
-      apiBaseUrl,
-      repo,
-      ghsaId: advisory.ghsa_id || null,
-      token,
-      username: advisoryCollaborator,
-    });
-
     created.push({
       ...finding,
-      collaboratorAttached,
       ghsaId: advisory.ghsa_id || null,
       htmlUrl: advisory.html_url || null,
       state: advisory.state || null,
@@ -568,10 +531,6 @@ const main = async () => {
               .map(
                 (finding) =>
                   `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${
-                    finding.collaboratorAttached === false
-                      ? ` <em>(credit added for ${escapeHtml(advisoryCollaborator)}, collaborator attach needs manual follow-up)</em>`
-                      : ""
-                  }${
                     finding.htmlUrl
                       ? ` - <a href="${escapeHtml(finding.htmlUrl)}">${escapeHtml(finding.ghsaId || "view advisory")}</a>`
                       : ""
