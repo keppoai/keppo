@@ -845,6 +845,16 @@ export const handleBillingCheckoutRequest = async (
       sessionParams.customer_email = customerEmail;
     }
 
+    console.log("billing.checkout.create_session", {
+      pathname: new URL(request.url).pathname,
+      orgId: resolvedOrg.orgId,
+      tier,
+      priceId,
+      stripeApiBaseUrl: getEnv().STRIPE_API_BASE_URL ?? "https://api.stripe.com",
+      vercelDeploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
+      vercelGitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
+    });
+
     const session = await stripe.checkout.sessions.create(
       sessionParams,
       managedPaymentsCheckoutRequestOptions,
