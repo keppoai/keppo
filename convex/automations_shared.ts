@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import {
   buildLegacyEventProviderTrigger,
   buildLegacyEventProviderTriggerMigrationState,
+  coerceAutomationModelClass,
+  inferAutomationModelClassFromLegacyFields,
 } from "../packages/shared/src/automations.js";
 import type { Doc } from "./_generated/dataModel";
 import { pickFields } from "./field_mapper";
@@ -157,8 +159,20 @@ export const automationViewFields = [
   "updated_at",
 ] as const satisfies readonly (keyof Doc<"automations">)[];
 
-export const toAutomationConfigSummary = (config: Doc<"automation_config_versions">) =>
-  pickFields(config, automationConfigSummaryFields);
+const resolveModelClassCompatibility = (config: Doc<"automation_config_versions">) => ({
+  model_class:
+    config.model_class !== undefined && config.model_class !== null
+      ? coerceAutomationModelClass(config.model_class)
+      : inferAutomationModelClassFromLegacyFields({
+          aiModelProvider: config.ai_model_provider,
+          aiModelName: config.ai_model_name,
+        }),
+});
+
+export const toAutomationConfigSummary = (config: Doc<"automation_config_versions">) => ({
+  ...pickFields(config, automationConfigSummaryFields),
+  ...resolveModelClassCompatibility(config),
+});
 
 const resolveProviderTriggerCompatibility = (
   config: Doc<"automation_config_versions">,
@@ -203,6 +217,7 @@ const resolveProviderTriggerCompatibility = (
 
 export const toAutomationConfigVersionView = (config: Doc<"automation_config_versions">) => ({
   ...pickFields(config, automationConfigVersionViewFields),
+  ...resolveModelClassCompatibility(config),
   ...resolveProviderTriggerCompatibility(config),
 });
 

@@ -56,6 +56,7 @@ describe("billing view-model helpers", () => {
         included_ai_credits: {
           total: 300,
           bundled_runtime_enabled: true,
+          reset_period: "monthly",
         },
       },
     });
@@ -133,6 +134,7 @@ describe("billing view-model helpers", () => {
         included_ai_credits: {
           total: 100,
           bundled_runtime_enabled: true,
+          reset_period: "monthly",
         },
       },
     });

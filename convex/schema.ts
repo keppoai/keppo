@@ -456,7 +456,7 @@ export default defineSchema({
     event_provider: v.union(v.string(), v.null()),
     event_type: v.union(v.string(), v.null()),
     event_predicate: v.union(v.string(), v.null()),
-    model_class: modelClassValidator,
+    model_class: v.optional(modelClassValidator),
     runner_type: runnerTypeValidator,
     ai_model_provider: aiModelProviderValidator,
     ai_model_name: v.string(),

@@ -187,7 +187,7 @@ describe("convex ai credit functions", () => {
       expiresAt: "2026-06-20T12:00:00.000Z",
     });
 
-    await t.mutation(refs.deductAiCredit, {
+    const balance = await t.mutation(refs.deductAiCredit, {
       org_id: orgId,
     });
 
@@ -218,6 +218,7 @@ describe("convex ai credit functions", () => {
     expect(oldest?.status).toBe(AI_CREDIT_PURCHASE_STATUS.depleted);
     expect(newer?.credits_remaining).toBe(1);
     expect(row?.purchased_balance).toBe(1);
+    expect(balance.purchased_remaining).toBe(1);
   });
 
   it("consumes purchased credits in FIFO order", async () => {

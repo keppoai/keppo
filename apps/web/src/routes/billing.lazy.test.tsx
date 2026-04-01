@@ -48,6 +48,7 @@ describe("BillingPage", () => {
               included_ai_credits: {
                 total: 5,
                 bundled_runtime_enabled: false,
+                reset_period: "one_time",
               },
             },
           }),
@@ -108,6 +109,7 @@ describe("BillingPage", () => {
               included_ai_credits: {
                 total: 100,
                 bundled_runtime_enabled: true,
+                reset_period: "monthly",
               },
             },
           }),

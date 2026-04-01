@@ -1155,7 +1155,7 @@ const FAQ_ITEMS = [
   {
     question: "Is it really free?",
     answer:
-      "Yes. Keppo includes a Free trial with a one-time 20-credit grant for prompt generation, plus all integrations and the full approval engine. You can also self-host the entire platform for free because it's open-source.",
+      "Keppo offers a Free trial with a one-time 20-credit grant for prompt generation, plus all integrations and the full approval engine. You can also self-host the entire platform for free because it's open-source.",
   },
   {
     question: "How is this different from Zapier or Make?",

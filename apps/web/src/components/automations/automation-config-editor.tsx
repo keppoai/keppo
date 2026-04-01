@@ -201,6 +201,13 @@ export function AutomationConfigEditor({
   const triggerType = form.watch("trigger_type");
   const modelClass = form.watch("model_class");
   const networkAccess = form.watch("network_access");
+  const executionProviderByModelClass = {
+    auto: "openai",
+    frontier: "openai",
+    balanced: "openai",
+    value: "openai",
+  } as const;
+  const executionProvider = executionProviderByModelClass[modelClass];
   const {
     register,
     handleSubmit,
@@ -265,11 +272,11 @@ export function AutomationConfigEditor({
   const executionState = useMemo(
     () =>
       resolveAutomationExecutionState({
-        provider: config.ai_model_provider,
+        provider: executionProvider,
         creditBalance,
         orgAiKeys: Array.isArray(orgAiKeys) ? orgAiKeys : [],
       }),
-    [config.ai_model_provider, creditBalance, orgAiKeys],
+    [executionProvider, creditBalance, orgAiKeys],
   );
   const executionStatePending = creditBalanceRaw === undefined || orgAiKeys === undefined;
   const handleGenerate = async () => {
@@ -606,7 +613,7 @@ export function AutomationConfigEditor({
             <div className="space-y-1 md:col-span-2">
               {executionStatePending ? null : (
                 <AutomationExecutionModeCallout
-                  provider={config.ai_model_provider}
+                  provider={executionProvider}
                   state={executionState}
                   billingPath={buildOrgPath("/settings/billing")}
                   settingsPath={buildOrgPath("/settings")}

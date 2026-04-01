@@ -52,6 +52,7 @@ const parseDraft = (value: unknown, currentContext: AutomationContextSnapshot): 
   const mermaidContent = typeof record.mermaid_content === "string" ? record.mermaid_content : "";
   const name = typeof record.name === "string" ? record.name : "";
   const modelClass =
+    record.model_class === "auto" ||
     record.model_class === "frontier" ||
     record.model_class === "balanced" ||
     record.model_class === "value"

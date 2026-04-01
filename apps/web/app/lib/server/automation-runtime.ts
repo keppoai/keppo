@@ -13,6 +13,7 @@ import {
   coerceAutomationModelClass,
   createAutomationRouteError,
   getAiModelProviderLabel,
+  inferAutomationModelClassFromLegacyFields,
   isGatewayRuntimeEnabled,
   isAutomationRouteErrorCode,
   parseAutomationRouteErrorCode,
@@ -136,13 +137,19 @@ const resolveConfiguredModelName = (
 const resolveAutomationModel = (
   env: ReturnType<typeof getEnv>,
   config: {
-    model_class: string;
+    model_class?: string | null;
     runner_type: "chatgpt_codex" | "claude_code";
     ai_model_provider: "openai" | "anthropic";
     ai_model_name: string;
   },
 ): ResolvedAutomationModel => {
-  const modelClass = coerceAutomationModelClass(config.model_class);
+  const modelClass =
+    typeof config.model_class === "string" && config.model_class.trim().length > 0
+      ? coerceAutomationModelClass(config.model_class)
+      : inferAutomationModelClassFromLegacyFields({
+          aiModelProvider: config.ai_model_provider,
+          aiModelName: config.ai_model_name,
+        });
   const aiModelName = resolveConfiguredModelName(env, modelClass);
   const aiModelProvider = inferProviderFromModelName(aiModelName);
   return {

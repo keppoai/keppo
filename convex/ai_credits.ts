@@ -197,6 +197,31 @@ const sumPurchasedBalance = (rows: Array<{ credits_remaining: number }>): number
   return rows.reduce((sum, row) => sum + row.credits_remaining, 0);
 };
 
+const buildBalance = (params: {
+  orgId: string;
+  periodStart: string;
+  periodEnd: string;
+  allowanceTotal: number;
+  allowanceResetPeriod: "monthly" | "one_time";
+  allowanceUsed: number;
+  purchasedRemaining: number;
+  bundledRuntimeEnabled: boolean;
+}) => {
+  const allowanceRemaining = Math.max(0, params.allowanceTotal - params.allowanceUsed);
+  return {
+    org_id: params.orgId,
+    period_start: params.periodStart,
+    period_end: params.periodEnd,
+    allowance_total: params.allowanceTotal,
+    allowance_reset_period: params.allowanceResetPeriod,
+    allowance_used: params.allowanceUsed,
+    allowance_remaining: allowanceRemaining,
+    purchased_remaining: params.purchasedRemaining,
+    total_available: allowanceRemaining + params.purchasedRemaining,
+    bundled_runtime_enabled: params.bundledRuntimeEnabled,
+  };
+};
+
 const ensureAiCreditsRow = async (
   ctx: MutationCtx,
   params: {
@@ -272,26 +297,28 @@ const computeBalance = async (
     allowanceResetPeriod: "monthly" | "one_time";
     now: string;
     bundledRuntimeEnabled: boolean;
+    row?: Doc<"ai_credits"> | null;
+    purchases?: Array<Doc<"ai_credit_purchases">>;
   },
 ) => {
-  const row = await getAiCreditsRow(ctx, params.orgId, params.periodStart);
-  const purchases = await listActivePurchases(ctx, params.orgId, params.now);
-  const allowanceUsed = row?.allowance_used ?? 0;
-  const allowanceTotal = row?.allowance_total ?? params.allowanceTotal;
-  const allowanceRemaining = Math.max(0, allowanceTotal - allowanceUsed);
-  const purchasedRemaining = sumPurchasedBalance(purchases);
-  return {
-    org_id: params.orgId,
-    period_start: params.periodStart,
-    period_end: params.periodEnd,
-    allowance_total: allowanceTotal,
-    allowance_reset_period: row?.allowance_reset_period ?? params.allowanceResetPeriod,
-    allowance_used: allowanceUsed,
-    allowance_remaining: allowanceRemaining,
-    purchased_remaining: purchasedRemaining,
-    total_available: allowanceRemaining + purchasedRemaining,
-    bundled_runtime_enabled: params.bundledRuntimeEnabled,
-  };
+  const row =
+    params.row === undefined
+      ? await getAiCreditsRow(ctx, params.orgId, params.periodStart)
+      : params.row;
+  const purchases =
+    params.purchases === undefined
+      ? await listActivePurchases(ctx, params.orgId, params.now)
+      : params.purchases;
+  return buildBalance({
+    orgId: params.orgId,
+    periodStart: params.periodStart,
+    periodEnd: params.periodEnd,
+    allowanceTotal: row?.allowance_total ?? params.allowanceTotal,
+    allowanceResetPeriod: row?.allowance_reset_period ?? params.allowanceResetPeriod,
+    allowanceUsed: row?.allowance_used ?? 0,
+    purchasedRemaining: sumPurchasedBalance(purchases),
+    bundledRuntimeEnabled: params.bundledRuntimeEnabled,
+  });
 };
 
 const resolveAllowanceConfigForTier = async (
@@ -310,15 +337,14 @@ const resolveAllowanceConfigForTier = async (
     };
   }
 
-  const currentRow = await getAiCreditsRow(ctx, params.orgId, params.periodStart);
-  if (currentRow) {
+  const latestRow = await getLatestAiCreditsRowForOrg(ctx, params.orgId);
+  if (latestRow?.period_start === params.periodStart) {
     return {
-      allowanceTotal: currentRow.allowance_total,
-      allowanceResetPeriod: currentRow.allowance_reset_period ?? "monthly",
+      allowanceTotal: latestRow.allowance_total,
+      allowanceResetPeriod: latestRow.allowance_reset_period ?? "monthly",
     };
   }
 
-  const latestRow = await getLatestAiCreditsRowForOrg(ctx, params.orgId);
   if (latestRow?.allowance_reset_period === "one_time") {
     return {
       allowanceTotal: 0,
@@ -326,7 +352,7 @@ const resolveAllowanceConfigForTier = async (
     };
   }
 
-  if (latestRow && latestRow.allowance_total !== included.total) {
+  if (latestRow && latestRow.allowance_total < included.total) {
     return {
       allowanceTotal: latestRow.allowance_total,
       allowanceResetPeriod: latestRow.allowance_reset_period ?? "monthly",
@@ -470,13 +496,14 @@ export const deductAiCredit = internalMutation({
           period_start: period.periodStart,
         },
       });
-      const balance = await computeBalance(ctx, {
+      const balance = buildBalance({
         orgId: args.org_id,
         periodStart: period.periodStart,
         periodEnd: period.periodEnd,
         allowanceTotal: row.allowance_total,
         allowanceResetPeriod: row.allowance_reset_period ?? allowanceConfig.allowanceResetPeriod,
-        now,
+        allowanceUsed: row.allowance_used + 1,
+        purchasedRemaining: row.purchased_balance,
         bundledRuntimeEnabled,
       });
       if (balance.total_available === 0) {
@@ -521,13 +548,14 @@ export const deductAiCredit = internalMutation({
       },
     });
 
-    const balance = await computeBalance(ctx, {
+    const balance = buildBalance({
       orgId: args.org_id,
       periodStart: period.periodStart,
       periodEnd: period.periodEnd,
       allowanceTotal: row.allowance_total,
       allowanceResetPeriod: row.allowance_reset_period ?? allowanceConfig.allowanceResetPeriod,
-      now,
+      allowanceUsed: row.allowance_used,
+      purchasedRemaining: Math.max(0, row.purchased_balance - 1),
       bundledRuntimeEnabled,
     });
     if (balance.total_available === 0) {
@@ -723,8 +751,6 @@ export const resetMonthlyAllowance = internalMutation({
       return toAiCreditsRow(existing);
     }
 
-    const activePurchases = await listActivePurchases(ctx, args.org_id, nowIso());
-    const purchasedBalance = sumPurchasedBalance(activePurchases);
     const id = await deterministicIdFor("aic", `${args.org_id}:${args.period_start}`);
     const existingById = await ctx.db
       .query("ai_credits")
@@ -734,6 +760,22 @@ export const resetMonthlyAllowance = internalMutation({
       return toAiCreditsRow(existingById);
     }
     const now = nowIso();
+    const activePurchases = await listActivePurchases(ctx, args.org_id, now);
+    const purchasedBalance = sumPurchasedBalance(activePurchases);
+    if (allowanceConfig.allowanceResetPeriod === "one_time" && allowanceTotal === 0) {
+      const syntheticRow = {
+        id,
+        org_id: args.org_id,
+        period_start: args.period_start,
+        period_end: args.period_end,
+        allowance_total: 0,
+        allowance_reset_period: "one_time" as const,
+        allowance_used: 0,
+        purchased_balance: purchasedBalance,
+        updated_at: now,
+      };
+      return syntheticRow;
+    }
     await ctx.db.insert("ai_credits", {
       id,
       org_id: args.org_id,

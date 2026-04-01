@@ -6,6 +6,7 @@ import {
   automationConfigVersionViewFields,
   automationViewFields,
 } from "../../convex/automations_shared";
+import { getIncludedAiCreditsForTier } from "../../packages/shared/src/subscriptions.js";
 import { postGatewaySeed } from "../e2e/helpers/api-client";
 import {
   adminKey,
@@ -867,8 +868,9 @@ describe.sequential("Local Convex Automation Integration", () => {
     const seeded = await http.mutation(refs.seedAutomationFixture, {
       tier: "free",
     });
+    const freeTierCredits = getIncludedAiCreditsForTier("free").total;
 
-    for (let count = 1; count <= 5; count += 1) {
+    for (let count = 1; count <= freeTierCredits; count += 1) {
       const balance = await http.mutation(refs.deductAiCredit, {
         org_id: seeded.orgId,
       });

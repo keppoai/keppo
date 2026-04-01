@@ -1204,7 +1204,9 @@ function BillingPage() {
           <div className="rounded-lg border bg-muted/40 p-3 text-sm md:col-span-3">
             {currentBilling.limits.included_ai_credits.bundled_runtime_enabled
               ? `This plan includes ${currentBilling.limits.included_ai_credits.total} bundled AI credits each billing cycle for prompt generation and bundled automation runtime.`
-              : `This tier includes a one-time grant of ${currentBilling.limits.included_ai_credits.total} credits for prompt generation.`}
+              : currentBilling.limits.included_ai_credits.reset_period === "one_time"
+                ? `This tier includes a one-time grant of ${currentBilling.limits.included_ai_credits.total} credits for prompt generation.`
+                : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation only. Automation runtime still requires Bring your own key.`}
           </div>
           {canManageBilling && usageView.showUpgradeStarter ? (
             <Button

@@ -456,8 +456,8 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 </div>
                 <p className="max-w-3xl text-sm leading-6 text-foreground/75">
                   {bundledRuntimeAvailable
-                    ? "Paid plans can run automations with Keppo-managed gateway credentials."
-                    : "Free trial keeps a one-time 20-credit grant for prompt generation only. Upgrade to Starter or Pro to unlock bundled execution."}
+                    ? "Paid plans can run automations with Keppo-managed gateway credentials. Add a BYO key here only if you want a fallback path when bundled credits run out."
+                    : "Free trial keeps a one-time 20-credit grant for prompt generation only. Add your own API key for runtime, or upgrade to Starter or Pro to unlock bundled execution."}
                 </p>
               </div>
 
@@ -469,7 +469,7 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 <p className="mt-2 text-foreground/75">
                   {bundledRuntimeAvailable
                     ? "Keppo provisions and rotates bundled gateway credentials automatically. You do not edit bundled keys here."
-                    : "Bundled execution is locked on free. This settings form only manages BYO and legacy subscription credentials until the org upgrades."}
+                    : "Bundled execution is locked on free. This settings form manages BYO and legacy subscription credentials until the org upgrades."}
                 </p>
                 <p className="mt-2 text-xs text-foreground/65">
                   {bundledKeyRows.length > 0

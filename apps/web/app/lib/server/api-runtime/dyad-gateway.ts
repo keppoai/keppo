@@ -23,7 +23,11 @@ const trimToUndefined = (value: string | undefined): string | undefined => {
 };
 
 export const hasDyadGatewayConfig = (env: ApiEnv = getEnv()): boolean => {
-  return isGatewayRuntimeEnabled(trimToUndefined(env.KEPPO_LLM_GATEWAY_URL));
+  return Boolean(
+    isGatewayRuntimeEnabled(trimToUndefined(env.KEPPO_LLM_GATEWAY_URL)) &&
+    trimToUndefined(env.KEPPO_LLM_GATEWAY_MASTER_KEY) &&
+    trimToUndefined(env.KEPPO_LLM_GATEWAY_TEAM_ID),
+  );
 };
 
 export const resolveDyadGatewayConfig = (env: ApiEnv = getEnv()): DyadGatewayConfig => {

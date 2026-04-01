@@ -1870,7 +1870,9 @@ export function AutomationPromptBox({
                       <div>
                         <Label>Resolved runtime</Label>
                         <div className="mt-2 rounded-2xl border p-4 text-sm text-muted-foreground">
-                          {settings.ai_model_provider} / {settings.ai_model_name}
+                          Default mapping: {settings.ai_model_provider} / {settings.ai_model_name}.
+                          Server-side automation runtime settings may override this at execution
+                          time.
                         </div>
                       </div>
                       <div>
@@ -1927,7 +1929,9 @@ export function AutomationPromptBox({
                           <p className="text-xs uppercase tracking-wide text-muted-foreground">
                             Runtime
                           </p>
-                          <p className="mt-1 font-medium">{settings.model_class}</p>
+                          <p className="mt-1 font-medium">
+                            {getAutomationModelClassMeta(settings.model_class).label}
+                          </p>
                         </div>
                       </div>
                       {recommendedProviders.length > 0 ? (

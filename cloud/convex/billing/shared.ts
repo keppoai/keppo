@@ -262,6 +262,7 @@ export const billingUsageResponseValidator = v.object({
     included_ai_credits: v.object({
       total: v.number(),
       bundled_runtime_enabled: v.boolean(),
+      reset_period: v.union(v.literal("monthly"), v.literal("one_time")),
     }),
   }),
 });
@@ -298,6 +299,7 @@ export type BillingUsageResponse = {
     included_ai_credits: {
       total: number;
       bundled_runtime_enabled: boolean;
+      reset_period: "monthly" | "one_time";
     };
   };
 };
