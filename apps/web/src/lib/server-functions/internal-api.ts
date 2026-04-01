@@ -203,7 +203,7 @@ const automationQuestionsInputSchema = z.object({
   betterAuthCookie: optionalBetterAuthCookieSchema,
 });
 
-const openAiHelperSessionInputSchema = z.object({
+const openAiConnectInputSchema = z.object({
   return_to: z.string().min(1),
   betterAuthCookie: optionalBetterAuthCookieSchema,
 });
@@ -256,7 +256,7 @@ export type BillingSubscriptionUndoCancelInput = z.infer<
 export type BillingSubscriptionPendingInput = z.infer<typeof billingSubscriptionPendingInputSchema>;
 export type AutomationPromptInput = z.infer<typeof automationPromptInputSchema>;
 export type AutomationQuestionsInput = z.infer<typeof automationQuestionsInputSchema>;
-export type OpenAiHelperSessionInput = z.infer<typeof openAiHelperSessionInputSchema>;
+export type OpenAiConnectInput = z.infer<typeof openAiConnectInputSchema>;
 export type CompleteOpenAiOauthInput = z.infer<typeof completeOpenAiOauthInputSchema>;
 export type WorkspaceMcpTestInput = z.infer<typeof workspaceMcpTestInputSchema>;
 export type OAuthProviderConnectInput = z.infer<typeof oauthProviderConnectInputSchema>;
@@ -602,12 +602,12 @@ const generateAutomationQuestionsServerFn = createServerFn({ method: "POST" })
       ),
   );
 
-const openAiHelperSessionServerFn = createServerFn({ method: "POST" })
-  .inputValidator(openAiHelperSessionInputSchema)
+const openAiConnectServerFn = createServerFn({ method: "POST" })
+  .inputValidator(openAiConnectInputSchema)
   .handler(async ({ data }) => {
     const search = new URLSearchParams({ return_to: data.return_to }).toString();
     return await getJson<JsonRecord>(
-      `/api/automations/openai/helper-session?${search}`,
+      `/api/automations/openai/connect?${search}`,
       normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
     );
   });
@@ -844,9 +844,9 @@ export const generateAutomationQuestions = async (
   );
 };
 
-export const getOpenAiHelperSession = async (data: OpenAiHelperSessionInput): Promise<JsonRecord> =>
+export const getOpenAiConnectMetadata = async (data: OpenAiConnectInput): Promise<JsonRecord> =>
   unwrapApiResult(
-    (await openAiHelperSessionServerFn({
+    (await openAiConnectServerFn({
       data: {
         ...data,
         betterAuthCookie: normalizeOptionalBetterAuthCookie(data.betterAuthCookie),

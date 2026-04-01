@@ -6,7 +6,6 @@ import {
   handleInternalDlqListRequest,
   handleInternalNotificationsDeliverRequest,
   handleInternalQueueDispatchRequest,
-  handleOAuthHelperLatestDownloadRequest,
 } from "../../app/lib/server/operational-api";
 
 const createDeps = () => {
@@ -90,8 +89,6 @@ const createDeps = () => {
       () =>
         ({
           KEPPO_ACTION_TTL_MINUTES: 60,
-          KEPPO_OAUTH_HELPER_MACOS_URL: "https://downloads.test/helper.dmg",
-          KEPPO_OAUTH_HELPER_WINDOWS_URL: "https://downloads.test/helper.msi",
           KEPPO_QUEUE_APPROVED_FALLBACK_LIMIT: 5,
           KEPPO_QUEUE_ENQUEUE_SWEEP_LIMIT: 10,
           KEPPO_RUN_INACTIVITY_MINUTES: 30,
@@ -137,19 +134,6 @@ const withJson = (path: string, body: unknown, headers?: HeadersInit): Request =
   });
 
 describe("start-owned operational route handlers", () => {
-  it("redirects configured OAuth helper downloads directly from Start", async () => {
-    const deps = createDeps();
-
-    const response = await handleOAuthHelperLatestDownloadRequest(
-      new Request("http://127.0.0.1/downloads/oauth-helper/macos/latest"),
-      deps,
-    );
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe("https://downloads.test/helper.dmg");
-    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
-  });
-
   it("fails closed for internal queue dispatch when the bearer secret is missing", async () => {
     const deps = createDeps();
 
@@ -343,10 +327,6 @@ describe("start-owned operational route handlers", () => {
   it("dispatches only the migrated Start-owned operational paths", async () => {
     const deps = createDeps();
 
-    const downloadResponse = await dispatchStartOwnedOperationalRequest(
-      new Request("http://127.0.0.1/downloads/oauth-helper/windows/latest"),
-      deps,
-    );
     const cronResponse = await dispatchStartOwnedOperationalRequest(
       new Request("http://127.0.0.1/internal/cron/maintenance", {
         method: "GET",
@@ -386,7 +366,6 @@ describe("start-owned operational route handlers", () => {
       deps,
     );
 
-    expect(downloadResponse?.status).toBe(302);
     expect(cronResponse?.status).toBe(200);
     expect(unhandledResponse?.status).toBe(200);
     expect(dlqResponse?.status).toBe(503);

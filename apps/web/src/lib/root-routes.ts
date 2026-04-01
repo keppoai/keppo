@@ -3,7 +3,6 @@ const START_OWNED_ROOT_PATH_PATTERNS = [
   /^\/billing\/credits\/checkout\/?$/u,
   /^\/mcp\/[^/]+\/?$/u,
   /^\/oauth\/integrations\/[^/]+\/callback\/?$/u,
-  /^\/downloads\/oauth-helper\/[^/]+\/latest\/?$/u,
   /^\/internal\/cron\/maintenance\/?$/u,
   /^\/internal\/automations\/(?:dispatch|terminate|log|complete)\/?$/u,
   /^\/internal\/health\/deep\/?$/u,

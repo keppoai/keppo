@@ -330,11 +330,10 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Settings page includes org-level AI key manager:
   - list stored active/inactive keys with provider/mode/hint and update time; user-removed BYOK and `subscription_token` credentials disappear after deletion instead of lingering as inactive rows.
   - add/update key flow (`provider`, `key_mode`, secret input) via `org_ai_keys:upsertOrgAiKey`.
-  - OpenAI `subscription_token` mode is helper-first:
-    - primary CTA issues `GET /api/automations/openai/helper-session`,
-    - UI presents platform-aware macOS/Windows helper download links plus an `Open Installed Helper` action using the helper custom protocol,
-    - helper session metadata stays visible until the signed session expires or a live `openai_oauth` key appears in the org key list.
-  - Manual terminal fallback remains available but visually demoted beneath the helper path; it reuses the same signed helper-session/OpenAI authorize metadata rather than minting a separate OAuth state.
+  - OpenAI `subscription_token` mode uses the direct localhost callback flow:
+    - primary CTA issues `GET /api/automations/openai/connect` and opens the ChatGPT authorize URL in a new tab,
+    - UI presents the localhost callback command, the signed authorize URL, and the expected redirect URI,
+    - connect metadata stays visible until a live `openai_oauth` key appears in the org key list or the operator clears the flow.
   - remove flow via `org_ai_keys:deleteOrgAiKey`; bundled keys remain billing-managed and cannot be removed from the dashboard.
   - inline usage summary of which providers are currently running in bundled or BYO mode based on present org billing and key state, rather than storing per-automation mode selections.
 - Settings page includes AI credit panel:
