@@ -19,4 +19,7 @@ esac
 
 ensure_hosted_web_build_env
 
+# Non-secret Stripe Price id — useful to verify hosted builds picked up the intended .env.staging / .env.production value.
+echo "[keppo-build] STRIPE_STARTER_PRICE_ID=${STRIPE_STARTER_PRICE_ID:-<unset>}"
+
 exec pnpm run build:web
