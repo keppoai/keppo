@@ -1,18 +1,55 @@
 import fs from "node:fs/promises";
+import { spawn } from "node:child_process";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
+const DEFAULT_ADVISORY_COLLABORATOR = "wwwillchen";
+const MAX_ADVISORIES_FOR_MODEL = 12;
+const MAX_MODEL_TEXT_CHARS = 1200;
 
 const readResponseBody = async (response) => {
   const text = await response.text();
   return text.trim().slice(0, 1000);
 };
 
-const normalizeSummary = (value) =>
+const normalizeFreeText = (value) =>
   value
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase();
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+
+const truncate = (value, maxChars = MAX_MODEL_TEXT_CHARS) => {
+  if (value.length <= maxChars) {
+    return value;
+  }
+  return `${value.slice(0, maxChars - 1)}…`;
+};
+
+const tokenizeForSimilarity = (value) =>
+  new Set(
+    normalizeFreeText(value)
+      .split(/\s+/)
+      .filter((token) => token.length >= 4),
+  );
+
+const advisorySupportsSemanticDedupe = (advisory) =>
+  ["triage", "draft", "published"].includes(String(advisory?.state || "").toLowerCase());
+
+const scoreAdvisorySimilarity = (finding, advisory) => {
+  const findingTokens = tokenizeForSimilarity(`${finding.title} ${finding.description}`);
+  const advisoryTokens = tokenizeForSimilarity(
+    `${String(advisory.summary || "")} ${String(advisory.description || "")}`,
+  );
+
+  let overlap = 0;
+  for (const token of findingTokens) {
+    if (advisoryTokens.has(token)) {
+      overlap += 1;
+    }
+  }
+
+  return overlap;
+};
 
 const requireEnv = (name) => {
   const value = process.env[name]?.trim();
@@ -99,7 +136,9 @@ const loadFindings = async (path) => {
   return parsed.map((finding, index) => {
     const title = String(finding?.title ?? "").trim();
     const description = String(finding?.description ?? "").trim();
-    const severity = String(finding?.severity ?? "").trim().toLowerCase();
+    const severity = String(finding?.severity ?? "")
+      .trim()
+      .toLowerCase();
     if (!title || !description || !["critical", "high"].includes(severity)) {
       throw new Error(`Invalid finding at index ${index}`);
     }
@@ -110,6 +149,63 @@ const loadFindings = async (path) => {
     };
   });
 };
+
+const parseJsonObject = (value) => {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    throw new Error("Codex returned an empty response");
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {}
+
+  const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fencedMatch) {
+    return JSON.parse(fencedMatch[1]);
+  }
+
+  const firstBrace = trimmed.indexOf("{");
+  const lastBrace = trimmed.lastIndexOf("}");
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
+  }
+
+  throw new Error("Codex did not return parseable JSON");
+};
+
+const runCodexPrompt = async (prompt) =>
+  await new Promise((resolve, reject) => {
+    const child = spawn("codex", ["exec", "--dangerously-bypass-approvals-and-sandbox", "-"], {
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve(stdout);
+        return;
+      }
+
+      reject(
+        new Error(
+          `Codex dedupe prompt failed with exit code ${code}: ${stderr.trim().slice(0, 1000)}`,
+        ),
+      );
+    });
+
+    child.stdin.end(prompt);
+  });
 
 const fetchExistingAdvisories = async ({ apiBaseUrl, repo, token }) => {
   let nextUrl = new URL(`${apiBaseUrl}/repos/${repo}/security-advisories`);
@@ -127,9 +223,7 @@ const fetchExistingAdvisories = async ({ apiBaseUrl, repo, token }) => {
 
     if (!response.ok) {
       const body = await readResponseBody(response);
-      throw new Error(
-        `Failed to list repository security advisories: ${response.status} ${body}`,
-      );
+      throw new Error(`Failed to list repository security advisories: ${response.status} ${body}`);
     }
 
     const page = await response.json();
@@ -150,6 +244,7 @@ const createRepositoryAdvisory = async ({
   token,
   repositoryName,
   finding,
+  advisoryCollaborator,
 }) => {
   const response = await fetch(`${apiBaseUrl}/repos/${repo}/security-advisories`, {
     method: "POST",
@@ -179,6 +274,14 @@ const createRepositoryAdvisory = async ({
           vulnerable_functions: [],
         },
       ],
+      credits: advisoryCollaborator
+        ? [
+            {
+              login: advisoryCollaborator,
+              type: "coordinator",
+            },
+          ]
+        : null,
       start_private_fork: false,
     }),
   });
@@ -191,15 +294,117 @@ const createRepositoryAdvisory = async ({
   return response.json();
 };
 
-const sendMailgunEmail = async ({
-  apiKey,
-  domain,
-  from,
-  recipients,
-  subject,
-  text,
-  html,
-}) => {
+const addRepositoryAdvisoryCollaborator = async ({ apiBaseUrl, repo, ghsaId, token, username }) => {
+  if (!ghsaId || !username) {
+    return false;
+  }
+
+  const putResponse = await fetch(
+    `${apiBaseUrl}/repos/${repo}/security-advisories/${encodeURIComponent(ghsaId)}/collaborators/${encodeURIComponent(username)}`,
+    {
+      method: "PUT",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": GITHUB_API_VERSION,
+      },
+    },
+  );
+
+  if (putResponse.ok) {
+    return true;
+  }
+
+  const putBody = await readResponseBody(putResponse);
+  console.warn(
+    `Unable to add security advisory collaborator via documented-style endpoint for ${ghsaId}: ${putResponse.status} ${putBody}`,
+  );
+  return false;
+};
+
+const findSemanticDuplicate = async ({ finding, advisories }) => {
+  const candidates = advisories
+    .filter(advisorySupportsSemanticDedupe)
+    .map((advisory) => ({
+      advisory,
+      score: scoreAdvisorySimilarity(finding, advisory),
+    }))
+    .filter(({ score }) => score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, MAX_ADVISORIES_FOR_MODEL)
+    .map(({ advisory }, index) => ({
+      candidateIndex: index,
+      ghsaId: String(advisory.ghsa_id || ""),
+      state: String(advisory.state || ""),
+      summary: truncate(String(advisory.summary || "")),
+      description: truncate(String(advisory.description || "")),
+      advisory,
+    }));
+
+  if (candidates.length === 0) {
+    return null;
+  }
+
+  const prompt = [
+    "You are deduplicating GitHub repository security advisories.",
+    "Decide whether the proposed finding is the same underlying vulnerability as one existing advisory.",
+    "Only mark a duplicate when they describe materially the same vulnerable behavior or exploit path.",
+    "Return JSON only with this schema:",
+    '{"duplicateIndex":number|null,"confidence":"high"|"low","reason":string}',
+    "",
+    "Proposed finding:",
+    JSON.stringify(
+      {
+        title: finding.title,
+        severity: finding.severity,
+        description: truncate(finding.description),
+      },
+      null,
+      2,
+    ),
+    "",
+    "Existing advisories:",
+    JSON.stringify(
+      candidates.map(({ advisory, ...candidate }) => candidate),
+      null,
+      2,
+    ),
+    "",
+    "If none are clearly the same vulnerability, set duplicateIndex to null.",
+    "If you are uncertain, set confidence to low.",
+  ].join("\n");
+
+  let parsed;
+  try {
+    parsed = parseJsonObject(await runCodexPrompt(prompt));
+  } catch (error) {
+    console.warn(
+      `Codex semantic dedupe failed for "${finding.title}". Proceeding without semantic dedupe. ${String(error)}`,
+    );
+    return null;
+  }
+
+  if (
+    !parsed ||
+    typeof parsed !== "object" ||
+    parsed.duplicateIndex == null ||
+    parsed.confidence !== "high"
+  ) {
+    return null;
+  }
+
+  const match = candidates.find((candidate) => candidate.candidateIndex === parsed.duplicateIndex);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    advisory: match.advisory,
+    reason: String(parsed.reason || "").trim() || "semantic duplicate",
+  };
+};
+
+const sendMailgunEmail = async ({ apiKey, domain, from, recipients, subject, text, html }) => {
   const response = await fetch(`${MAILGUN_API_BASE_URL}/${domain}/messages`, {
     method: "POST",
     headers: {
@@ -251,27 +456,26 @@ const main = async () => {
   const serverUrl = process.env.GITHUB_SERVER_URL?.trim() || "https://github.com";
   const runId = process.env.GITHUB_RUN_ID?.trim();
   const repositoryName = repo.split("/")[1] || "unknown";
+  const advisoryCollaborator =
+    process.env.SECURITY_ADVISORY_COLLABORATOR?.trim() || DEFAULT_ADVISORY_COLLABORATOR;
   const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
 
   const existing = await fetchExistingAdvisories({ apiBaseUrl, repo, token });
-  const existingBySummary = new Map(
-    existing
-      .map((advisory) => [normalizeSummary(String(advisory.summary || "")), advisory])
-      .filter(([summary]) => summary),
-  );
-
   const created = [];
   const skipped = [];
 
   for (const finding of findings) {
-    const key = normalizeSummary(finding.title);
-    const duplicate = existingBySummary.get(key);
-    if (duplicate) {
+    const semanticDuplicate = await findSemanticDuplicate({
+      finding,
+      advisories: existing,
+    });
+    if (semanticDuplicate) {
       skipped.push({
         ...finding,
-        ghsaId: duplicate.ghsa_id || null,
-        htmlUrl: duplicate.html_url || null,
-        state: duplicate.state || null,
+        duplicateReason: semanticDuplicate.reason,
+        ghsaId: semanticDuplicate.advisory.ghsa_id || null,
+        htmlUrl: semanticDuplicate.advisory.html_url || null,
+        state: semanticDuplicate.advisory.state || null,
       });
       continue;
     }
@@ -282,14 +486,25 @@ const main = async () => {
       token,
       repositoryName,
       finding,
+      advisoryCollaborator,
     });
+
+    const collaboratorAttached = await addRepositoryAdvisoryCollaborator({
+      apiBaseUrl,
+      repo,
+      ghsaId: advisory.ghsa_id || null,
+      token,
+      username: advisoryCollaborator,
+    });
+
     created.push({
       ...finding,
+      collaboratorAttached,
       ghsaId: advisory.ghsa_id || null,
       htmlUrl: advisory.html_url || null,
       state: advisory.state || null,
     });
-    existingBySummary.set(key, advisory);
+    existing.push(advisory);
   }
 
   await appendStepSummary(`Created advisories: ${created.length}`);
@@ -317,7 +532,7 @@ const main = async () => {
       ? ["- none"]
       : skipped.map(
           (finding) =>
-            `- [${finding.severity}] ${finding.title}${finding.ghsaId ? ` (${finding.ghsaId})` : ""}${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
+            `- [${finding.severity}] ${finding.title}${finding.ghsaId ? ` (${finding.ghsaId})` : ""}${finding.duplicateReason ? ` [${finding.duplicateReason}]` : ""}${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
         )),
   ];
 
@@ -353,6 +568,10 @@ const main = async () => {
               .map(
                 (finding) =>
                   `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${
+                    finding.collaboratorAttached === false
+                      ? ` <em>(credit added for ${escapeHtml(advisoryCollaborator)}, collaborator attach needs manual follow-up)</em>`
+                      : ""
+                  }${
                     finding.htmlUrl
                       ? ` - <a href="${escapeHtml(finding.htmlUrl)}">${escapeHtml(finding.ghsaId || "view advisory")}</a>`
                       : ""
@@ -370,6 +589,10 @@ const main = async () => {
               .map(
                 (finding) =>
                   `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${
+                    finding.duplicateReason
+                      ? ` <em>(${escapeHtml(finding.duplicateReason)})</em>`
+                      : ""
+                  }${
                     finding.htmlUrl
                       ? ` - <a href="${escapeHtml(finding.htmlUrl)}">${escapeHtml(finding.ghsaId || "existing advisory")}</a>`
                       : ""

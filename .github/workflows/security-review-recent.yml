@@ -139,6 +139,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SERVER_URL: ${{ github.server_url }}
           SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          SECURITY_ADVISORY_COLLABORATOR: wwwillchen
           SECURITY_ADVISORY_TOKEN: ${{ steps.advisory-app-token.outputs.token }}
           SECURITY_ADVISORY_ALERT_EMAILS: ${{ vars.SECURITY_ADVISORY_ALERT_EMAILS }}
           MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
