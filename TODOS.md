@@ -1,0 +1,19 @@
+- [x] Re-read PR context (`tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md`) and self-review the full task list before making changes
+- [x] Rebase the branch onto `upstream/main` and resolve every merge conflict correctly
+- [x] Run `pnpm check` immediately after the rebase to verify the rebased branch is still healthy
+- [x] Investigate the failing `codex-review` GitHub Actions check with read-only `gh` commands and identify the concrete root cause
+- [x] Review the in-progress `fix-pr` check context and confirm whether it requires any code changes in this run
+- [x] Address trusted thread feedback about explicitly setting `show_full_output: false` in `.github/workflows/claude-check-workflows.yml`
+- [x] Address trusted thread feedback about removing write permissions from the Claude runtime `github_token` and splitting privileged issue writes into deterministic post-agent steps
+- [x] Address trusted thread feedback about adding `persist-credentials: false` to `actions/checkout`
+- [x] Address trusted thread feedback about adding `permission-contents: read` to the GitHub App token used for repository reads
+- [x] Address trusted thread and trusted issue comment feedback about the missing `/keppo:check-workflows` skill by adding the required skill definition
+- [x] Address any valid `trustedReviews` and `trustedIssueComments` feedback items that are not already fully covered by the thread fixes
+- [x] Update any related docs/specs/rules if the workflow or skill changes require them
+- [x] Run any required targeted E2E verification if the CI context shows failing E2E checks or if an E2E-relevant fix becomes necessary
+- [x] Run `pnpm check` after all code changes and keep fixing issues until it passes
+- [x] Review the final diff and confirm all TODO items are complete and the PR context has been fully addressed
+- [ ] Create a local git commit with a Conventional Commit message for the completed fixes
+- [ ] Re-read `TODOS.md` and confirm there are no remaining unchecked items
+- [ ] Write `tmp/pr-review-responder/actions.json` with the required summary and thread actions
+- [ ] Delete `TODOS.md`
