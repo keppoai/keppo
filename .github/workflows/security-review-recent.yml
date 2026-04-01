@@ -26,7 +26,7 @@ jobs:
       PROMPT_PATH: tmp/security-review-recent/run-prompt.txt
       LOG_MARKER_PATH: tmp/security-review-recent/session-log-marker
       SESSION_LOG_COMMENT_PATH: tmp/security-review-recent/session-log-comment.md
-      FINDINGS_PATH: out-security-review/findings.json
+      FINDINGS_DIR: out-security-review/findings
       SKILL_PATH: .agents/skills/security-review-recent/SKILL.md
       WORKFLOW_BASE_PATH: .workflow-base
     steps:
@@ -75,7 +75,7 @@ jobs:
           TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/security-review-recent/run.txt
           OUTPUT_PATH: ${{ env.PROMPT_PATH }}
           SKILL_PATH: ${{ env.SKILL_PATH }}
-          FINDINGS_PATH: ${{ env.FINDINGS_PATH }}
+          FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
         run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
 
       - name: Run Codex security review
@@ -84,13 +84,10 @@ jobs:
           PROMPT_PATH: ${{ env.PROMPT_PATH }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/run-codex.sh"
 
-      - name: Ensure findings file exists
+      - name: Ensure findings directory exists
         run: |
           set -euo pipefail
-          mkdir -p "$(dirname "${FINDINGS_PATH}")"
-          if [ ! -f "${FINDINGS_PATH}" ]; then
-            printf '[]\n' > "${FINDINGS_PATH}"
-          fi
+          mkdir -p "${FINDINGS_DIR}"
 
       - name: Refresh trusted workflow assets
         if: always()
@@ -133,7 +130,7 @@ jobs:
       - name: File advisories and send notification
         if: success()
         env:
-          FINDINGS_PATH: out-security-review/findings.json
+          FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
           GITHUB_API_URL: ${{ github.api_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           GITHUB_RUN_ID: ${{ github.run_id }}

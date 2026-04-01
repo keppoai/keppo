@@ -87,28 +87,67 @@ const loadSessionLogLinks = async (path) => {
     .map(([, label, url]) => ({ label, url }));
 };
 
-const loadFindings = async (path) => {
-  const raw = (await fs.readFile(path, "utf8")).trim();
-  if (!raw) {
-    return [];
+const parseFindingMarkdown = (raw, filePath) => {
+  const titleMatch = raw.match(/^#\s+(.+)$/m);
+  if (!titleMatch) {
+    console.warn(`WARNING: Skipping ${filePath} — missing # title heading`);
+    return null;
   }
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error("findings.json must contain a JSON array");
+  const title = titleMatch[1].trim();
+
+  const severityMatch = raw.match(/^-\s*Severity:\s*(critical|high)\s*$/im);
+  if (!severityMatch) {
+    console.warn(`WARNING: Skipping ${filePath} — missing or invalid severity line`);
+    return null;
   }
-  return parsed.map((finding, index) => {
-    const title = String(finding?.title ?? "").trim();
-    const description = String(finding?.description ?? "").trim();
-    const severity = String(finding?.severity ?? "").trim().toLowerCase();
-    if (!title || !description || !["critical", "high"].includes(severity)) {
-      throw new Error(`Invalid finding at index ${index}`);
+  const severity = severityMatch[1].toLowerCase();
+
+  // Description is everything after the frontmatter (title + severity lines)
+  const summaryIndex = raw.indexOf("### Summary");
+  const description = summaryIndex !== -1
+    ? raw.slice(summaryIndex).trim()
+    : raw.slice(raw.indexOf("\n", raw.indexOf(severityMatch[0]) + severityMatch[0].length)).trim();
+
+  if (!description) {
+    console.warn(`WARNING: Skipping ${filePath} — empty description`);
+    return null;
+  }
+
+  return {
+    title: title.slice(0, 256),
+    description,
+    severity,
+  };
+};
+
+const loadFindings = async (dirPath) => {
+  let entries;
+  try {
+    entries = await fs.readdir(dirPath);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return [];
     }
-    return {
-      title: title.slice(0, 256),
-      description,
-      severity,
-    };
-  });
+    throw error;
+  }
+
+  const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
+  const findings = [];
+
+  for (const file of mdFiles) {
+    const filePath = `${dirPath}/${file}`;
+    const raw = (await fs.readFile(filePath, "utf8")).trim();
+    if (!raw) {
+      console.warn(`WARNING: Skipping empty file ${filePath}`);
+      continue;
+    }
+    const finding = parseFindingMarkdown(raw, filePath);
+    if (finding) {
+      findings.push(finding);
+    }
+  }
+
+  return findings;
 };
 
 const fetchExistingAdvisories = async ({ apiBaseUrl, repo, token }) => {
@@ -230,8 +269,8 @@ const escapeHtml = (value) =>
     .replaceAll("'", "&#39;");
 
 const main = async () => {
-  const findingsPath = process.env.FINDINGS_PATH?.trim() || "out-security-review/findings.json";
-  const findings = await loadFindings(findingsPath);
+  const findingsDir = process.env.FINDINGS_DIR?.trim() || "out-security-review/findings";
+  const findings = await loadFindings(findingsDir);
 
   await appendStepSummary(`Findings reviewed: ${findings.length}`);
 
