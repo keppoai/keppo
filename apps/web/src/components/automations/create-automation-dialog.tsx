@@ -573,7 +573,7 @@ export function CreateAutomationDialog({
                       />
                     </CollapsibleTrigger>
                     <CollapsibleContent className="grid gap-3 pt-3 md:grid-cols-2">
-                      <div className="space-y-1">
+                      <div className="space-y-1 md:col-span-2">
                         <Label htmlFor="model-class">Model</Label>
                         <Controller
                           control={control}

@@ -64,7 +64,7 @@ describe("automations", () => {
     expect(getAiCreditAllowance("starter")).toBe(AI_CREDIT_ALLOWANCES.starter);
     expect(getAiCreditAllowance("pro")).toBe(AI_CREDIT_ALLOWANCES.pro);
     expect(AI_CREDIT_ALLOWANCES).toEqual({
-      free: 5,
+      free: 20,
       starter: 100,
       pro: 300,
     });

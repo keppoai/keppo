@@ -589,7 +589,7 @@ export function AutomationConfigEditor({
             <CardTitle>Model</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
+            <div className="space-y-1 md:col-span-2">
               <Label htmlFor="config-model-class">Model class</Label>
               <Controller
                 control={control}

@@ -620,7 +620,7 @@ export const AUTOMATION_TIER_LIMITS: Record<SubscriptionTierId, AutomationTierLi
 } as const;
 
 export const AI_CREDIT_ALLOWANCES: Record<SubscriptionTierId, number> = {
-  free: 5,
+  free: 20,
   starter: 100,
   pro: 300,
 } as const;
@@ -640,7 +640,7 @@ export type IncludedAiCredits = {
 
 export const INCLUDED_AI_CREDITS: Record<SubscriptionTierId, IncludedAiCredits> = {
   free: {
-    total: 20,
+    total: AI_CREDIT_ALLOWANCES.free,
     bundled_runtime_enabled: false,
     reset_period: "one_time",
   },

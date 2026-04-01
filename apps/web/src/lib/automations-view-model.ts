@@ -1,5 +1,9 @@
 import { resolveProviderAutomationTriggerDefinition } from "../../../../packages/shared/src/providers/automation-trigger-registry.js";
 import { parseJsonRecord, parseJsonValue } from "@keppo/shared/providers/boundaries/json";
+import {
+  getAutomationModelClassDescription,
+  getAutomationModelClassLabel,
+} from "@keppo/shared/automations";
 import { fullTimestamp } from "@/lib/format";
 import { toUserFacingErrorMessage } from "./user-facing-errors";
 
@@ -79,20 +83,20 @@ const AI_MODEL_PROVIDER_LABELS: Record<AiModelProvider, string> = {
 
 const MODEL_CLASS_META: Record<AutomationModelClass, AutomationChoiceMeta> = {
   auto: {
-    label: "Auto",
-    description: "Recommended. Currently routes to the balanced model.",
+    label: getAutomationModelClassLabel("auto"),
+    description: getAutomationModelClassDescription("auto"),
   },
   frontier: {
-    label: "Frontier",
-    description: "Highest capability for harder automations.",
+    label: getAutomationModelClassLabel("frontier"),
+    description: getAutomationModelClassDescription("frontier"),
   },
   balanced: {
-    label: "Balanced",
-    description: "Balanced speed and quality for most work.",
+    label: getAutomationModelClassLabel("balanced"),
+    description: getAutomationModelClassDescription("balanced"),
   },
   value: {
-    label: "Value",
-    description: "Lower-cost choice for simpler tasks.",
+    label: getAutomationModelClassLabel("value"),
+    description: getAutomationModelClassDescription("value"),
   },
 };
 

@@ -591,7 +591,9 @@ function BillingPage() {
           aiCredits: tier.included_ai_credits.total,
           aiCreditsLabel: tier.included_ai_credits.bundled_runtime_enabled
             ? "Bundled AI credits / mo"
-            : "Included trial credits",
+            : tier.included_ai_credits.reset_period === "one_time"
+              ? "Included trial credits"
+              : "Included AI credits / mo",
           aiCreditsDescription: tier.included_ai_credits.bundled_runtime_enabled
             ? "Includes Keppo-managed runtime credits."
             : "One-time trial credits cover prompt generation only.",
@@ -990,7 +992,7 @@ function BillingPage() {
                 Subscription ends {formatEffectiveDate(pendingSubscription.pending_effective_at)}.
               </span>{" "}
               <span className="text-muted-foreground">
-                You will move to the Free trial tier afterward.
+                You will move to the Free tier afterward. Trial credits are not re-granted.
               </span>
             </p>
             {canManageBilling ? (
@@ -1401,8 +1403,8 @@ function BillingPage() {
                     <span>
                       <span className="font-medium text-foreground">Cancel at end of period</span>
                       <span className="text-muted-foreground block text-xs">
-                        Move to the Free trial tier when the current billing period ends. You keep
-                        Starter until then.
+                        Move to the Free tier when the current billing period ends. Trial credits
+                        are not re-granted, and you keep Starter until then.
                       </span>
                     </span>
                   </label>

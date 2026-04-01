@@ -58,10 +58,16 @@ const parseDraft = (value: unknown, currentContext: AutomationContextSnapshot): 
     record.model_class === "value"
       ? record.model_class
       : currentContext.model_class;
-  const aiModelProvider = record.ai_model_provider === "anthropic" ? "anthropic" : "openai";
-  const aiModelName = typeof record.ai_model_name === "string" ? record.ai_model_name : "";
+  const aiModelProvider =
+    record.ai_model_provider === "anthropic" || record.ai_model_provider === "openai"
+      ? record.ai_model_provider
+      : currentContext.ai_model_provider;
+  const aiModelName =
+    typeof record.ai_model_name === "string" && record.ai_model_name.trim().length > 0
+      ? record.ai_model_name
+      : currentContext.ai_model_name;
   const networkAccess = record.network_access === "mcp_and_web" ? "mcp_and_web" : "mcp_only";
-  if (!prompt || !name || !aiModelName) {
+  if (!prompt || !name) {
     return null;
   }
   return {

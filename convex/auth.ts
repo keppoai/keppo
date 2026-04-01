@@ -367,10 +367,17 @@ const createDefaultWorkspaceForOrg = async (ctx: AuthMutationCtx, orgId: string)
       created_at: createdAt,
       updated_at: createdAt,
     });
+  }
 
-    const freeTrialCredits = getIncludedAiCreditsForTier(SUBSCRIPTION_TIER.free);
+  const freeTrialCredits = getIncludedAiCreditsForTier(SUBSCRIPTION_TIER.free);
+  const aiCreditsId = await deterministicIdFor("aic", `${orgId}:${period.periodStart}`);
+  const existingAiCredits = await ctx.db
+    .query("ai_credits")
+    .withIndex("by_custom_id", (q) => q.eq("id", aiCreditsId))
+    .first();
+  if (!existingAiCredits) {
     await ctx.db.insert("ai_credits", {
-      id: await deterministicIdFor("aic", `${orgId}:${period.periodStart}`),
+      id: aiCreditsId,
       org_id: orgId,
       period_start: period.periodStart,
       period_end: period.periodEnd,

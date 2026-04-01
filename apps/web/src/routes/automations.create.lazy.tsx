@@ -384,7 +384,7 @@ function CreateAutomationPage() {
                   <CardTitle>Step 3: Model, prompt, and access</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
+                  <div className="space-y-2 md:col-span-2">
                     <Label htmlFor="manual-model-class">Model</Label>
                     <Controller
                       control={control}
