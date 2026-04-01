@@ -24,6 +24,15 @@ const encryptStoredKeyForTest = async (secret: string, rawValue: string): Promis
   return `keppo-v1.${toHex(iv)}.${toHex(new Uint8Array(encrypted))}`;
 };
 
+const defaultTestEnv = {
+  BETTER_AUTH_SECRET: "keppo-better-auth-fallback-secret",
+  KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS: 60_000,
+  KEPPO_LLM_GATEWAY_URL: undefined,
+  KEPPO_AUTOMATION_MCP_SERVER_URL: undefined,
+  KEPPO_CALLBACK_HMAC_SECRET: "keppo-callback-secret-for-start-runtime-tests",
+  VERCEL_AUTOMATION_BYPASS_SECRET: "bypass_secret_test",
+};
+
 const createDeps = () => {
   const convex = {
     appendAutomationRunLog: vi.fn().mockResolvedValue(undefined),
@@ -74,17 +83,7 @@ const createDeps = () => {
     })),
     convex,
     createSandboxProvider: vi.fn(() => sandboxProvider),
-    getEnv: vi.fn(
-      () =>
-        ({
-          BETTER_AUTH_SECRET: "keppo-better-auth-fallback-secret",
-          KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS: 60_000,
-          KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
-          KEPPO_AUTOMATION_MCP_SERVER_URL: undefined,
-          KEPPO_CALLBACK_HMAC_SECRET: "keppo-callback-secret-for-start-runtime-tests",
-          VERCEL_AUTOMATION_BYPASS_SECRET: "bypass_secret_test",
-        }) as never,
-    ),
+    getEnv: vi.fn(() => ({ ...defaultTestEnv }) as never),
     logger: {
       error: vi.fn(),
       info: vi.fn(),
@@ -153,6 +152,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -214,6 +214,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -320,6 +321,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -395,6 +397,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -441,6 +444,10 @@ describe("start-owned automation runtime handlers", () => {
 
   it("dispatches bundled runs through the gateway and deducts runtime credits", async () => {
     const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
     deps.convex.getAiCreditBalance.mockResolvedValueOnce({
       org_id: "org_test",
       period_start: "2026-03-01T00:00:00.000Z",
@@ -480,6 +487,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -487,26 +495,23 @@ describe("start-owned automation runtime handlers", () => {
         network_access: "mcp_only",
       },
     });
-    deps.convex.getOrgAiKey
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        org_id: "org_test",
-        encrypted_key: await encryptStoredKeyForTest(
-          process.env.KEPPO_MASTER_KEY!,
-          "bundled-gateway-secret",
-        ),
-        credential_kind: "secret",
-        is_active: true,
-        key_hint: "...bundled",
-        key_version: 1,
-        subject_email: null,
-        account_id: null,
-        token_expires_at: null,
-        last_refreshed_at: null,
-        last_validated_at: null,
-        created_by: "billing",
-      });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "bundled-gateway-secret",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...bundled",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "billing",
+    });
 
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
@@ -540,6 +545,10 @@ describe("start-owned automation runtime handlers", () => {
 
   it("returns a bundled-specific missing-key response before any BYO fallback lookup", async () => {
     const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
     deps.convex.getAiCreditBalance.mockResolvedValueOnce({
       org_id: "org_test",
       period_start: "2026-03-01T00:00:00.000Z",
@@ -568,6 +577,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -593,8 +603,8 @@ describe("start-owned automation runtime handlers", () => {
       provider: "openai",
       key_mode: "bundled",
     });
-    expect(deps.convex.getOrgAiKey).toHaveBeenCalledTimes(3);
-    expect(deps.convex.getOrgAiKey).toHaveBeenLastCalledWith({
+    expect(deps.convex.getOrgAiKey).toHaveBeenCalledTimes(1);
+    expect(deps.convex.getOrgAiKey).toHaveBeenCalledWith({
       orgId: "org_test",
       provider: "openai",
       keyMode: "bundled",
@@ -643,6 +653,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -678,6 +689,10 @@ describe("start-owned automation runtime handlers", () => {
 
   it("cancels bundled runs when credits are exhausted before dispatch", async () => {
     const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
     deps.convex.getAiCreditBalance.mockResolvedValueOnce({
       org_id: "org_test",
       period_start: "2026-03-01T00:00:00.000Z",
@@ -718,6 +733,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -725,26 +741,23 @@ describe("start-owned automation runtime handlers", () => {
         network_access: "mcp_only",
       },
     });
-    deps.convex.getOrgAiKey
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        org_id: "org_test",
-        encrypted_key: await encryptStoredKeyForTest(
-          process.env.KEPPO_MASTER_KEY!,
-          "bundled-gateway-secret",
-        ),
-        credential_kind: "secret",
-        is_active: true,
-        key_hint: "...bundled",
-        key_version: 1,
-        subject_email: null,
-        account_id: null,
-        token_expires_at: null,
-        last_refreshed_at: null,
-        last_validated_at: null,
-        created_by: "billing",
-      });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "bundled-gateway-secret",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...bundled",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "billing",
+    });
 
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
@@ -765,6 +778,10 @@ describe("start-owned automation runtime handlers", () => {
 
   it("does not deduct bundled credits before MCP preflight succeeds", async () => {
     const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
     deps.convex.getAiCreditBalance.mockResolvedValueOnce({
       org_id: "org_test",
       period_start: "2026-03-01T00:00:00.000Z",
@@ -794,6 +811,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
@@ -801,26 +819,23 @@ describe("start-owned automation runtime handlers", () => {
         network_access: "mcp_only",
       },
     });
-    deps.convex.getOrgAiKey
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce({
-        org_id: "org_test",
-        encrypted_key: await encryptStoredKeyForTest(
-          process.env.KEPPO_MASTER_KEY!,
-          "bundled-gateway-secret",
-        ),
-        credential_kind: "secret",
-        is_active: true,
-        key_hint: "...bundled",
-        key_version: 1,
-        subject_email: null,
-        account_id: null,
-        token_expires_at: null,
-        last_refreshed_at: null,
-        last_validated_at: null,
-        created_by: "billing",
-      });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "bundled-gateway-secret",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...bundled",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "billing",
+    });
 
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
@@ -865,6 +880,7 @@ describe("start-owned automation runtime handlers", () => {
         status: "active",
       },
       config: {
+        model_class: "value",
         runner_type: "chatgpt_codex",
         ai_model_provider: "openai",
         ai_model_name: "gpt-5.2",
