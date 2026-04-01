@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { decryptSecretValue } from "../crypto_helpers";
 import { ACTION_STATUS, INTEGRATION_STATUS, RUN_STATUS } from "../domain_constants";
+import { isIntegrationConnected } from "../integrations/model";
 import { listConnectedProviderIdsForOrg } from "../integrations/read_model";
 import { normalizeJsonRecord } from "../mcp_runtime_shared";
 import { assertCanonicalStoredProvider, canonicalizeProvider } from "../provider_ids";
@@ -456,8 +457,27 @@ export const loadConnectorContext = internalQuery({
         : (workspaceIntegrations.find((entry) => entry.provider === provider)?.enabled ?? false);
 
     const integration = await findOrgIntegrationByProvider(ctx, workspace.org_id, provider);
+    const account = integration
+      ? await ctx.db
+          .query("integration_accounts")
+          .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
+          .unique()
+      : null;
+    const credential = account
+      ? await ctx.db
+          .query("integration_credentials")
+          .withIndex("by_integration_account", (q) => q.eq("integration_account_id", account.id))
+          .unique()
+      : null;
 
-    if (!integration || integration.status === INTEGRATION_STATUS.disconnected) {
+    if (
+      !integration ||
+      !isIntegrationConnected({
+        status: integration.status,
+        lastErrorCategory: integration.last_error_category,
+        credentialExpiresAt: credential?.expires_at,
+      })
+    ) {
       const payload = {
         workspace: toWorkspaceBoundary(workspace),
         provider_enabled: providerEnabled,
@@ -474,16 +494,6 @@ export const loadConnectorContext = internalQuery({
       return payload;
     }
 
-    const account = await ctx.db
-      .query("integration_accounts")
-      .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
-      .unique();
-    const credential = account
-      ? await ctx.db
-          .query("integration_credentials")
-          .withIndex("by_integration_account", (q) => q.eq("integration_account_id", account.id))
-          .unique()
-      : null;
     const accessToken =
       credential === null
         ? null

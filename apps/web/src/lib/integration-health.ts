@@ -35,6 +35,20 @@ export const formatIntegrationErrorDiagnostic = (params: {
   return parts.join(" / ");
 };
 
+export const isIntegrationReconnectRequired = (params: {
+  status?: string | null | undefined;
+  isExpired?: boolean;
+  lastErrorCategory?: string | null | undefined;
+}): boolean => {
+  if (params.status === "disconnected") {
+    return false;
+  }
+  if (params.isExpired) {
+    return true;
+  }
+  return params.status === "degraded" && params.lastErrorCategory === "auth";
+};
+
 export const getIntegrationUnhealthyReason = (params: {
   isExpired?: boolean;
   degradedReason?: string | null | undefined;

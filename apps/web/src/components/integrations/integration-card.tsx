@@ -24,6 +24,7 @@ import {
 import {
   formatIntegrationErrorDiagnostic,
   getIntegrationUnhealthyReason,
+  isIntegrationReconnectRequired,
 } from "@/lib/integration-health";
 
 interface IntegrationCardProps {
@@ -55,6 +56,12 @@ export function IntegrationCard({
   const expiresAt = expiresAtRaw ? Date.parse(expiresAtRaw) : Number.NaN;
   const isExpired = Number.isFinite(expiresAt) && expiresAt <= Date.now();
   const status = integration?.status ?? "disconnected";
+  const needsReconnect = isIntegrationReconnectRequired({
+    status,
+    isExpired,
+    lastErrorCategory: integration?.last_error_category,
+  });
+  const hasIntegrationRecord = integration !== null && status !== "disconnected";
   const isDegraded = status === "degraded" || isExpired;
   const providerLabel = meta.label;
   const unhealthyReason = getIntegrationUnhealthyReason({
@@ -76,7 +83,9 @@ export function IntegrationCard({
     ? isDegraded
       ? `${providerLabel} is connected, but automations should not rely on it until this issue is fixed.`
       : `${providerLabel} is ready for automations in this workspace.`
-    : `Connect ${providerLabel} before automations can use its tools.`;
+    : needsReconnect
+      ? `${providerLabel} needs attention before automations can use it again.`
+      : `Connect ${providerLabel} before automations can use its tools.`;
   const statusDetail = connected
     ? isDegraded
       ? (unhealthyReason ?? "Recent health checks found a provider issue.")
@@ -85,7 +94,9 @@ export function IntegrationCard({
         : deprecation?.message
           ? deprecation.message
           : (integration?.external_account_id ?? "Connected")
-    : meta.description;
+    : needsReconnect
+      ? (unhealthyReason ?? "Reconnect the provider to restore access.")
+      : meta.description;
 
   const Icon = meta.icon;
 
@@ -93,7 +104,7 @@ export function IntegrationCard({
     <>
       <div className="group relative flex max-w-2xl items-center gap-4 rounded-xl border bg-card p-4 transition-colors hover:bg-accent/50">
         {/* Clickable overlay covering the card for navigation */}
-        {connected && (
+        {hasIntegrationRecord && (
           <button
             type="button"
             className="absolute inset-0 z-0 cursor-pointer rounded-xl focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
@@ -150,7 +161,7 @@ export function IntegrationCard({
         </div>
 
         <div className="relative z-10 flex shrink-0 items-center gap-1.5">
-          {connected ? (
+          {connected || needsReconnect ? (
             <>
               {canManage ? (
                 <Button
@@ -164,7 +175,7 @@ export function IntegrationCard({
                   <UnplugIcon className="size-4" />
                 </Button>
               ) : null}
-              {(isDegraded || isExpired) && canManage ? (
+              {needsReconnect && canManage ? (
                 <Button
                   variant="outline"
                   size="sm"

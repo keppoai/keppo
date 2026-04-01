@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireWorkspaceRole } from "./_auth";
+import { listConnectedProviderIdsForOrg } from "./integrations/read_model";
 
 const onboardingReadinessValidator = v.object({
   has_connected_integration: v.boolean(),
@@ -18,10 +19,6 @@ export const getReadiness = query({
   handler: async (ctx, args) => {
     const auth = await requireWorkspaceRole(ctx, args.workspaceId);
 
-    const integrations = await ctx.db
-      .query("integrations")
-      .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
-      .take(50);
     const workspaceIntegrations = await ctx.db
       .query("workspace_integrations")
       .withIndex("by_workspace", (q) => q.eq("workspace_id", args.workspaceId))
@@ -52,11 +49,10 @@ export const getReadiness = query({
         }
       }
     }
+    const connectedProviderIds = await listConnectedProviderIdsForOrg(ctx, auth.orgId);
 
     return {
-      has_connected_integration: integrations.some(
-        (integration) => integration.status === "connected",
-      ),
+      has_connected_integration: connectedProviderIds.length > 0,
       has_enabled_workspace_integration: workspaceIntegrations.some(
         (integration) => integration.enabled,
       ),

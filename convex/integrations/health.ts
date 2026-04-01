@@ -9,8 +9,8 @@ import {
   integrationStatusValidator,
   providerValidator,
 } from "../validators";
-import { PROVIDER_MODULE_VERSION } from "./model";
-import { findIntegrationByProvider } from "./persistence";
+import { isIntegrationConnected, PROVIDER_MODULE_VERSION } from "./model";
+import { findIntegrationByProvider, loadIntegrationBundleByProvider } from "./persistence";
 
 export const testProvider = mutation({
   args: { provider: providerValidator },
@@ -19,14 +19,23 @@ export const testProvider = mutation({
     const auth = await requireOrgMember(ctx);
     const provider = canonicalizeProvider(args.provider);
 
-    const integration = await findIntegrationByProvider(ctx, auth.orgId, provider);
-    if (!integration || integration.status !== INTEGRATION_STATUS.connected) {
+    const bundle = await loadIntegrationBundleByProvider(ctx, auth.orgId, provider);
+    const integration = bundle?.integration;
+    if (
+      !integration ||
+      !isIntegrationConnected({
+        status: integration.status,
+        lastErrorCategory: integration.last_error_category,
+        credentialExpiresAt: bundle.credential?.expires_at,
+      })
+    ) {
       return { ok: false, detail: `${provider} is not connected` };
     }
 
     await ctx.db.patch(integration._id, {
       provider,
       provider_module_version: PROVIDER_MODULE_VERSION,
+      status: INTEGRATION_STATUS.connected,
       last_health_check_at: nowIso(),
       last_successful_health_check_at: nowIso(),
       last_error_code: null,

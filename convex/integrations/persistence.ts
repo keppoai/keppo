@@ -32,6 +32,30 @@ export const findIntegrationByProvider = async (
   return connected ?? sorted[0];
 };
 
+export const loadIntegrationBundleByProvider = async (
+  ctx: IntegrationReadCtx,
+  orgId: string,
+  provider: ProviderId,
+) => {
+  const integration = await findIntegrationByProvider(ctx, orgId, provider);
+  if (!integration) {
+    return null;
+  }
+
+  const account = await ctx.db
+    .query("integration_accounts")
+    .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
+    .unique();
+  const credential = account
+    ? await ctx.db
+        .query("integration_credentials")
+        .withIndex("by_integration_account", (q) => q.eq("integration_account_id", account.id))
+        .unique()
+    : null;
+
+  return { integration, account, credential };
+};
+
 export const upsertConnectedIntegration = async (
   ctx: MutationCtx,
   orgId: string,

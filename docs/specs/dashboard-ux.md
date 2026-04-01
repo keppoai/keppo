@@ -71,6 +71,7 @@
 - Provider metadata editors (for example Stripe `allowed_write_modes`, GitHub `allowed_repositories`) are configured in shared UI contracts and persisted through a generic dashboard editor renderer.
 - Detail-page write actions must be disabled with explicit UX feedback when a provider is disabled for the selected workspace integration policy.
 - Integration detail cards expose degradation diagnostics (`last_health_check_at`, `last_successful_health_check_at`, `last_error_*`, `last_webhook_at`, reconnect guidance).
+- Integration `connected` semantics are credential-centric, not health-state-centric: non-auth degraded providers stay connected with warning UI, while expired or auth-degraded credentials switch to reconnect-required UI.
 - The legacy inline custom-provider form on `/integrations` is replaced by navigation to dedicated custom-server management screens.
 
 ## Visual system
@@ -141,6 +142,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Integration boundary payloads include `has_refresh_token` so dashboard surfaces can distinguish short-lived access tokens from truly expiring credentials.
 - Dashboard expiry warnings only render for connected integrations where `has_refresh_token === false` and `credential_expires_at` is within the warning window.
 - Refreshable OAuth integrations such as Google should not immediately show “credential expiring soon” warnings after a successful connect because the refresh token path can renew the access token automatically.
+- Reconnect-required messaging is reserved for expired credentials and auth degradation classes (`missing_scopes`, revoked credentials, missing refresh token, explicit auth failures). Transient network, provider API, rate-limit, and policy degradations keep the provider visually connected while still contributing to degraded-attention surfaces.
 
 #### B. Workspaces
 
