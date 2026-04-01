@@ -52,6 +52,7 @@ export const oauthStatePayloadSchema = z.object({
   correlation_id: z.string().min(1),
   created_at: z.string().min(1),
   e2e_namespace: z.union([z.string().trim().min(1), z.null()]),
+  user_id: z.string().trim().min(1),
 });
 
 export const oauthTokenResponseSchema = z

@@ -35,6 +35,7 @@ import {
   OAUTH_STATE_DECODE_REASON,
   PROVIDER_METRIC_NAME,
   PROVIDER_METRIC_OUTCOME,
+  USER_ROLE,
   assertNever,
   type OAuthStateDecodeReason,
   type UserRole,
@@ -62,6 +63,10 @@ const OAUTH_CALLBACK_IDEMPOTENCY_TTL_MS = 10 * 60_000;
 const OAUTH_CALLBACK_DEDUPE_WAIT_MS = 2_000;
 const OAUTH_CALLBACK_DEDUPE_POLL_INTERVAL_MS = 120;
 const SYSTEM_METRICS_ORG_ID = "system";
+const ORG_INTEGRATION_MANAGER_ROLES: readonly UserRole[] = [
+  USER_ROLE.owner,
+  USER_ROLE.admin,
+] as const;
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -431,6 +436,23 @@ export const handleOAuthProviderConnectRequest = async (
     );
   }
 
+  if (!ORG_INTEGRATION_MANAGER_ROLES.includes(sessionIdentity.role)) {
+    recordOAuthConnectMetric({
+      provider,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.forbidden,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "forbidden",
+        message: "Integration management requires owner or admin role.",
+      }),
+      403,
+    );
+  }
+
   if (!(await resolveProviderRolloutFlag(deps, provider))) {
     recordOAuthConnectMetric({
       provider,
@@ -509,6 +531,7 @@ export const handleOAuthProviderConnectRequest = async (
     correlation_id: correlationId,
     created_at: stateCreatedAt,
     e2e_namespace: namespace,
+    user_id: sessionIdentity.userId,
   };
 
   await deps.convex.upsertManagedOAuthConnectState({
@@ -777,6 +800,29 @@ export const handleOAuthProviderCallbackRequest = async (
         correlationId,
       }),
       400,
+    );
+  }
+
+  const callbackSession = await resolveSessionFromRequest(request, deps);
+  if (
+    !callbackSession ||
+    callbackSession.userId !== state.user_id ||
+    !ORG_INTEGRATION_MANAGER_ROLES.includes(callbackSession.role)
+  ) {
+    recordOAuthCallbackMetric({
+      provider,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.forbidden,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "forbidden",
+        message: "Integration management requires the original owner or admin session.",
+        correlationId,
+      }),
+      403,
     );
   }
 

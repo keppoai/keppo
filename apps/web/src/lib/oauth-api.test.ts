@@ -145,6 +145,59 @@ describe("start-owned oauth api handlers", () => {
     });
   });
 
+  it("rejects OAuth connect for viewer role", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue({
+      userId: "user_test",
+      orgId: "org_test",
+      role: "viewer",
+    });
+
+    const response = await handleOAuthProviderConnectRequest(
+      withJson(
+        "/api/oauth/integrations/google/connect",
+        { org_id: "org_test", return_to: "/integrations" },
+        { cookie: "better-auth.session_token=session_token_test" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        message: "Integration management requires owner or admin role.",
+        provider: "google",
+      },
+    });
+  });
+
+  it("rejects OAuth connect for approver role", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue({
+      userId: "user_test",
+      orgId: "org_test",
+      role: "approver",
+    });
+
+    const response = await handleOAuthProviderConnectRequest(
+      withJson(
+        "/api/oauth/integrations/google/connect",
+        { org_id: "org_test", return_to: "/integrations" },
+        { cookie: "better-auth.session_token=session_token_test" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        provider: "google",
+      },
+    });
+  });
+
   it("builds a Start-owned OAuth connect response with a normalized return path", async () => {
     const deps = createDeps();
 
@@ -180,6 +233,7 @@ describe("start-owned oauth api handlers", () => {
       return_to: "/",
       scopes: ["scope:read"],
       e2e_namespace: "oauth-connect",
+      user_id: "user_test",
     });
     expect(deps.buildAuthRequest).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -281,11 +335,13 @@ describe("start-owned oauth api handlers", () => {
       correlation_id: "corr_test",
       created_at: new Date().toISOString(),
       e2e_namespace: "oauth-callback",
+      user_id: "user_test",
     })}`;
 
     const response = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        { cookie: "better-auth.session_token=session_token_test" },
       ),
       deps,
     );
@@ -313,6 +369,80 @@ describe("start-owned oauth api handlers", () => {
     );
   });
 
+  it("rejects OAuth callback when session user does not match state user_id", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue({
+      userId: "different_user",
+      orgId: "org_test",
+      role: "owner",
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+      user_id: "user_test",
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        { cookie: "better-auth.session_token=session_token_test" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        provider: "google",
+      },
+    });
+    expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
+  });
+
+  it("rejects OAuth callback when session role is viewer", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue({
+      userId: "user_test",
+      orgId: "org_test",
+      role: "viewer",
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+      user_id: "user_test",
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        { cookie: "better-auth.session_token=session_token_test" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        provider: "google",
+      },
+    });
+    expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
+  });
+
   it("loads the X PKCE verifier from server-side state during callback", async () => {
     const deps = createDeps("x");
     const signedState = `signed:${JSON.stringify({
@@ -324,11 +454,13 @@ describe("start-owned oauth api handlers", () => {
       correlation_id: "corr_x_test",
       created_at: new Date().toISOString(),
       e2e_namespace: "oauth-x",
+      user_id: "user_test",
     })}`;
 
     const response = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/x/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        { cookie: "better-auth.session_token=session_token_test" },
       ),
       deps,
     );
@@ -364,11 +496,13 @@ describe("start-owned oauth api handlers", () => {
       correlation_id: "corr_x_test",
       created_at: new Date().toISOString(),
       e2e_namespace: "oauth-x",
+      user_id: "user_test",
     })}`;
 
     const response = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/x/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        { cookie: "better-auth.session_token=session_token_test" },
       ),
       deps,
     );
@@ -421,11 +555,13 @@ describe("start-owned oauth api handlers", () => {
       correlation_id: "corr_reddit_test",
       created_at: new Date().toISOString(),
       e2e_namespace: "oauth-reddit",
+      user_id: "user_test",
     })}`;
 
     const callbackResponse = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/reddit/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        { cookie: "better-auth.session_token=session_token_test" },
       ),
       deps,
     );

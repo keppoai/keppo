@@ -601,6 +601,7 @@ export const OAUTH_STATE_DECODE_REASON = {
 
 export const OAUTH_METRIC_REASON_CODES = [
   "unauthorized",
+  "forbidden",
   "provider_disabled",
   "cross_org_forbidden",
   "provider_misconfigured",
@@ -615,6 +616,7 @@ export const OAUTH_METRIC_REASON_CODES = [
 export type OAuthMetricReasonCode = (typeof OAUTH_METRIC_REASON_CODES)[number];
 export const OAUTH_METRIC_REASON_CODE = {
   unauthorized: "unauthorized",
+  forbidden: "forbidden",
   providerDisabled: "provider_disabled",
   crossOrgForbidden: "cross_org_forbidden",
   providerMisconfigured: "provider_misconfigured",
