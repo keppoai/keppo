@@ -222,7 +222,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByText("Automation Runs", { exact: true })).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-starter")).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-pro")).toBeVisible();
-  await expect(page.getByTestId("billing-manage-subscription")).toBeDisabled();
+  await expect(page.getByTestId("billing-manage-subscription")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Buy 1,500 runs ($15)" })).toHaveCount(0);
 
   const starterCheckout = await waitForBillingActionOutcomeAfterClick(
@@ -254,6 +254,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByText("$25/mo")).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-starter")).toHaveCount(0);
   await expect(page.getByTestId("billing-upgrade-pro")).toHaveCount(0);
+  await expect(page.getByTestId("billing-card-upgrade-pro")).toBeVisible();
   await expect(page.getByTestId("billing-change-plan")).toBeVisible();
   await expect(page.getByTestId("billing-manage-subscription")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Buy 1,500 runs ($15)" })).toBeVisible();
@@ -267,6 +268,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByText("$75/mo")).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-starter")).toHaveCount(0);
   await expect(page.getByTestId("billing-upgrade-pro")).toHaveCount(0);
+  await expect(page.getByTestId("billing-card-downgrade-starter")).toBeVisible();
   await expect(page.getByTestId("billing-change-plan")).toBeVisible();
   await expect(page.getByRole("button", { name: "Buy 15,000 runs ($45)" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Buy 30,000 runs ($75)" })).toBeVisible();

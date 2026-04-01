@@ -836,12 +836,14 @@ function BillingPage() {
     }
   };
 
-  const openChangePlanDialog = (): void => {
+  const openChangePlanDialog = (target?: "starter" | "pro" | "free"): void => {
     if (!billing) {
       return;
     }
     setChangePlanError(null);
-    if (billing.tier === "starter") {
+    if (target) {
+      setPlanTarget(target);
+    } else if (billing.tier === "starter") {
       setPlanTarget("pro");
     } else {
       setPlanTarget("starter");
@@ -1040,53 +1042,204 @@ function BillingPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Plan Comparison</CardTitle>
+          <CardTitle>Your Plan</CardTitle>
           <CardDescription>
-            Compare workspace limits, included AI credits, and monthly tool call volume.
+            Current tier:{" "}
+            <span data-testid="billing-tier-label" className="font-medium capitalize">
+              {toTierLabel(currentBilling.tier)}
+            </span>{" "}
+            ({currentBilling.status})
           </CardDescription>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          {tierComparison.map((tier) => (
+        <CardContent className="grid gap-4">
+          {invitePromo && promoExpiryLabel ? (
             <div
-              key={tier.id}
-              className={
-                tier.id === currentBilling.tier
-                  ? "rounded-xl border border-primary bg-primary/5 p-4"
-                  : "rounded-xl border p-4"
-              }
+              data-testid="billing-invite-promo-banner"
+              className="rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/12 via-primary/8 to-background px-4 py-4 text-sm text-primary shadow-sm"
             >
-              <div className="flex items-center justify-between gap-2">
-                <div>
-                  <p className="font-semibold">{tier.label}</p>
-                  <p className="text-muted-foreground text-sm">
-                    {formatMonthlyPrice(tier.priceCentsMonthly)}
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-1">
+                  <div className="inline-flex w-fit rounded-full border border-primary/25 bg-background/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">
+                    Invite promo active
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {promoTierLabel} access is unlocked until {promoExpiryLabel}.
+                  </p>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Code{" "}
+                    <span className="rounded bg-background px-1.5 py-0.5 font-mono text-xs text-foreground">
+                      {invitePromo.code}
+                    </span>{" "}
+                    is covering this workspace today. Start Stripe checkout any time before the
+                    promo ends to keep paid access without interruption.
                   </p>
                 </div>
-                {tier.id === currentBilling.tier ? (
-                  <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
-                    Current
-                  </span>
-                ) : null}
               </div>
-              <dl className="mt-4 space-y-2 text-sm text-muted-foreground">
-                <div className="flex justify-between gap-3">
-                  <dt>Workspaces</dt>
-                  <dd className="font-medium text-foreground">{tier.workspaces}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt>{tier.aiCreditsLabel}</dt>
-                  <dd className="font-medium text-foreground">{tier.aiCredits}</dd>
-                </div>
-                <div className="flex justify-between gap-3">
-                  <dt>Tool calls / mo</dt>
-                  <dd className="font-medium text-foreground">{tier.toolCalls}</dd>
-                </div>
-              </dl>
-              <p className="mt-3 text-xs leading-5 text-muted-foreground">
-                {tier.aiCreditsDescription}
-              </p>
             </div>
-          ))}
+          ) : null}
+
+          <div className="grid gap-3 md:grid-cols-3">
+            {tierComparison.map((tier) => {
+              const isCurrent = tier.id === currentBilling.tier;
+              const currentRank = tierRank[currentBilling.tier];
+              const cardRank = tierRank[tier.id];
+              const isHigher = cardRank > currentRank;
+              const isLower = cardRank < currentRank && cardRank > 0;
+
+              return (
+                <div
+                  key={tier.id}
+                  className={cn(
+                    "flex flex-col rounded-xl border p-4",
+                    isCurrent && "border-primary bg-primary/5",
+                  )}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div>
+                      <p className="font-semibold">{tier.label}</p>
+                      <p className="text-muted-foreground text-sm">
+                        {formatMonthlyPrice(tier.priceCentsMonthly)}
+                      </p>
+                    </div>
+                    {isCurrent ? (
+                      <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
+                        Current
+                      </span>
+                    ) : null}
+                  </div>
+                  <dl className="mt-4 space-y-2 text-sm text-muted-foreground">
+                    <div className="flex justify-between gap-3">
+                      <dt>Workspaces</dt>
+                      <dd className="font-medium text-foreground">{tier.workspaces}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>{tier.aiCreditsLabel}</dt>
+                      <dd className="font-medium text-foreground">{tier.aiCredits}</dd>
+                    </div>
+                    <div className="flex justify-between gap-3">
+                      <dt>Tool calls / mo</dt>
+                      <dd className="font-medium text-foreground">{tier.toolCalls}</dd>
+                    </div>
+                  </dl>
+                  <p className="mt-3 text-xs leading-5 text-muted-foreground">
+                    {tier.aiCreditsDescription}
+                  </p>
+
+                  <div className="mt-auto flex flex-col gap-2 pt-4">
+                    {isCurrent && canManageBilling && usageView.showManageSubscription ? (
+                      <Button
+                        data-testid="billing-manage-subscription"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => void handlePortal()}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction === "portal" ? "Opening..." : "Manage Subscription"}
+                      </Button>
+                    ) : null}
+                    {isCurrent && canManageBilling && usageView.showChangePlan ? (
+                      <div className="grid gap-1">
+                        <Button
+                          data-testid="billing-change-plan"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => openChangePlanDialog()}
+                          disabled={
+                            busyAction !== null ||
+                            pendingSubscription?.cancel_at_period_end === true
+                          }
+                          aria-describedby={
+                            pendingSubscription?.cancel_at_period_end === true
+                              ? "billing-change-plan-hint"
+                              : undefined
+                          }
+                        >
+                          Change plan
+                        </Button>
+                        {pendingSubscription?.cancel_at_period_end === true ? (
+                          <p
+                            id="billing-change-plan-hint"
+                            className="text-xs text-muted-foreground"
+                            data-testid="billing-change-plan-hint"
+                          >
+                            Undo the pending cancellation first to change plans.
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {!isCurrent &&
+                    canManageBilling &&
+                    isHigher &&
+                    billingSource === BILLING_SOURCE.free ? (
+                      <Button
+                        data-testid={
+                          tier.id === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro"
+                        }
+                        size="sm"
+                        onClick={() => void handleCheckout(tier.id as "starter" | "pro")}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction ===
+                        (tier.id === "starter" ? "checkout_starter" : "checkout_pro")
+                          ? "Opening..."
+                          : `Upgrade to ${tier.label}`}
+                      </Button>
+                    ) : null}
+                    {!isCurrent &&
+                    canManageBilling &&
+                    isHigher &&
+                    billingSource === BILLING_SOURCE.invitePromo ? (
+                      <Button
+                        data-testid={
+                          tier.id === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro"
+                        }
+                        variant={invitePromo?.grant_tier === tier.id ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => void handleCheckout(tier.id as "starter" | "pro")}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction ===
+                        (tier.id === "starter" ? "checkout_starter" : "checkout_pro")
+                          ? "Opening..."
+                          : `Start ${tier.label} subscription`}
+                      </Button>
+                    ) : null}
+                    {!isCurrent &&
+                    canManageBilling &&
+                    isHigher &&
+                    billingSource === BILLING_SOURCE.stripe ? (
+                      <Button
+                        data-testid={`billing-card-upgrade-${tier.id}`}
+                        size="sm"
+                        onClick={() => openChangePlanDialog(tier.id as "starter" | "pro")}
+                        disabled={
+                          busyAction !== null || pendingSubscription?.cancel_at_period_end === true
+                        }
+                      >
+                        Upgrade to {tier.label}
+                      </Button>
+                    ) : null}
+                    {!isCurrent &&
+                    canManageBilling &&
+                    isLower &&
+                    billingSource === BILLING_SOURCE.stripe ? (
+                      <Button
+                        data-testid={`billing-card-downgrade-${tier.id}`}
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openChangePlanDialog(tier.id as "starter" | "pro")}
+                        disabled={
+                          busyAction !== null || pendingSubscription?.cancel_at_period_end === true
+                        }
+                      >
+                        Downgrade to {tier.label}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </CardContent>
       </Card>
 
@@ -1165,125 +1318,6 @@ function BillingPage() {
           </CardContent>
         </Card>
       ) : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Current Plan</CardTitle>
-          <CardDescription>
-            Tier:{" "}
-            <span data-testid="billing-tier-label" className="font-medium capitalize">
-              {toTierLabel(currentBilling.tier)}
-            </span>{" "}
-            ({currentBilling.status})
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
-          {invitePromo && promoExpiryLabel ? (
-            <div
-              data-testid="billing-invite-promo-banner"
-              className="rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/12 via-primary/8 to-background px-4 py-4 text-sm text-primary shadow-sm md:col-span-3"
-            >
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div className="space-y-1">
-                  <div className="inline-flex w-fit rounded-full border border-primary/25 bg-background/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">
-                    Invite promo active
-                  </div>
-                  <p className="text-sm font-semibold text-foreground">
-                    {promoTierLabel} access is unlocked until {promoExpiryLabel}.
-                  </p>
-                  <p className="text-sm leading-6 text-muted-foreground">
-                    Code{" "}
-                    <span className="rounded bg-background px-1.5 py-0.5 font-mono text-xs text-foreground">
-                      {invitePromo.code}
-                    </span>{" "}
-                    is covering this workspace today. Start Stripe checkout any time before the
-                    promo ends to keep paid access without interruption.
-                  </p>
-                </div>
-              </div>
-            </div>
-          ) : null}
-          <div className="rounded-lg border bg-muted/40 p-3 text-sm md:col-span-3">
-            {currentBilling.limits.included_ai_credits.bundled_runtime_enabled
-              ? `This plan includes ${currentBilling.limits.included_ai_credits.total} bundled AI credits each billing cycle for prompt generation and bundled automation runtime.`
-              : currentBilling.limits.included_ai_credits.reset_period === "one_time"
-                ? `This tier includes a one-time grant of ${currentBilling.limits.included_ai_credits.total} credits for prompt generation.`
-                : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation only. Automation runtime still requires Bring your own key.`}
-          </div>
-          {canManageBilling && usageView.showUpgradeStarter ? (
-            <Button
-              data-testid="billing-upgrade-starter"
-              variant={
-                billingSource === "invite_promo" && invitePromo?.grant_tier !== "starter"
-                  ? "outline"
-                  : "default"
-              }
-              onClick={() => void handleCheckout("starter")}
-              disabled={busyAction !== null}
-            >
-              {busyAction === "checkout_starter"
-                ? "Opening..."
-                : billingSource === "invite_promo"
-                  ? "Start Starter subscription"
-                  : "Upgrade to Starter"}
-            </Button>
-          ) : null}
-          {canManageBilling && usageView.showUpgradePro ? (
-            <Button
-              data-testid="billing-upgrade-pro"
-              variant={
-                billingSource === "invite_promo" && invitePromo?.grant_tier !== "pro"
-                  ? "outline"
-                  : "default"
-              }
-              onClick={() => void handleCheckout("pro")}
-              disabled={busyAction !== null}
-            >
-              {busyAction === "checkout_pro"
-                ? "Opening..."
-                : billingSource === "invite_promo"
-                  ? "Start Pro subscription"
-                  : "Upgrade to Pro"}
-            </Button>
-          ) : null}
-          {canManageBilling && usageView.showChangePlan ? (
-            <div className="grid gap-2">
-              <Button
-                data-testid="billing-change-plan"
-                variant="outline"
-                onClick={() => openChangePlanDialog()}
-                disabled={busyAction !== null || pendingSubscription?.cancel_at_period_end === true}
-                aria-describedby={
-                  pendingSubscription?.cancel_at_period_end === true
-                    ? "billing-change-plan-hint"
-                    : undefined
-                }
-              >
-                Change plan
-              </Button>
-              {pendingSubscription?.cancel_at_period_end === true ? (
-                <p
-                  id="billing-change-plan-hint"
-                  className="text-xs text-muted-foreground"
-                  data-testid="billing-change-plan-hint"
-                >
-                  Undo the pending cancellation first to change plans.
-                </p>
-              ) : null}
-            </div>
-          ) : null}
-          {canManageBilling && billingSource !== "invite_promo" ? (
-            <Button
-              data-testid="billing-manage-subscription"
-              variant="outline"
-              onClick={() => void handlePortal()}
-              disabled={busyAction !== null || !usageView.showManageSubscription}
-            >
-              {busyAction === "portal" ? "Opening..." : "Manage Subscription"}
-            </Button>
-          ) : null}
-        </CardContent>
-      </Card>
 
       <Card>
         <CardHeader>
