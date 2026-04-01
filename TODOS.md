@@ -1,0 +1,11 @@
+- [x] Re-read the PR context files and self-review the current trusted threads, trusted reviews, trusted issue comments, and non-success check state.
+- [x] Investigate the non-success CI/check state from the workflow context and confirm whether any failing GitHub Actions checks require root-cause debugging.
+- [x] Address the trusted cubic thread about `setUserActiveOrganizationForTesting` in `convex/mcp/testing_support.ts`.
+- [x] Address the trusted accessibility thread about admin-only billing banners in `apps/web/src/routes/billing.lazy.tsx`.
+- [x] Address any actionable feedback from `trustedReviews` and `trustedIssueComments` that is not already covered by the trusted threads.
+- [x] Make any required code and test changes, keeping docs/specs/rules in sync if behavior changes.
+- [x] Run the required verification, including `pnpm check`, and fix every failure until it passes.
+- [x] Run required E2E verification if the workflow context shows failing E2E checks and the fix changes need local E2E confirmation.
+- [ ] Create a local Conventional Commit for the final code changes if any files changed.
+- [ ] Re-read `TODOS.md`, confirm every item is complete, then write `tmp/pr-review-responder/actions.json`.
+- [ ] Delete `TODOS.md`.

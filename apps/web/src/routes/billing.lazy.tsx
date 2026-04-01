@@ -71,7 +71,7 @@ type OptimisticInvitePromo = {
 };
 
 const BILLING_ADMIN_NOTE =
-  "Only organization owners and admins can start checkout, buy top-ups, change plans, or open the billing portal.";
+  "Billing is managed by organization owners and admins. Ask them to handle plan changes, checkout, top-ups, or billing portal access.";
 
 function BillingCapacityTopups({
   canManageBilling,
@@ -234,6 +234,7 @@ function BillingCapacityTopups({
             ) : (
               <div
                 data-testid="billing-topups-note"
+                role="status"
                 className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
               >
                 Ask an owner or admin to purchase AI credit packs for this organization.
@@ -352,7 +353,11 @@ function BillingCapacityTopups({
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                  <div
+                    role="status"
+                    data-testid="billing-automation-topups-note"
+                    className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
+                  >
                     Ask an owner or admin to purchase automation run top-ups for this organization.
                   </div>
                 )}
@@ -965,6 +970,7 @@ function BillingPage() {
       {!canManageBilling ? (
         <div
           data-testid="billing-management-note"
+          role="status"
           className="rounded-2xl border border-border/70 bg-muted/40 px-4 py-3 text-sm text-muted-foreground"
         >
           {BILLING_ADMIN_NOTE}
@@ -1001,6 +1007,7 @@ function BillingPage() {
               </Button>
             ) : (
               <p
+                role="status"
                 className="text-sm text-muted-foreground sm:max-w-xs sm:text-right"
                 data-testid="billing-undo-cancel-note"
               >

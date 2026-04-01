@@ -129,18 +129,25 @@ describe("BillingPage", () => {
     });
 
     expect(await screen.findByRole("heading", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByTestId("billing-management-note")).toHaveAttribute("role", "status");
     expect(screen.getByTestId("billing-management-note")).toHaveTextContent(
-      "Only organization owners and admins can start checkout, buy top-ups, change plans, or open the billing portal.",
+      "Billing is managed by organization owners and admins. Ask them to handle plan changes, checkout, top-ups, or billing portal access.",
     );
     expect(screen.queryByTestId("billing-change-plan")).not.toBeInTheDocument();
     expect(screen.queryByTestId("billing-manage-subscription")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Buy 100 credits ($10)" })).not.toBeInTheDocument();
     expect(screen.queryByTestId("billing-undo-cancel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-undo-cancel-note")).toHaveAttribute("role", "status");
     expect(screen.getByTestId("billing-undo-cancel-note")).toHaveTextContent(
       "Ask an owner or admin to keep this subscription active.",
     );
+    expect(screen.getByTestId("billing-topups-note")).toHaveAttribute("role", "status");
     expect(screen.getByTestId("billing-topups-note")).toHaveTextContent(
       "Ask an owner or admin to purchase AI credit packs for this organization.",
+    );
+    expect(screen.getByTestId("billing-automation-topups-note")).toHaveAttribute("role", "status");
+    expect(screen.getByTestId("billing-automation-topups-note")).toHaveTextContent(
+      "Ask an owner or admin to purchase automation run top-ups for this organization.",
     );
   });
 });
