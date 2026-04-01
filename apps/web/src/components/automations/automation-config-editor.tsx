@@ -30,9 +30,8 @@ import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-error
 import { UserFacingErrorView } from "@/components/ui/user-facing-error";
 import { HelpText } from "@/components/ui/help-text";
 import {
-  getModelProviderForRunner,
+  getAutomationModelClassMeta,
   getNetworkAccessMeta,
-  getRunnerTypeForModelProvider,
   parseAiCreditBalance,
   resolveAutomationExecutionState,
   type Automation,
@@ -41,14 +40,11 @@ import {
 import { getProviderMeta } from "@/components/integrations/provider-icons";
 import {
   automationFormSchema,
-  AI_MODELS,
   buildAutomationConfigInput,
   getDefaultAutomationFormValues,
-  getDefaultModelForProvider,
   getProviderTriggerFormDefaults,
-  parseAiModelProvider,
+  parseModelClass,
   parseNetworkAccess,
-  parseRunnerType,
   parseTriggerType,
   type AutomationFormValues,
 } from "./automation-form-schema";
@@ -194,6 +190,7 @@ export function AutomationConfigEditor({
           config.provider_trigger?.filter ??
           (config.event_predicate ? { predicate: config.event_predicate } : {}),
       }),
+      model_class: config.model_class,
       runner_type: config.runner_type,
       ai_model_provider: config.ai_model_provider,
       ai_model_name: config.ai_model_name,
@@ -202,8 +199,15 @@ export function AutomationConfigEditor({
     }),
   });
   const triggerType = form.watch("trigger_type");
-  const aiModelProvider = form.watch("ai_model_provider");
+  const modelClass = form.watch("model_class");
   const networkAccess = form.watch("network_access");
+  const executionProviderByModelClass = {
+    auto: "openai",
+    frontier: "openai",
+    balanced: "openai",
+    value: "openai",
+  } as const;
+  const executionProvider = executionProviderByModelClass[modelClass];
   const {
     register,
     handleSubmit,
@@ -229,6 +233,7 @@ export function AutomationConfigEditor({
             config.provider_trigger?.filter ??
             (config.event_predicate ? { predicate: config.event_predicate } : {}),
         }),
+        model_class: config.model_class,
         runner_type: config.runner_type,
         ai_model_provider: config.ai_model_provider,
         ai_model_name: config.ai_model_name,
@@ -267,11 +272,11 @@ export function AutomationConfigEditor({
   const executionState = useMemo(
     () =>
       resolveAutomationExecutionState({
-        provider: aiModelProvider,
+        provider: executionProvider,
         creditBalance,
         orgAiKeys: Array.isArray(orgAiKeys) ? orgAiKeys : [],
       }),
-    [aiModelProvider, creditBalance, orgAiKeys],
+    [executionProvider, creditBalance, orgAiKeys],
   );
   const executionStatePending = creditBalanceRaw === undefined || orgAiKeys === undefined;
   const handleGenerate = async () => {
@@ -357,6 +362,7 @@ export function AutomationConfigEditor({
           schedule_cron: getValues("schedule_cron") || null,
           event_provider: getValues("provider_trigger_provider_id") || null,
           event_type: getValues("provider_trigger_key") || null,
+          model_class: getValues("model_class"),
           ai_model_provider: getValues("ai_model_provider"),
           ai_model_name: getValues("ai_model_name"),
           network_access: getValues("network_access"),
@@ -580,89 +586,34 @@ export function AutomationConfigEditor({
 
         <Card>
           <CardHeader>
-            <CardTitle>Runner</CardTitle>
+            <CardTitle>Model</CardTitle>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            <div className="space-y-1">
-              <Label htmlFor="config-runner">Runner type</Label>
+            <div className="space-y-1 md:col-span-2">
+              <Label htmlFor="config-model-class">Model class</Label>
               <Controller
                 control={control}
-                name="runner_type"
+                name="model_class"
                 render={({ field }) => (
                   <NativeSelect
-                    id="config-runner"
+                    id="config-model-class"
                     value={field.value}
-                    onChange={(event) => {
-                      const nextRunner = parseRunnerType(event.currentTarget.value);
-                      const nextProvider = getModelProviderForRunner(nextRunner);
-                      field.onChange(nextRunner);
-                      setValue("ai_model_provider", nextProvider, {
-                        shouldDirty: true,
-                      });
-                      setValue("ai_model_name", getDefaultModelForProvider(nextProvider), {
-                        shouldDirty: true,
-                      });
-                    }}
+                    onChange={(event) => field.onChange(parseModelClass(event.currentTarget.value))}
                   >
-                    <option value="chatgpt_codex">ChatGPT Codex</option>
-                    <option value="claude_code">Claude Code</option>
+                    <option value="auto">Auto</option>
+                    <option value="frontier">Frontier</option>
+                    <option value="balanced">Balanced</option>
+                    <option value="value">Value</option>
                   </NativeSelect>
                 )}
               />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="config-provider">Model provider</Label>
-              <Controller
-                control={control}
-                name="ai_model_provider"
-                render={({ field }) => (
-                  <NativeSelect
-                    id="config-provider"
-                    value={field.value}
-                    onChange={(event) => {
-                      const nextProvider = parseAiModelProvider(event.currentTarget.value);
-                      field.onChange(nextProvider);
-                      setValue("runner_type", getRunnerTypeForModelProvider(nextProvider), {
-                        shouldDirty: true,
-                      });
-                      setValue("ai_model_name", getDefaultModelForProvider(nextProvider), {
-                        shouldDirty: true,
-                      });
-                    }}
-                  >
-                    <option value="openai">OpenAI</option>
-                    <option value="anthropic">Anthropic</option>
-                  </NativeSelect>
-                )}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <Label htmlFor="config-model">Model name</Label>
-              <Controller
-                control={control}
-                name="ai_model_name"
-                render={({ field }) => (
-                  <NativeSelect
-                    id="config-model"
-                    value={field.value}
-                    onChange={(event) => field.onChange(event.currentTarget.value)}
-                  >
-                    {AI_MODELS[aiModelProvider].map((model) => (
-                      <option key={model} value={model}>
-                        {model}
-                      </option>
-                    ))}
-                  </NativeSelect>
-                )}
-              />
+              <HelpText>{getAutomationModelClassMeta(modelClass).description}</HelpText>
             </div>
 
             <div className="space-y-1 md:col-span-2">
               {executionStatePending ? null : (
                 <AutomationExecutionModeCallout
-                  provider={aiModelProvider}
+                  provider={executionProvider}
                   state={executionState}
                   billingPath={buildOrgPath("/settings/billing")}
                   settingsPath={buildOrgPath("/settings")}

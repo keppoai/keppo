@@ -24,14 +24,13 @@ import {
 import { UserFacingErrorView } from "@/components/ui/user-facing-error";
 import {
   automationStatusBadgeVariant,
-  getAiModelProviderLabel,
+  getAutomationModelClassMeta,
   getAutomationTriggerDetail,
   getAutomationTriggerLabel,
   getNetworkAccessMeta,
   getProviderTriggerSubscriptionSummary,
   getTriggerEventSummary,
   humanizeRunStatus,
-  humanizeRunner,
   humanizeTriggerType,
   parseAutomationTriggerEvents,
   parsePaginatedRuns,
@@ -140,15 +139,8 @@ function ConfigSummary({
               <dd>{subscriptionSummary ?? "Not yet activated"}</dd>
             </>
           ) : null}
-          <dt className="text-muted-foreground">Runner</dt>
-          <dd>{humanizeRunner(config.runner_type)}</dd>
           <dt className="text-muted-foreground">Model</dt>
-          <dd>
-            {config.ai_model_name}{" "}
-            <span className="text-muted-foreground">
-              ({getAiModelProviderLabel(config.ai_model_provider)})
-            </span>
-          </dd>
+          <dd>{getAutomationModelClassMeta(config.model_class).label}</dd>
           <dt className="text-muted-foreground">Network</dt>
           <dd>{getNetworkAccessMeta(config.network_access).label}</dd>
         </dl>

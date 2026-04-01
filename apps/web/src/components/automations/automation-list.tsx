@@ -21,9 +21,9 @@ import {
 } from "@/components/ui/table";
 import {
   automationStatusBadgeVariant,
+  getAutomationModelClassMeta,
   getAutomationPathSegment,
   getRunStatusSummary,
-  humanizeRunner,
   humanizeRunStatus,
   humanizeTriggerType,
   parsePaginatedAutomations,
@@ -54,7 +54,7 @@ const searchAutomation = (item: AutomationListItem, term: string): boolean => {
     item.automation.mermaid_content,
     item.automation.status,
     item.current_config_version?.trigger_type,
-    item.current_config_version?.runner_type,
+    item.current_config_version?.model_class,
     item.latest_run?.status,
     item.latest_run?.error_message,
   ]
@@ -70,7 +70,7 @@ function AutomationListRow({
   onOpenAutomation: (path: string) => void;
 }) {
   const triggerType = item.current_config_version?.trigger_type ?? "schedule";
-  const runner = item.current_config_version?.runner_type ?? "chatgpt_codex";
+  const modelClass = item.current_config_version?.model_class ?? "auto";
 
   return (
     <TableRow
@@ -102,7 +102,7 @@ function AutomationListRow({
         </Badge>
       </TableCell>
       <TableCell>{humanizeTriggerType(triggerType)}</TableCell>
-      <TableCell>{humanizeRunner(runner)}</TableCell>
+      <TableCell>{getAutomationModelClassMeta(modelClass).label}</TableCell>
       <TableCell>
         {item.latest_run ? (
           <div className="flex flex-col gap-1">
@@ -290,7 +290,7 @@ export function AutomationList({ workspaceId, onOpenAutomation }: AutomationList
                 <TableHead>Name</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Trigger</TableHead>
-                <TableHead>Runner</TableHead>
+                <TableHead>Model</TableHead>
                 <TableHead>Last run</TableHead>
               </TableRow>
             </TableHeader>

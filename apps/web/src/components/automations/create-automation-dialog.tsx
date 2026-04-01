@@ -34,21 +34,17 @@ import { UserFacingErrorView } from "@/components/ui/user-facing-error";
 import { HelpText } from "@/components/ui/help-text";
 import { TierLimitBanner } from "@/components/ui/tier-limit-banner";
 import {
-  getModelProviderForRunner,
+  getAutomationModelClassMeta,
   getNetworkAccessMeta,
-  getRunnerTypeForModelProvider,
   parseAiCreditBalance,
 } from "@/lib/automations-view-model";
 import {
   automationFormSchema,
-  AI_MODELS,
   buildAutomationConfigInput,
   getDefaultAutomationFormValues,
-  getDefaultModelForProvider,
   getProviderTriggerFormDefaults,
-  parseAiModelProvider,
+  parseModelClass,
   parseNetworkAccess,
-  parseRunnerType,
   parseTriggerType,
   type AutomationFormValues,
 } from "./automation-form-schema";
@@ -165,7 +161,7 @@ export function CreateAutomationDialog({
     defaultValues: getDefaultAutomationFormValues(),
   });
   const triggerType = form.watch("trigger_type");
-  const aiModelProvider = form.watch("ai_model_provider");
+  const modelClass = form.watch("model_class");
   const networkAccess = form.watch("network_access");
   const {
     register,
@@ -569,7 +565,7 @@ export function CreateAutomationDialog({
                       <div className="space-y-1">
                         <p className="text-sm font-medium">Advanced Settings</p>
                         <p className="text-muted-foreground text-xs">
-                          Optional runner, model, auth, and network controls for expert tuning.
+                          Optional model and network controls for expert tuning.
                         </p>
                       </div>
                       <ChevronDownIcon
@@ -577,94 +573,27 @@ export function CreateAutomationDialog({
                       />
                     </CollapsibleTrigger>
                     <CollapsibleContent className="grid gap-3 pt-3 md:grid-cols-2">
-                      <div className="space-y-1">
-                        <Label htmlFor="runner-type">Runner</Label>
+                      <div className="space-y-1 md:col-span-2">
+                        <Label htmlFor="model-class">Model</Label>
                         <Controller
                           control={control}
-                          name="runner_type"
+                          name="model_class"
                           render={({ field }) => (
                             <NativeSelect
-                              id="runner-type"
+                              id="model-class"
                               value={field.value}
-                              onChange={(event) => {
-                                const nextRunner = parseRunnerType(event.currentTarget.value);
-                                const nextProvider = getModelProviderForRunner(nextRunner);
-                                field.onChange(nextRunner);
-                                setValue("ai_model_provider", nextProvider, {
-                                  shouldDirty: true,
-                                });
-                                setValue(
-                                  "ai_model_name",
-                                  getDefaultModelForProvider(nextProvider),
-                                  {
-                                    shouldDirty: true,
-                                  },
-                                );
-                              }}
+                              onChange={(event) =>
+                                field.onChange(parseModelClass(event.currentTarget.value))
+                              }
                             >
-                              <option value="chatgpt_codex">ChatGPT Codex</option>
-                              <option value="claude_code">Claude Code</option>
+                              <option value="auto">Auto</option>
+                              <option value="frontier">Frontier</option>
+                              <option value="balanced">Balanced</option>
+                              <option value="value">Value</option>
                             </NativeSelect>
                           )}
                         />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label htmlFor="model-provider">Model Provider</Label>
-                        <Controller
-                          control={control}
-                          name="ai_model_provider"
-                          render={({ field }) => (
-                            <NativeSelect
-                              id="model-provider"
-                              value={field.value}
-                              onChange={(event) => {
-                                const nextProvider = parseAiModelProvider(
-                                  event.currentTarget.value,
-                                );
-                                field.onChange(nextProvider);
-                                setValue(
-                                  "runner_type",
-                                  getRunnerTypeForModelProvider(nextProvider),
-                                  {
-                                    shouldDirty: true,
-                                  },
-                                );
-                                setValue(
-                                  "ai_model_name",
-                                  getDefaultModelForProvider(nextProvider),
-                                  {
-                                    shouldDirty: true,
-                                  },
-                                );
-                              }}
-                            >
-                              <option value="openai">OpenAI</option>
-                              <option value="anthropic">Anthropic</option>
-                            </NativeSelect>
-                          )}
-                        />
-                      </div>
-
-                      <div className="space-y-1">
-                        <Label htmlFor="model-name">Model</Label>
-                        <Controller
-                          control={control}
-                          name="ai_model_name"
-                          render={({ field }) => (
-                            <NativeSelect
-                              id="model-name"
-                              value={field.value}
-                              onChange={(event) => field.onChange(event.currentTarget.value)}
-                            >
-                              {AI_MODELS[aiModelProvider].map((model) => (
-                                <option key={model} value={model}>
-                                  {model}
-                                </option>
-                              ))}
-                            </NativeSelect>
-                          )}
-                        />
+                        <HelpText>{getAutomationModelClassMeta(modelClass).description}</HelpText>
                       </div>
 
                       <div className="space-y-1 md:col-span-2">

@@ -45,7 +45,7 @@ const toolCallAllowanceFor = (tierId: SubscriptionTierId): number =>
 export const SUBSCRIPTION_TIERS: Record<SubscriptionTierId, SubscriptionTierConfig> = {
   free: {
     id: "free",
-    label: "Free",
+    label: "Free trial",
     price_cents_monthly: 0,
     max_workspaces: 2,
     max_members: 1,
@@ -107,6 +107,10 @@ export const getTierConfig = (tierId: SubscriptionTierId): SubscriptionTier => {
 
 export const getAiCreditAllowanceForTier = (tierId: SubscriptionTierId): number => {
   return aiCreditAllowanceFor(tierId);
+};
+
+export const getIncludedAiCreditsForTier = (tierId: SubscriptionTierId): IncludedAiCredits => {
+  return INCLUDED_AI_CREDITS[tierId];
 };
 
 export const coerceSubscriptionTierId = (value: unknown): SubscriptionTierId => {

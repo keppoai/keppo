@@ -109,6 +109,7 @@ export type BillingUsage = {
     included_ai_credits: {
       total: number;
       bundled_runtime_enabled: boolean;
+      reset_period: "monthly" | "one_time";
     };
   };
 };

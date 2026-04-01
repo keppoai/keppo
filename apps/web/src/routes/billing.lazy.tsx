@@ -591,10 +591,12 @@ function BillingPage() {
           aiCredits: tier.included_ai_credits.total,
           aiCreditsLabel: tier.included_ai_credits.bundled_runtime_enabled
             ? "Bundled AI credits / mo"
-            : "Prompt-generation credits / mo",
+            : tier.included_ai_credits.reset_period === "one_time"
+              ? "Included trial credits"
+              : "Included AI credits / mo",
           aiCreditsDescription: tier.included_ai_credits.bundled_runtime_enabled
-            ? "Includes Keppo-managed runtime credits with BYO fallback when configured."
-            : "Free credits cover prompt generation only. Runtime stays BYO-only.",
+            ? "Includes Keppo-managed runtime credits."
+            : "One-time trial credits cover prompt generation only.",
           toolCalls: tier.max_tool_calls_per_month,
         };
       }),
@@ -990,7 +992,7 @@ function BillingPage() {
                 Subscription ends {formatEffectiveDate(pendingSubscription.pending_effective_at)}.
               </span>{" "}
               <span className="text-muted-foreground">
-                You will move to the Free plan afterward.
+                You will move to the Free tier afterward. Trial credits are not re-granted.
               </span>
             </p>
             {canManageBilling ? (
@@ -1110,8 +1112,8 @@ function BillingPage() {
           <CardHeader>
             <CardTitle>Redeem Invite Code</CardTitle>
             <CardDescription>
-              Apply a starter or pro promo code here while the org is on the Free plan. Paid promo
-              codes work even when the invite gate is off.
+              Apply a starter or pro promo code here while the org is on the Free trial tier. Paid
+              promo codes work even when the invite gate is off.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1204,7 +1206,9 @@ function BillingPage() {
           <div className="rounded-lg border bg-muted/40 p-3 text-sm md:col-span-3">
             {currentBilling.limits.included_ai_credits.bundled_runtime_enabled
               ? `This plan includes ${currentBilling.limits.included_ai_credits.total} bundled AI credits each billing cycle for prompt generation and bundled automation runtime.`
-              : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation only. Automation runtime still requires Bring your own key.`}
+              : currentBilling.limits.included_ai_credits.reset_period === "one_time"
+                ? `This tier includes a one-time grant of ${currentBilling.limits.included_ai_credits.total} credits for prompt generation.`
+                : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation only. Automation runtime still requires Bring your own key.`}
           </div>
           {canManageBilling && usageView.showUpgradeStarter ? (
             <Button
@@ -1399,8 +1403,8 @@ function BillingPage() {
                     <span>
                       <span className="font-medium text-foreground">Cancel at end of period</span>
                       <span className="text-muted-foreground block text-xs">
-                        Move to the Free plan when the current billing period ends. You keep Starter
-                        until then.
+                        Move to the Free tier when the current billing period ends. Trial credits
+                        are not re-granted, and you keep Starter until then.
                       </span>
                     </span>
                   </label>

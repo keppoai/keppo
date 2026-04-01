@@ -48,6 +48,7 @@ export type AutomationContextSnapshot = {
   schedule_cron?: string | null;
   event_provider?: string | null;
   event_type?: string | null;
+  model_class: "auto" | "frontier" | "balanced" | "value";
   ai_model_provider: "openai" | "anthropic";
   ai_model_name: string;
   network_access: "mcp_only" | "mcp_and_web";
@@ -59,6 +60,7 @@ export type ParsedAutomationGeneration = {
   description: string;
   mermaid_content: string;
   name: string;
+  model_class: "auto" | "frontier" | "balanced" | "value";
   ai_model_provider: "openai" | "anthropic";
   ai_model_name: string;
   network_access: "mcp_only" | "mcp_and_web";
@@ -103,14 +105,10 @@ export const automationGenerationJsonSchema = {
       type: "string",
       description: "Raw Mermaid diagram source for the workflow. Do not wrap in markdown fences.",
     },
-    ai_model_provider: {
+    model_class: {
       type: "string",
-      enum: ["openai", "anthropic"],
-      description: "AI model provider for the automation runtime.",
-    },
-    ai_model_name: {
-      type: "string",
-      description: "Model name to run for this automation.",
+      enum: ["auto", "frontier", "balanced", "value"],
+      description: "Stable model class for the automation runtime.",
     },
     network_access: {
       type: "string",
@@ -159,8 +157,7 @@ export const automationGenerationJsonSchema = {
     "prompt",
     "description",
     "mermaid_content",
-    "ai_model_provider",
-    "ai_model_name",
+    "model_class",
     "network_access",
     "trigger_type",
     "schedule_cron",
@@ -305,8 +302,7 @@ const renderAutomationContext = (context: AutomationContextSnapshot): string => 
     `- Current schedule: ${sanitizeLine(context.schedule_cron ?? "") || "None"}`,
     `- Current event provider: ${sanitizeLine(context.event_provider ?? "") || "None"}`,
     `- Current event type: ${sanitizeLine(context.event_type ?? "") || "None"}`,
-    `- Current model provider: ${context.ai_model_provider}`,
-    `- Current model: ${sanitizeLine(context.ai_model_name)}`,
+    `- Current model class: ${context.model_class}`,
     `- Current network access: ${context.network_access}`,
     `- Current prompt: ${sanitizeLine(context.prompt)}`,
     `- Current Mermaid: ${sanitizeLine(context.mermaid_content) || "None"}`,
@@ -708,7 +704,7 @@ export const buildAutomationGenerationMetaPrompt = (args: {
     "11. Keep Mermaid simple and conservative. Prefer plain flowchart nodes and edges; avoid syntax tricks unless required.",
     "12. Never invent unavailable actions, APIs, or credentials.",
     "13. Infer a short, descriptive automation name from the user request (max 60 chars).",
-    "14. Choose ai_model_provider, ai_model_name, and network_access conservatively. Prefer OpenAI, the first-party default model, and mcp_only unless the request clearly needs something else.",
+    "14. Choose model_class and network_access conservatively. Prefer auto and mcp_only unless the request clearly needs frontier, balanced, or value.",
     '15. Infer the trigger type: "schedule" if the user mentions a recurring time/interval, "event" if they mention reacting to a webhook/event, or "manual" otherwise.',
     '16. If trigger_type is "schedule", produce a valid 5-field cron expression in schedule_cron (minute hour day-of-month month day-of-week). Examples: "0 9 * * *" = every day at 9 AM, "0 17 * * 5" = every Friday at 5 PM, "*/30 * * * *" = every 30 minutes. Otherwise set schedule_cron to null.',
     '17. If trigger_type is "event", set event_provider to the provider name (e.g. "github", "stripe") and event_type to the event (e.g. "issues.opened", "refund.created"). Otherwise set both event_provider and event_type to null.',
@@ -720,8 +716,7 @@ export const buildAutomationGenerationMetaPrompt = (args: {
     '  "prompt": "...",',
     '  "description": "...",',
     '  "mermaid_content": "...",',
-    '  "ai_model_provider": "openai" | "anthropic",',
-    '  "ai_model_name": "...",',
+    '  "model_class": "auto" | "frontier" | "balanced" | "value",',
     '  "network_access": "mcp_only" | "mcp_and_web",',
     '  "trigger_type": "schedule" | "event" | "manual",',
     '  "schedule_cron": "... | null",',
@@ -915,20 +910,28 @@ const tryParseJson = (
       typeof record.prompt !== "string" ||
       typeof record.description !== "string" ||
       typeof record.mermaid_content !== "string" ||
-      typeof record.ai_model_name !== "string"
+      (typeof record.model_class !== "string" && typeof record.ai_model_name !== "string")
     ) {
       return null;
     }
     const prompt = (record.prompt as string).trim();
     const description = (record.description as string).trim();
     const mermaidContent = (record.mermaid_content as string).trim();
+    const modelClass =
+      record.model_class === "frontier" ||
+      record.model_class === "balanced" ||
+      record.model_class === "value"
+        ? record.model_class
+        : "auto";
     const aiModelProvider = record.ai_model_provider === "anthropic" ? "anthropic" : "openai";
-    const aiModelName = (record.ai_model_name as string).trim();
+    const aiModelName =
+      typeof record.ai_model_name === "string" && record.ai_model_name.trim().length > 0
+        ? record.ai_model_name.trim()
+        : modelClass === "value"
+          ? "gpt-5.2"
+          : "gpt-5.4";
     const networkAccess = record.network_access === "mcp_and_web" ? "mcp_and_web" : "mcp_only";
     if (prompt.length === 0 || description.length === 0 || mermaidContent.length === 0) {
-      return null;
-    }
-    if (aiModelName.length === 0) {
       return null;
     }
     if (
@@ -979,6 +982,7 @@ const tryParseJson = (
       description,
       mermaid_content: mermaidContent,
       name,
+      model_class: modelClass,
       ai_model_provider: aiModelProvider,
       ai_model_name: aiModelName,
       network_access: networkAccess,

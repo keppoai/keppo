@@ -28,19 +28,15 @@ import { parseTierLimitError, type TierLimitError } from "@/lib/convex-errors";
 import { normalizeMermaidContent, validateMermaidContent } from "@/lib/automation-mermaid";
 import {
   getAutomationPathSegment,
-  getModelProviderForRunner,
+  getAutomationModelClassMeta,
   getNetworkAccessMeta,
-  getRunnerTypeForModelProvider,
 } from "@/lib/automations-view-model";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
 import {
-  AI_MODELS,
   automationFormSchema,
   buildAutomationConfigInput,
   getDefaultAutomationFormValues,
-  getDefaultModelForProvider,
-  parseAiModelProvider,
-  parseRunnerType,
+  parseModelClass,
   parseTriggerType,
   type AutomationFormValues,
 } from "@/components/automations/automation-form-schema";
@@ -89,7 +85,7 @@ function CreateAutomationPage() {
     }),
   });
   const triggerType = form.watch("trigger_type");
-  const aiModelProvider = form.watch("ai_model_provider");
+  const modelClass = form.watch("model_class");
   const networkAccess = form.watch("network_access");
   const {
     control,
@@ -119,13 +115,7 @@ function CreateAutomationPage() {
       }
       return await trigger(["trigger_type"]);
     }
-    return await trigger([
-      "runner_type",
-      "ai_model_provider",
-      "ai_model_name",
-      "prompt",
-      "network_access",
-    ]);
+    return await trigger(["model_class", "prompt", "network_access"]);
   };
 
   const handleCreate = handleSubmit(async (values) => {
@@ -176,7 +166,7 @@ function CreateAutomationPage() {
   const summaryItems = [
     { id: 1, label: "Basics" },
     { id: 2, label: "Trigger" },
-    { id: 3, label: "Runner + Prompt" },
+    { id: 3, label: "Model + Prompt" },
   ] as const;
 
   if (!canManage()) {
@@ -210,7 +200,7 @@ function CreateAutomationPage() {
       <div className="space-y-3">
         <h1 className="text-3xl font-bold tracking-tight">Create manually</h1>
         <p className="max-w-3xl text-muted-foreground">
-          Configure the automation step by step when you want full control over the trigger, runner,
+          Configure the automation step by step when you want full control over the trigger, model,
           prompt, and network settings without using AI generation.
         </p>
       </div>
@@ -391,81 +381,30 @@ function CreateAutomationPage() {
             {step === 3 ? (
               <Card>
                 <CardHeader>
-                  <CardTitle>Step 3: Runner, prompt, and access</CardTitle>
+                  <CardTitle>Step 3: Model, prompt, and access</CardTitle>
                 </CardHeader>
                 <CardContent className="grid gap-4 md:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="manual-runner-type">Runner</Label>
+                  <div className="space-y-2 md:col-span-2">
+                    <Label htmlFor="manual-model-class">Model</Label>
                     <Controller
                       control={control}
-                      name="runner_type"
+                      name="model_class"
                       render={({ field }) => (
                         <NativeSelect
-                          id="manual-runner-type"
+                          id="manual-model-class"
                           value={field.value}
-                          onChange={(event) => {
-                            const nextRunner = parseRunnerType(event.currentTarget.value);
-                            const nextProvider = getModelProviderForRunner(nextRunner);
-                            field.onChange(nextRunner);
-                            setValue("ai_model_provider", nextProvider, { shouldDirty: true });
-                            setValue("ai_model_name", getDefaultModelForProvider(nextProvider), {
-                              shouldDirty: true,
-                            });
-                          }}
+                          onChange={(event) =>
+                            field.onChange(parseModelClass(event.currentTarget.value))
+                          }
                         >
-                          <option value="chatgpt_codex">ChatGPT Codex</option>
-                          <option value="claude_code">Claude Code</option>
+                          <option value="auto">Auto</option>
+                          <option value="frontier">Frontier</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="value">Value</option>
                         </NativeSelect>
                       )}
                     />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="manual-model-provider">Model provider</Label>
-                    <Controller
-                      control={control}
-                      name="ai_model_provider"
-                      render={({ field }) => (
-                        <NativeSelect
-                          id="manual-model-provider"
-                          value={field.value}
-                          onChange={(event) => {
-                            const nextProvider = parseAiModelProvider(event.currentTarget.value);
-                            field.onChange(nextProvider);
-                            setValue("runner_type", getRunnerTypeForModelProvider(nextProvider), {
-                              shouldDirty: true,
-                            });
-                            setValue("ai_model_name", getDefaultModelForProvider(nextProvider), {
-                              shouldDirty: true,
-                            });
-                          }}
-                        >
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
-                        </NativeSelect>
-                      )}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="manual-model-name">Model</Label>
-                    <Controller
-                      control={control}
-                      name="ai_model_name"
-                      render={({ field }) => (
-                        <NativeSelect
-                          id="manual-model-name"
-                          value={field.value}
-                          onChange={(event) => field.onChange(event.currentTarget.value)}
-                        >
-                          {AI_MODELS[aiModelProvider].map((model) => (
-                            <option key={model} value={model}>
-                              {model}
-                            </option>
-                          ))}
-                        </NativeSelect>
-                      )}
-                    />
+                    <HelpText>{getAutomationModelClassMeta(modelClass).description}</HelpText>
                   </div>
 
                   <div className="space-y-2 md:col-span-2">

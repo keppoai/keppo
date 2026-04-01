@@ -9,6 +9,7 @@ import {
   AUTOMATION_TRIGGER_EVENT_MATCH_STATUSES,
   AUTOMATION_TRIGGER_EVENT_MATCH_STATUS,
   AUTOMATION_RUNNER_TYPES,
+  AUTOMATION_MODEL_CLASSES,
   AUTOMATION_RUN_TRIGGER_TYPES,
   AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH,
   type AutomationTriggerEventStatus,
@@ -17,6 +18,7 @@ import {
   type AutomationConfigTriggerType,
   type AutomationRunTriggerType,
   type AutomationRunnerType,
+  type AutomationModelClass,
 } from "../packages/shared/src/automations.js";
 import {
   CUSTOM_MCP_SERVER_STATUSES,
@@ -232,6 +234,8 @@ export {
   AUTOMATION_STATUS,
   AI_KEY_MODE,
   AI_KEY_MODES,
+  AUTOMATION_MODEL_CLASSES,
+  AUTOMATION_MODEL_CLASS,
   AI_MODEL_PROVIDERS,
   NETWORK_ACCESS_MODES,
   type AutomationRunLogLevel,
@@ -250,6 +254,7 @@ export {
   type AutomationProviderTrigger,
   type AutomationProviderTriggerMigrationState,
   type AutomationStatus,
+  type AutomationModelClass,
   type AiKeyCredentialKind,
   type AiKeyMode,
   type AiModelProvider,
@@ -258,6 +263,8 @@ export {
 
 export const CONFIG_TRIGGER_TYPES = AUTOMATION_CONFIG_TRIGGER_TYPES;
 export type ConfigTriggerType = AutomationConfigTriggerType;
+export const MODEL_CLASSES = AUTOMATION_MODEL_CLASSES;
+export type ModelClass = AutomationModelClass;
 
 export const RUN_TRIGGER_TYPES = AUTOMATION_RUN_TRIGGER_TYPES;
 export type RunTriggerType = AutomationRunTriggerType;

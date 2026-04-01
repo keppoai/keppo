@@ -2,6 +2,8 @@ import { v } from "convex/values";
 import {
   buildLegacyEventProviderTrigger,
   buildLegacyEventProviderTriggerMigrationState,
+  coerceAutomationModelClass,
+  inferAutomationModelClassFromLegacyFields,
 } from "../packages/shared/src/automations.js";
 import type { Doc } from "./_generated/dataModel";
 import { pickFields } from "./field_mapper";
@@ -11,6 +13,7 @@ import {
   automationProviderTriggerValidator,
   aiModelProviderValidator,
   configTriggerTypeValidator,
+  modelClassValidator,
   networkAccessValidator,
   runnerTypeValidator,
 } from "./validators";
@@ -29,6 +32,7 @@ export const automationConfigVersionValidator = v.object({
   event_provider: v.union(v.string(), v.null()),
   event_type: v.union(v.string(), v.null()),
   event_predicate: v.union(v.string(), v.null()),
+  model_class: modelClassValidator,
   runner_type: runnerTypeValidator,
   ai_model_provider: aiModelProviderValidator,
   ai_model_name: v.string(),
@@ -43,6 +47,7 @@ export const automationConfigSummaryValidator = v.object({
   id: v.string(),
   version_number: v.number(),
   trigger_type: configTriggerTypeValidator,
+  model_class: modelClassValidator,
   runner_type: runnerTypeValidator,
   ai_model_provider: aiModelProviderValidator,
   ai_model_name: v.string(),
@@ -108,6 +113,7 @@ export const automationConfigSummaryFields = [
   "id",
   "version_number",
   "trigger_type",
+  "model_class",
   "runner_type",
   "ai_model_provider",
   "ai_model_name",
@@ -129,6 +135,7 @@ export const automationConfigVersionViewFields = [
   "event_type",
   "id",
   "network_access",
+  "model_class",
   "prompt",
   "runner_type",
   "schedule_cron",
@@ -152,8 +159,20 @@ export const automationViewFields = [
   "updated_at",
 ] as const satisfies readonly (keyof Doc<"automations">)[];
 
-export const toAutomationConfigSummary = (config: Doc<"automation_config_versions">) =>
-  pickFields(config, automationConfigSummaryFields);
+const resolveModelClassCompatibility = (config: Doc<"automation_config_versions">) => ({
+  model_class:
+    config.model_class !== undefined && config.model_class !== null
+      ? coerceAutomationModelClass(config.model_class)
+      : inferAutomationModelClassFromLegacyFields({
+          aiModelProvider: config.ai_model_provider,
+          aiModelName: config.ai_model_name,
+        }),
+});
+
+export const toAutomationConfigSummary = (config: Doc<"automation_config_versions">) => ({
+  ...pickFields(config, automationConfigSummaryFields),
+  ...resolveModelClassCompatibility(config),
+});
 
 const resolveProviderTriggerCompatibility = (
   config: Doc<"automation_config_versions">,
@@ -198,6 +217,7 @@ const resolveProviderTriggerCompatibility = (
 
 export const toAutomationConfigVersionView = (config: Doc<"automation_config_versions">) => ({
   ...pickFields(config, automationConfigVersionViewFields),
+  ...resolveModelClassCompatibility(config),
   ...resolveProviderTriggerCompatibility(config),
 });
 

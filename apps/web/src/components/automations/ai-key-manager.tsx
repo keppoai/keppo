@@ -457,7 +457,7 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 <p className="max-w-3xl text-sm leading-6 text-foreground/75">
                   {bundledRuntimeAvailable
                     ? "Paid plans can run automations with Keppo-managed gateway credentials. Add a BYO key here only if you want a fallback path when bundled credits run out."
-                    : "Free keeps 5 included credits for prompt generation only. Add a BYO key for automation runtime, or upgrade to Starter or Pro to unlock bundled execution."}
+                    : "Free trial keeps a one-time 20-credit grant for prompt generation only. Add your own API key for runtime, or upgrade to Starter or Pro to unlock bundled execution."}
                 </p>
               </div>
 
@@ -469,7 +469,7 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 <p className="mt-2 text-foreground/75">
                   {bundledRuntimeAvailable
                     ? "Keppo provisions and rotates bundled gateway credentials automatically. You do not edit bundled keys here."
-                    : "Bundled execution is locked on free. This settings form only manages BYO and legacy subscription credentials until the org upgrades."}
+                    : "Bundled execution is locked on free. This settings form manages BYO and legacy subscription credentials until the org upgrades."}
                 </p>
                 <p className="mt-2 text-xs text-foreground/65">
                   {bundledKeyRows.length > 0
@@ -521,8 +521,8 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                   </NativeSelect>
                 </div>
                 <div className="rounded-lg border bg-background/80 p-3 text-xs leading-5 text-foreground/70 md:col-span-2">
-                  Bundled credentials are billing-managed. Use this form only for BYO fallback keys
-                  or legacy OpenAI subscription login.
+                  Bundled credentials are billing-managed. Use this form only for org-managed keys
+                  or legacy OpenAI subscription login when bundled runtime is unavailable.
                 </div>
                 {needsOpenAiOauth ? (
                   <div className="space-y-3 md:col-span-2">
@@ -769,8 +769,8 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
                 <p className="font-medium text-foreground">What this means</p>
                 <p className="mt-2 text-foreground/75">
                   {bundledRuntimeAvailable
-                    ? "Bundled runs spend from this shared credit pool. If credits run out, automations can still use any active BYO key you configure."
-                    : "Free credits cover prompt generation only. Add a BYO key for runtime, or upgrade to Starter or Pro for bundled access."}
+                    ? "Bundled runs spend from this shared credit pool."
+                    : "Free trial credits cover prompt generation only. Upgrade to Starter or Pro for bundled runtime."}
                 </p>
               </div>
             </div>

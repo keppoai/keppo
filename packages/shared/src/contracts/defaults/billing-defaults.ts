@@ -10,7 +10,7 @@ import type { SubscriptionTierId } from "../../subscriptions.js";
 
 const OSS_FREE_TIER: TierConfig = {
   id: "free",
-  label: "Free",
+  label: "Free trial",
   price_cents_monthly: 0,
   max_workspaces: Number.POSITIVE_INFINITY,
   max_members: Number.POSITIVE_INFINITY,

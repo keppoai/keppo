@@ -43,8 +43,8 @@ import { humanizeCron } from "@/lib/cron-humanizer";
 import {
   getAutomationPathSegment,
   getAutomationExecutionModeMeta,
+  getAutomationModelClassMeta,
   getNetworkAccessMeta,
-  getRunnerTypeForModelProvider,
   resolveAutomationExecutionState,
 } from "@/lib/automations-view-model";
 import { getProviderMeta } from "@/components/integrations/provider-icons";
@@ -108,6 +108,7 @@ type GeneratedConfig = {
 };
 
 type BuilderSettings = {
+  model_class: "auto" | "frontier" | "balanced" | "value";
   ai_model_provider: AiModelProvider;
   ai_model_name: string;
   network_access: NetworkAccessMode;
@@ -144,7 +145,15 @@ const AI_MODELS: Record<AiModelProvider, string[]> = {
   anthropic: ["claude-sonnet-4-6", "claude-opus-4"],
 };
 
+const MODEL_CLASS_COMPATIBILITY = {
+  auto: { provider: "openai", model: "gpt-5.4", runner: "chatgpt_codex" },
+  frontier: { provider: "openai", model: "gpt-5.4", runner: "chatgpt_codex" },
+  balanced: { provider: "openai", model: "gpt-5.4", runner: "chatgpt_codex" },
+  value: { provider: "openai", model: "gpt-5.2", runner: "chatgpt_codex" },
+} as const;
+
 const DEFAULT_SETTINGS: BuilderSettings = {
+  model_class: "auto",
   ai_model_provider: "openai",
   ai_model_name: AI_MODELS.openai[0] ?? "gpt-5.4",
   network_access: "mcp_only",
@@ -484,6 +493,12 @@ const loadPersistedDraft = (workspaceId: string): PersistedDraft | null => {
       questionBilling: parseGenerationBilling(parsed.questionBilling),
       config,
       settings: {
+        model_class:
+          settings.model_class === "frontier" ||
+          settings.model_class === "balanced" ||
+          settings.model_class === "value"
+            ? settings.model_class
+            : DEFAULT_SETTINGS.model_class,
         ai_model_provider:
           settings.ai_model_provider === "anthropic"
             ? "anthropic"
@@ -717,6 +732,7 @@ export function AutomationPromptBox({
         period_start: "",
         period_end: "",
         allowance_total: 0,
+        allowance_reset_period: "monthly",
         allowance_used: 0,
         ...config.credit_balance,
       },
@@ -1059,9 +1075,10 @@ export function AutomationPromptBox({
                 event_type: config.event_type ?? "",
               }
           : {}),
-        runner_type: getRunnerTypeForModelProvider(settings.ai_model_provider),
-        ai_model_provider: settings.ai_model_provider,
-        ai_model_name: settings.ai_model_name,
+        model_class: settings.model_class,
+        runner_type: MODEL_CLASS_COMPATIBILITY[settings.model_class].runner,
+        ai_model_provider: MODEL_CLASS_COMPATIBILITY[settings.model_class].provider,
+        ai_model_name: MODEL_CLASS_COMPATIBILITY[settings.model_class].model,
         prompt: config.prompt,
         network_access: settings.network_access,
       });
@@ -1820,45 +1837,43 @@ export function AutomationPromptBox({
                   <div className="rounded-2xl border bg-background/70 p-4">
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div>
-                        <Label htmlFor="builder-model-provider">Model provider</Label>
+                        <Label htmlFor="builder-model-class">Model</Label>
                         <NativeSelect
-                          id="builder-model-provider"
-                          value={settings.ai_model_provider}
+                          id="builder-model-class"
+                          value={settings.model_class}
                           onChange={(event) => {
-                            const provider =
-                              event.currentTarget.value === "anthropic" ? "anthropic" : "openai";
+                            const nextClass =
+                              event.currentTarget.value === "frontier" ||
+                              event.currentTarget.value === "balanced" ||
+                              event.currentTarget.value === "value"
+                                ? event.currentTarget.value
+                                : "auto";
+                            const compatibility = MODEL_CLASS_COMPATIBILITY[nextClass];
                             setSettings({
                               ...settings,
-                              ai_model_provider: provider,
-                              ai_model_name:
-                                AI_MODELS[provider][0] ?? DEFAULT_SETTINGS.ai_model_name,
+                              model_class: nextClass,
+                              ai_model_provider: compatibility.provider,
+                              ai_model_name: compatibility.model,
                             });
                           }}
                           className="mt-2 w-full"
                         >
-                          <option value="openai">OpenAI</option>
-                          <option value="anthropic">Anthropic</option>
+                          <option value="auto">Auto</option>
+                          <option value="frontier">Frontier</option>
+                          <option value="balanced">Balanced</option>
+                          <option value="value">Value</option>
                         </NativeSelect>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                          {getAutomationModelClassMeta(settings.model_class).description}
+                        </p>
                       </div>
                       <div>
-                        <Label htmlFor="builder-model-name">Model</Label>
-                        <NativeSelect
-                          id="builder-model-name"
-                          value={settings.ai_model_name}
-                          onChange={(event) =>
-                            setSettings({
-                              ...settings,
-                              ai_model_name: event.currentTarget.value,
-                            })
-                          }
-                          className="mt-2 w-full"
-                        >
-                          {(AI_MODELS[settings.ai_model_provider] ?? []).map((model) => (
-                            <option key={model} value={model}>
-                              {model}
-                            </option>
-                          ))}
-                        </NativeSelect>
+                        <Label>Resolved runtime</Label>
+                        <div className="mt-2 rounded-2xl border p-4 text-sm text-muted-foreground">
+                          Default mapping: {settings.ai_model_provider} / {settings.ai_model_name}.
+                          Server-side automation runtime settings may override this at execution
+                          time.
+                        </div>
                       </div>
                       <div>
                         <Label>Runtime mode</Label>
@@ -1915,7 +1930,7 @@ export function AutomationPromptBox({
                             Runtime
                           </p>
                           <p className="mt-1 font-medium">
-                            {settings.ai_model_provider} / {settings.ai_model_name}
+                            {getAutomationModelClassMeta(settings.model_class).label}
                           </p>
                         </div>
                       </div>

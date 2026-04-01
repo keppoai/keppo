@@ -22,6 +22,7 @@ import {
   type AutomationProviderTriggerDeliveryMode,
   type AutomationProviderTriggerMigrationState,
   type AiModelProvider,
+  type ModelClass,
   type NetworkAccessMode,
   type RunnerType,
 } from "./domain_constants";
@@ -41,6 +42,7 @@ import {
   aiKeyModeValidator,
   aiModelProviderValidator,
   configTriggerTypeValidator,
+  modelClassValidator,
   networkAccessValidator,
   requireBoundedString,
   runnerTypeValidator,
@@ -50,8 +52,10 @@ import { getAiCreditBalanceForOrg } from "./ai_credits";
 import {
   buildLegacyEventProviderTrigger,
   buildLegacyEventProviderTriggerMigrationState,
+  coerceAutomationModelClass,
   computeAutomationPromptHash,
   getAiModelProviderLabel,
+  inferAutomationModelClassFromLegacyFields,
   resolveAutomationExecutionReadiness,
 } from "../packages/shared/src/automations.js";
 import { getTierConfig } from "../packages/shared/src/subscriptions.js";
@@ -91,6 +95,7 @@ const configInputValidator = {
   event_provider: v.optional(v.string()),
   event_type: v.optional(v.string()),
   event_predicate: v.optional(v.string()),
+  model_class: v.optional(modelClassValidator),
   runner_type: runnerTypeValidator,
   ai_model_provider: aiModelProviderValidator,
   ai_model_name: v.string(),
@@ -203,6 +208,7 @@ const normalizeConfig = (
     event_provider?: string;
     event_type?: string;
     event_predicate?: string;
+    model_class?: ModelClass;
     runner_type: RunnerType;
     ai_model_provider: AiModelProvider;
     ai_model_name: string;
@@ -369,6 +375,12 @@ const normalizeConfig = (
     providerTrigger.filter.predicate.trim().length > 0
       ? providerTrigger.filter.predicate.trim()
       : null;
+  const modelClass = input.model_class
+    ? coerceAutomationModelClass(input.model_class)
+    : inferAutomationModelClassFromLegacyFields({
+        aiModelProvider: input.ai_model_provider,
+        aiModelName,
+      });
 
   if (input.trigger_type === "manual") {
     return {
@@ -379,6 +391,7 @@ const normalizeConfig = (
       event_provider: null,
       event_type: null,
       event_predicate: null,
+      model_class: modelClass,
       runner_type: input.runner_type,
       ai_model_provider: input.ai_model_provider,
       ai_model_name: aiModelName,
@@ -403,6 +416,7 @@ const normalizeConfig = (
     event_provider: compatibilityEventProvider,
     event_type: compatibilityEventType,
     event_predicate: compatibilityEventPredicate,
+    model_class: modelClass,
     runner_type: input.runner_type,
     ai_model_provider: input.ai_model_provider,
     ai_model_name: aiModelName,

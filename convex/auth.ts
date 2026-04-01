@@ -25,7 +25,7 @@ import {
   USER_ROLE,
   WORKSPACE_STATUS,
 } from "./domain_constants";
-import { nowIso } from "./_auth";
+import { deterministicIdFor, nowIso } from "./_auth";
 import { components } from "./_generated/api";
 import { internalQuery, query, type MutationCtx, type QueryCtx } from "./_generated/server";
 import { roleValidator } from "./validators";
@@ -35,7 +35,10 @@ import betterAuthSchema from "./betterAuth/schema";
 import { slugifyWorkspaceName } from "./workspaces_shared";
 import { subscriptionIdForOrg } from "./billing/shared";
 import { SUBSCRIPTION_STATUS, SUBSCRIPTION_TIER } from "./domain_constants";
-import { getDefaultBillingPeriod } from "../packages/shared/src/subscriptions.js";
+import {
+  getDefaultBillingPeriod,
+  getIncludedAiCreditsForTier,
+} from "../packages/shared/src/subscriptions.js";
 
 type AuthCtx = GenericCtx<DataModel>;
 type AuthMutationCtx = MutationCtx;
@@ -362,6 +365,26 @@ const createDefaultWorkspaceForOrg = async (ctx: AuthMutationCtx, orgId: string)
       current_period_start: period.periodStart,
       current_period_end: period.periodEnd,
       created_at: createdAt,
+      updated_at: createdAt,
+    });
+  }
+
+  const freeTrialCredits = getIncludedAiCreditsForTier(SUBSCRIPTION_TIER.free);
+  const aiCreditsId = await deterministicIdFor("aic", `${orgId}:${period.periodStart}`);
+  const existingAiCredits = await ctx.db
+    .query("ai_credits")
+    .withIndex("by_custom_id", (q) => q.eq("id", aiCreditsId))
+    .first();
+  if (!existingAiCredits) {
+    await ctx.db.insert("ai_credits", {
+      id: aiCreditsId,
+      org_id: orgId,
+      period_start: period.periodStart,
+      period_end: period.periodEnd,
+      allowance_total: freeTrialCredits.total,
+      allowance_reset_period: freeTrialCredits.reset_period,
+      allowance_used: 0,
+      purchased_balance: 0,
       updated_at: createdAt,
     });
   }

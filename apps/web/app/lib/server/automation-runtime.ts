@@ -6,11 +6,15 @@ import {
   AUTOMATION_ROUTE_ERROR_CODES,
   AUTOMATION_ROUTE_STATUS,
   AUTOMATION_RUN_LOG_LEVEL,
+  AUTOMATION_MODEL_CLASS,
   AUTOMATION_RUN_STATUS,
   AUTOMATION_RUNNER_TYPE,
   AUTOMATION_STATUS,
+  coerceAutomationModelClass,
   createAutomationRouteError,
   getAiModelProviderLabel,
+  inferAutomationModelClassFromLegacyFields,
+  isGatewayRuntimeEnabled,
   isAutomationRouteErrorCode,
   parseAutomationRouteErrorCode,
   resolveAutomationExecutionReadiness,
@@ -71,6 +75,13 @@ type RouteLogger = Pick<typeof logger, "error" | "info">;
 
 type SandboxProvider = ReturnType<typeof createAutomationSandboxProvider>;
 
+type ResolvedAutomationModel = {
+  modelClass: "auto" | "frontier" | "balanced" | "value";
+  runnerType: "chatgpt_codex" | "claude_code";
+  aiModelProvider: "openai" | "anthropic";
+  aiModelName: string;
+};
+
 type StartOwnedAutomationRuntimeDeps = {
   authorizeInternalRequest: (authorizationHeader: string | undefined) => {
     ok: boolean;
@@ -91,6 +102,66 @@ const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
   "invalid_automation_run_terminal_status",
   "missing_automation_run_id",
 ]);
+
+const trimToUndefined = (value: string | null | undefined): string | undefined => {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+};
+
+const inferProviderFromModelName = (modelName: string): "openai" | "anthropic" => {
+  return modelName.toLowerCase().includes("claude") ? "anthropic" : "openai";
+};
+
+const resolveConfiguredModelName = (
+  env: ReturnType<typeof getEnv>,
+  modelClass: ResolvedAutomationModel["modelClass"],
+): string => {
+  const configuredAuto = trimToUndefined(env.KEPPO_AUTOMATION_MODEL_AUTO);
+  const configuredBalanced = trimToUndefined(env.KEPPO_AUTOMATION_MODEL_BALANCED);
+  const configuredFrontier = trimToUndefined(env.KEPPO_AUTOMATION_MODEL_FRONTIER);
+  const configuredValue = trimToUndefined(env.KEPPO_AUTOMATION_MODEL_VALUE);
+
+  switch (modelClass) {
+    case AUTOMATION_MODEL_CLASS.frontier:
+      return configuredFrontier ?? "gpt-5.4";
+    case AUTOMATION_MODEL_CLASS.value:
+      return configuredValue ?? "gpt-5.2";
+    case AUTOMATION_MODEL_CLASS.auto:
+      return configuredAuto ?? configuredBalanced ?? "gpt-5.4";
+    case AUTOMATION_MODEL_CLASS.balanced:
+    default:
+      return configuredBalanced ?? "gpt-5.4";
+  }
+};
+
+const resolveAutomationModel = (
+  env: ReturnType<typeof getEnv>,
+  config: {
+    model_class?: string | null;
+    runner_type: "chatgpt_codex" | "claude_code";
+    ai_model_provider: "openai" | "anthropic";
+    ai_model_name: string;
+  },
+): ResolvedAutomationModel => {
+  const modelClass =
+    typeof config.model_class === "string" && config.model_class.trim().length > 0
+      ? coerceAutomationModelClass(config.model_class)
+      : inferAutomationModelClassFromLegacyFields({
+          aiModelProvider: config.ai_model_provider,
+          aiModelName: config.ai_model_name,
+        });
+  const aiModelName = resolveConfiguredModelName(env, modelClass);
+  const aiModelProvider = inferProviderFromModelName(aiModelName);
+  return {
+    modelClass,
+    runnerType:
+      aiModelProvider === "anthropic"
+        ? AUTOMATION_RUNNER_TYPE.claudeCode
+        : AUTOMATION_RUNNER_TYPE.chatgptCodex,
+    aiModelProvider,
+    aiModelName,
+  };
+};
 
 const withSecurityHeaders = (request: Request, init?: ResponseInit): ResponseInit => {
   const headers = new Headers(init?.headers);
@@ -306,21 +377,26 @@ export const handleInternalAutomationDispatchRequest = async (
   }
 
   try {
+    const env = deps.getEnv();
+    const resolvedModel = resolveAutomationModel(env, context.config);
+    const gatewayEnabled = isGatewayRuntimeEnabled(env.KEPPO_LLM_GATEWAY_URL);
     const callbackBaseUrl = resolveAutomationCallbackBaseUrl(request.url);
     const providerMode = resolveAutomationSandboxProviderMode();
     assertSandboxCallbackBaseUrlReachable(callbackBaseUrl, providerMode);
     const [subscription, creditBalance, byoKey, legacyOpenAiKey] = await Promise.all([
       deps.convex.getSubscriptionForOrg(context.automation.org_id),
       deps.convex.getAiCreditBalance({ orgId: context.automation.org_id }),
-      deps.convex.getOrgAiKey({
-        orgId: context.automation.org_id,
-        provider: context.config.ai_model_provider,
-        keyMode: AI_KEY_MODE.byok,
-      }),
-      context.config.ai_model_provider === "openai"
+      gatewayEnabled
+        ? Promise.resolve(null)
+        : deps.convex.getOrgAiKey({
+            orgId: context.automation.org_id,
+            provider: resolvedModel.aiModelProvider,
+            keyMode: AI_KEY_MODE.byok,
+          }),
+      !gatewayEnabled && resolvedModel.aiModelProvider === "openai"
         ? deps.convex.getOrgAiKey({
             orgId: context.automation.org_id,
-            provider: context.config.ai_model_provider,
+            provider: resolvedModel.aiModelProvider,
             keyMode: AI_KEY_MODE.subscriptionToken,
           })
         : Promise.resolve(null),
@@ -336,30 +412,49 @@ export const handleInternalAutomationDispatchRequest = async (
       totalCreditsAvailable: creditBalance.total_available,
       hasActiveByokKey: activeNonBundledKey !== null,
     }).mode;
-    const authKeyMode =
-      resolvedKeyMode === AI_KEY_MODE.bundled
+    const authKeyMode = gatewayEnabled
+      ? AI_KEY_MODE.bundled
+      : resolvedKeyMode === AI_KEY_MODE.bundled
         ? AI_KEY_MODE.bundled
         : (activeNonBundledKey?.key_mode ?? AI_KEY_MODE.byok);
 
     assertRunnerAuthSupported({
-      runnerType: context.config.runner_type,
-      aiModelProvider: context.config.ai_model_provider,
+      runnerType: resolvedModel.runnerType,
+      aiModelProvider: resolvedModel.aiModelProvider,
       aiKeyMode: authKeyMode,
     });
 
+    if (gatewayEnabled && !creditBalance.bundled_runtime_enabled) {
+      await deps.convex
+        .updateAutomationRunStatus({
+          automationRunId: context.run.id,
+          status: AUTOMATION_RUN_STATUS.cancelled,
+          errorMessage: "Bundled automation runtime is unavailable for this organization.",
+        })
+        .catch(() => undefined);
+      return jsonResponse(
+        request,
+        {
+          ok: false,
+          status: AUTOMATION_ROUTE_STATUS.bundledNotAvailable,
+        },
+        402,
+      );
+    }
+
     const key =
-      resolvedKeyMode === AI_KEY_MODE.byok
+      !gatewayEnabled && resolvedKeyMode === AI_KEY_MODE.byok
         ? activeNonBundledKey
         : await deps.convex.getOrgAiKey({
             orgId: context.automation.org_id,
-            provider: context.config.ai_model_provider,
+            provider: resolvedModel.aiModelProvider,
             keyMode: AI_KEY_MODE.bundled,
           });
 
     if (!key || !key.is_active) {
-      const providerLabel = getAiModelProviderLabel(context.config.ai_model_provider);
+      const providerLabel = getAiModelProviderLabel(resolvedModel.aiModelProvider);
       const friendlyMessage =
-        resolvedKeyMode === AI_KEY_MODE.bundled
+        gatewayEnabled || resolvedKeyMode === AI_KEY_MODE.bundled
           ? `Bundled ${providerLabel} access is unavailable for this org. Please contact support.`
           : `No active ${providerLabel} API key found. Add or activate one in Settings -> AI Keys.`;
       await deps.convex
@@ -374,7 +469,7 @@ export const handleInternalAutomationDispatchRequest = async (
         {
           ok: false,
           status: AUTOMATION_ROUTE_STATUS.missingAiKey,
-          provider: context.config.ai_model_provider,
+          provider: resolvedModel.aiModelProvider,
           key_mode: authKeyMode,
         },
         400,
@@ -386,7 +481,7 @@ export const handleInternalAutomationDispatchRequest = async (
       workspaceId: context.automation.workspace_id,
       sessionId: mcpSessionId,
       clientType:
-        context.config.runner_type === AUTOMATION_RUNNER_TYPE.claudeCode
+        resolvedModel.runnerType === AUTOMATION_RUNNER_TYPE.claudeCode
           ? CLIENT_TYPE.claudeCode
           : CLIENT_TYPE.chatgpt,
       metadata: {
@@ -449,11 +544,11 @@ export const handleInternalAutomationDispatchRequest = async (
 
     let gatewayBaseUrl: string | null = null;
     if (resolvedKeyMode === AI_KEY_MODE.bundled) {
-      gatewayBaseUrl = deps.getEnv().KEPPO_LLM_GATEWAY_URL?.trim() ?? null;
+      gatewayBaseUrl = env.KEPPO_LLM_GATEWAY_URL?.trim() ?? null;
       if (!gatewayBaseUrl) {
         throw createAutomationRouteError(
           "missing_env",
-          `Missing KEPPO_LLM_GATEWAY_URL for bundled ${context.config.ai_model_provider === "openai" ? "OpenAI" : "Anthropic"} runtime.`,
+          `Missing KEPPO_LLM_GATEWAY_URL for bundled ${resolvedModel.aiModelProvider === "openai" ? "OpenAI" : "Anthropic"} runtime.`,
         );
       }
 
@@ -503,22 +598,22 @@ export const handleInternalAutomationDispatchRequest = async (
 
     const decryptedKey = await decryptStoredKey(key.encrypted_key);
     const runnerCommand = buildRunnerCommand({
-      runnerType: context.config.runner_type,
-      aiModelProvider: context.config.ai_model_provider,
+      runnerType: resolvedModel.runnerType,
+      aiModelProvider: resolvedModel.aiModelProvider,
       aiKeyMode: authKeyMode,
       credentialKind: key.credential_kind,
       networkAccess: context.config.network_access,
-      model: context.config.ai_model_name,
+      model: resolvedModel.aiModelName,
       prompt: buildAutomationRunnerPrompt(context.config.prompt),
     });
     const bootstrapCommand = buildRunnerBootstrapCommand({
-      runnerType: context.config.runner_type,
+      runnerType: resolvedModel.runnerType,
       providerMode,
     });
     const runtimeBootstrapCommand = buildRunnerAuthBootstrapCommand({
-      runnerType: context.config.runner_type,
+      runnerType: resolvedModel.runnerType,
       providerMode,
-      aiModelProvider: context.config.ai_model_provider,
+      aiModelProvider: resolvedModel.aiModelProvider,
       aiKeyMode: authKeyMode,
       credentialKind: key.credential_kind,
     });
@@ -529,15 +624,15 @@ export const handleInternalAutomationDispatchRequest = async (
       KEPPO_MCP_SERVER_URL: mcpServerUrl,
       KEPPO_MCP_BEARER_TOKEN: mcpBearerToken,
     };
-    const e2eOpenAiBaseUrl = deps.getEnv().KEPPO_E2E_OPENAI_BASE_URL?.trim();
-    if (deps.getEnv().KEPPO_E2E_MODE && e2eOpenAiBaseUrl) {
+    const e2eOpenAiBaseUrl = env.KEPPO_E2E_OPENAI_BASE_URL?.trim();
+    if (env.KEPPO_E2E_MODE && e2eOpenAiBaseUrl) {
       runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL = e2eOpenAiBaseUrl;
     }
-    const vercelAutomationBypassSecret = deps.getEnv().VERCEL_AUTOMATION_BYPASS_SECRET;
+    const vercelAutomationBypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
     if (vercelAutomationBypassSecret) {
       runtimeEnv.VERCEL_AUTOMATION_BYPASS_SECRET = vercelAutomationBypassSecret;
     }
-    if (context.config.ai_model_provider === "openai") {
+    if (resolvedModel.aiModelProvider === "openai") {
       if (authKeyMode === AI_KEY_MODE.subscriptionToken && key.credential_kind === "openai_oauth") {
         runtimeEnv.OPENAI_CODEX_AUTH_JSON = decryptedKey;
       } else if (authKeyMode === AI_KEY_MODE.byok) {

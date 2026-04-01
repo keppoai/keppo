@@ -32,6 +32,7 @@ import { requireE2EIdentity } from "./e2e_shared";
 import { cascadeDeleteAutomationDescendants } from "./cascade";
 import { slugifyWorkspaceName } from "./workspaces_shared";
 import { getDefaultBillingPeriod } from "../packages/shared/src/subscriptions.js";
+import { inferAutomationModelClassFromLegacyFields } from "../packages/shared/src/automations.js";
 import {
   automationProviderTriggerValidator,
   automationProviderTriggerDeliveryModeValidator,
@@ -267,6 +268,7 @@ const seedBaseAutomationFixture = async (
     event_provider: null,
     event_type: null,
     event_predicate: null,
+    model_class: "auto",
     runner_type: "chatgpt_codex",
     ai_model_provider: "openai",
     ai_model_name: "gpt-5",
@@ -711,6 +713,12 @@ export const updateAutomationFixtureConfig = mutation({
       event_provider: latestVersion.event_provider,
       event_type: latestVersion.event_type,
       event_predicate: latestVersion.event_predicate,
+      model_class:
+        latestVersion.model_class ??
+        inferAutomationModelClassFromLegacyFields({
+          aiModelProvider: latestVersion.ai_model_provider,
+          aiModelName: latestVersion.ai_model_name,
+        }),
       runner_type: latestVersion.runner_type,
       ai_model_provider: latestVersion.ai_model_provider,
       ai_model_name: latestVersion.ai_model_name,

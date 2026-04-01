@@ -213,9 +213,11 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
     await route.continue();
   });
   await gotoWithNavigationRetry(page, billingUrl);
-  await expect(page.getByTestId("billing-tier-label")).toHaveText("Free");
+  await expect(page.getByTestId("billing-tier-label")).toHaveText("Free trial");
   await expect(page.getByText("$0/mo")).toBeVisible();
-  await expect(page.getByText("Free credits cover prompt generation only.")).toBeVisible();
+  await expect(
+    page.getByText("One-time trial credits cover prompt generation only."),
+  ).toBeVisible();
   await expect(page.getByText("AI Credits", { exact: true })).toBeVisible();
   await expect(page.getByText("Automation Runs", { exact: true })).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-starter")).toBeVisible();
