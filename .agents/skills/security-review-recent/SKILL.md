@@ -1,6 +1,6 @@
 ---
 name: security-review:recent
-description: Review the last 7 days of recent commits for critical and high severity security vulnerabilities. Use when Codex needs to clear `./out-security-review`, select 25 non-doc, non-test files from recent commits across different parts of the repo, spawn one security-review sub-agent per starting file, persist each candidate finding to `./out-security-review/<starting_filename>_<n>.md`, re-verify every candidate with fresh sub-agents, and emit a final JSON array for responsible disclosure.
+description: Review the last 7 days of recent commits for critical and high severity security vulnerabilities. Use when Codex needs to clear `./out-security-review`, select 25 non-doc, non-test files from recent commits across different parts of the repo, spawn one security-review sub-agent per starting file, persist each candidate finding to `./out-security-review/<starting_filename>_<timestamp>.md` using a filename-safe UTC ISO 8601 basic timestamp like `20260331T214512Z`, re-verify every candidate with fresh sub-agents, and emit final confirmed findings for responsible disclosure.
 ---
 
 # Security Review Recent
@@ -47,7 +47,12 @@ Run this skill only for defensive security research on this open-source project 
    - If no qualifying issue is found, the agent must return `[]`.
 
 4. Persist candidate findings.
-   - For each returned finding, write one markdown file to `./out-security-review/<starting_filename>_<n>.md`.
+   - For each returned finding, write one markdown file to `./out-security-review/<starting_filename>_<timestamp>.md`.
+   - Use a UTC ISO 8601 basic timestamp that is safe in filenames: `YYYYMMDDTHHMMSSZ`.
+   - Do not use colons, spaces, or timezone offsets in the filename timestamp.
+   - Examples:
+     - `auth.ts_20260331T214512Z.md`
+     - `routes_api_webhooks_stripe.ts_20260331T214734Z.md`
    - Use a stable format:
 
 ```md
