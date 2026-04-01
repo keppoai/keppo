@@ -186,12 +186,13 @@ const fetchExistingAdvisories = async ({ apiBaseUrl, repo, token }) => {
   return advisories;
 };
 
-const createRepositoryAdvisory = async ({
+export const createRepositoryAdvisory = async ({
   apiBaseUrl,
   repo,
   token,
   repositoryName,
   finding,
+  agentLabel,
 }) => {
   const response = await fetch(`${apiBaseUrl}/repos/${repo}/security-advisories`, {
     method: "POST",
@@ -330,6 +331,7 @@ export const main = async () => {
       token,
       repositoryName,
       finding,
+      agentLabel,
     });
     created.push({
       ...finding,

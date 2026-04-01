@@ -2,8 +2,9 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  createRepositoryAdvisory,
   loadFindings,
   parseFindingMarkdown,
 } from "../../scripts/security-review-recent/publish-advisories.mjs";
@@ -96,5 +97,33 @@ describe("scripts/security-review-recent/publish-advisories.mjs", () => {
     const result = await loadFindings(dir);
 
     expect(result).toEqual({ findings: [], malformed: [] });
+  });
+
+  it("includes the agent label in advisory descriptions without relying on outer scope", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ ghsa_id: "GHSA-test", html_url: "https://example.com/advisory" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createRepositoryAdvisory({
+      apiBaseUrl: "https://api.github.test",
+      repo: "keppoai/keppo",
+      token: "token",
+      repositoryName: "keppo",
+      finding: {
+        title: "Webhook signature bypass",
+        severity: "high",
+        description: "### Summary\nUnsigned requests are accepted.",
+      },
+      agentLabel: "Claude",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [, request] = fetchMock.mock.calls[0];
+    const payload = JSON.parse(String(request?.body));
+    expect(payload.description).toContain("(agent: Claude)");
+
+    vi.unstubAllGlobals();
   });
 });

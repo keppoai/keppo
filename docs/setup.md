@@ -342,11 +342,12 @@ Required configuration:
 
 ## Nightly recent security review workflow
 
-The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. It runs Codex with the repo-local `security-review:recent` skill against commits from the last 7 days, writes confirmed `critical`/`high` findings as individual markdown files to `out-security-review/findings/`, files draft repository security advisories for new findings, deduplicates against existing advisory summaries, and sends a Mailgun email when the run confirms any vulnerabilities.
+The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. Manual dispatch supports `codex` and `claude` agents and defaults to `codex`. The workflow runs the selected agent against the repo-local `security-review:recent` prompt context for commits from the last 7 days, writes confirmed `critical`/`high` findings as individual markdown files to `out-security-review/findings/`, uploads session logs, files draft repository security advisories for new findings, deduplicates against existing advisory summaries, and sends a Mailgun email when the run confirms any vulnerabilities.
 
 Required configuration:
 
 - environment secret `CODEX_AUTH_JSON`
+- environment secret `CLAUDE_CODE_OAUTH_TOKEN` when dispatching with `agent=claude`
 - repository variable `KEPPO_GITHUB_APP_ID`
 - environment secret `KEPPO_GITHUB_APP_PRIVATE_KEY`
 - environment secret `MAILGUN_API_KEY`
@@ -357,6 +358,7 @@ Required configuration:
 Token requirements:
 
 - The workflow intentionally keeps the job `GITHUB_TOKEN` at `contents: read` and mints a GitHub App installation token only for the deterministic advisory-filing step.
+- Claude runs pin `@anthropic-ai/claude-code` to the workflow-declared `CLAUDE_CODE_VERSION` and use an explicit allowlist-based permission model instead of bypassing permissions entirely.
 - `actions/create-github-app-token` does not support `repository_advisories` fine-grained permission inputs yet, so this workflow must currently mint the installation token without `permission-*` scoping and rely on the App installation's configured permissions.
 
 ---
