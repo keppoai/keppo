@@ -16,6 +16,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 ## Auth and trust boundaries
 
 - User-facing routes must derive identity from the Better Auth session, not caller-provided org or user fields.
+- NextAuth session callbacks must not copy provider or repository-scoped bearer tokens into the client-visible session payload when server-side code can read the JWT or provider token directly.
 - Convex queries and mutations default to callable; every tenant-scoped or operationally sensitive public function must explicitly enforce `requireOrgMember`, `requireIdentity`, or platform-admin checks before reading or returning data.
 - When a Convex function is only meant for server-side bridges authenticated with the Convex admin key, expose it as `internalQuery`/`internalMutation` instead of a public function with a user-identity check that admin-key callers cannot satisfy.
 - Internal routes must require cryptographic proof such as the internal bearer secret or callback HMAC.

@@ -84,6 +84,13 @@ if (!/export const abandon = internalMutation\(/u.test(deadLetterSource)) {
   );
 }
 
+const izzyAuthSource = read("apps/izzy/src/lib/auth.ts");
+if (/session\.accessToken\s*=\s*token\.accessToken/u.test(izzyAuthSource)) {
+  failures.push(
+    "apps/izzy/src/lib/auth.ts must not copy the repo-scoped GitHub token into the client-visible NextAuth session.",
+  );
+}
+
 const appSourcePaths = [
   "apps/web/src/lib/unified-protocol-boundary.ts",
   "apps/web/src/lib/protocol-boundary.ts",

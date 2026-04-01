@@ -31,4 +31,5 @@ pnpm --filter @keppo/izzy dev        # start Izzy on :3201
 - Register Izzy's callback URL on the GitHub App and use the app's client id/client secret for `GITHUB_ID` and `GITHUB_SECRET`.
 - Install the GitHub App on the target private repository and grant at least `Metadata: Read` plus `Issues: Read and write`.
 - Set `IZZY_TARGET_REPO_ID` to the numeric id of that repository so Izzy exchanges the GitHub callback for a repo-restricted user token.
+- Removing a GitHub login from `IZZY_ALLOWED_GITHUB_USERS` immediately invalidates that user's stored repo-scoped Izzy token and blocks token refresh until the login is re-allowlisted and signs in again.
 - After switching from the old OAuth-app flow, existing Izzy sessions should sign out and sign back in so the new GitHub App token is minted.

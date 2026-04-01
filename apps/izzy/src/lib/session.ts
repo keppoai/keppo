@@ -1,5 +1,9 @@
+import { cookies, headers } from "next/headers";
 import { getServerSession } from "next-auth";
+import { getToken } from "next-auth/jwt";
+import type { NextRequest } from "next/server";
 import { getAuthOptions, hasAuthConfiguration } from "./auth";
+import { getServerEnv } from "./env";
 import { getPreviewGithubLogin, previewEnabled } from "./preview";
 
 export const getIzzySession = async () => {
@@ -19,11 +23,25 @@ export const getIzzySession = async () => {
   return await getServerSession(getAuthOptions());
 };
 
+const getIzzyJwt = async () => {
+  if (!hasAuthConfiguration()) {
+    return null;
+  }
+  const [requestHeaders, requestCookies] = await Promise.all([headers(), cookies()]);
+  return await getToken({
+    req: {
+      headers: requestHeaders,
+      cookies: requestCookies,
+    } as unknown as NextRequest,
+    secret: getServerEnv().NEXTAUTH_SECRET,
+  });
+};
+
 export const requireIzzySession = async (): Promise<{
   accessToken: string;
   githubLogin: string;
 }> => {
-  const session = await getIzzySession();
+  const [session, token] = await Promise.all([getIzzySession(), getIzzyJwt()]);
   if (!session) {
     throw new Error("unauthorized_session");
   }
@@ -33,9 +51,14 @@ export const requireIzzySession = async (): Promise<{
       githubLogin: session.user.githubLogin,
     };
   }
-  const accessToken = session?.accessToken?.trim();
+  const accessToken = token?.accessToken?.trim();
   const githubLogin = session?.user?.githubLogin?.trim();
-  if (!accessToken || !githubLogin || session.errorCode === "github_not_allowed") {
+  if (
+    !accessToken ||
+    !githubLogin ||
+    session.errorCode === "github_not_allowed" ||
+    token?.errorCode === "github_not_allowed"
+  ) {
     throw new Error("unauthorized_session");
   }
   return {
