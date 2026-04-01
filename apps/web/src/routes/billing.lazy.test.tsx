@@ -1,8 +1,22 @@
 import { screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { BillingPage } from "./billing.lazy";
 import { createFakeDashboardRuntime } from "@/test/fake-dashboard-runtime";
 import { createAuthState, renderDashboard } from "@/test/render-dashboard";
+
+vi.mock("@/lib/server-functions/internal-api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/server-functions/internal-api")>(
+    "@/lib/server-functions/internal-api",
+  );
+  return {
+    ...actual,
+    getBillingSubscriptionPending: vi.fn(async () => ({
+      cancel_at_period_end: true,
+      pending_tier: null,
+      pending_effective_at: "2026-04-01T00:00:00.000Z",
+    })),
+  };
+});
 
 describe("BillingPage", () => {
   it("keeps invite promo controls visible when capacity queries fail", async () => {
@@ -49,7 +63,10 @@ describe("BillingPage", () => {
     expect(screen.getByText("Capacity details temporarily unavailable")).toBeInTheDocument();
   });
 
-  it("hides billing management controls for viewer members", async () => {
+  it.each([
+    ["viewer", "viewer@example.com"],
+    ["approver", "approver@example.com"],
+  ] as const)("hides billing management controls for %s members", async (role, email) => {
     renderDashboard(<BillingPage />, {
       route: "/acme/settings/billing",
       auth: createAuthState({
@@ -57,17 +74,17 @@ describe("BillingPage", () => {
         session: {
           authenticated: true,
           user: {
-            id: "user_viewer",
-            email: "viewer@example.com",
-            name: "Viewer User",
+            id: `user_${role}`,
+            email,
+            name: `${role} User`,
           },
           organizationId: "org_1",
           orgSlug: "acme",
-          role: "viewer",
+          role,
         },
         getOrgId: () => "org_1",
         getOrgSlug: () => "acme",
-        getRole: () => "viewer",
+        getRole: () => role,
         canManage: () => false,
       }),
       runtime: createFakeDashboardRuntime({
@@ -113,11 +130,15 @@ describe("BillingPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Billing" })).toBeInTheDocument();
     expect(screen.getByTestId("billing-management-note")).toHaveTextContent(
-      "Only organization owners and admins can start checkout, change plans, or open the billing portal.",
+      "Only organization owners and admins can start checkout, buy top-ups, change plans, or open the billing portal.",
     );
     expect(screen.queryByTestId("billing-change-plan")).not.toBeInTheDocument();
     expect(screen.queryByTestId("billing-manage-subscription")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Buy 100 credits ($10)" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("billing-undo-cancel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-undo-cancel-note")).toHaveTextContent(
+      "Ask an owner or admin to keep this subscription active.",
+    );
     expect(screen.getByTestId("billing-topups-note")).toHaveTextContent(
       "Ask an owner or admin to purchase AI credit packs for this organization.",
     );

@@ -2,7 +2,6 @@ import { v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
-  mutation,
   query,
   type MutationCtx,
   type QueryCtx,
@@ -387,7 +386,7 @@ export const seedUserOrg = internalMutation({
   },
 });
 
-export const setUserActiveOrganizationForTesting = mutation({
+export const setUserActiveOrganizationForTesting = internalMutation({
   args: {
     userId: v.string(),
     orgId: v.string(),

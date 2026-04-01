@@ -746,7 +746,7 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           expect(checkoutResponse.status).toBe(403);
           expect(
             ((await checkoutResponse.json()) as { error?: { code?: string } }).error?.code,
-          ).toBe("forbidden");
+          ).toBe("billing.forbidden");
 
           const creditsResponse = await fetch(`${apiBaseUrl}/api/billing/credits/checkout`, {
             method: "POST",
@@ -762,7 +762,7 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           expect(creditsResponse.status).toBe(403);
           expect(
             ((await creditsResponse.json()) as { error?: { code?: string } }).error?.code,
-          ).toBe("forbidden");
+          ).toBe("billing.forbidden");
 
           const automationRunsResponse = await fetch(
             `${apiBaseUrl}/api/billing/automation-runs/checkout`,
@@ -781,7 +781,7 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           expect(automationRunsResponse.status).toBe(403);
           expect(
             ((await automationRunsResponse.json()) as { error?: { code?: string } }).error?.code,
-          ).toBe("forbidden");
+          ).toBe("billing.forbidden");
 
           const portalResponse = await createPortalSessionFetch({
             baseUrl: apiBaseUrl,
@@ -790,7 +790,7 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           });
           expect(portalResponse.status).toBe(403);
           expect(((await portalResponse.json()) as { error?: { code?: string } }).error?.code).toBe(
-            "forbidden",
+            "billing.forbidden",
           );
         }
       },

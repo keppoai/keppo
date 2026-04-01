@@ -1016,7 +1016,7 @@ describe("start-owned billing api", () => {
     expect(response!.status).toBe(403);
     await expect(response!.json()).resolves.toEqual({
       error: {
-        code: "forbidden",
+        code: "billing.forbidden",
         message: "Only owners and admins can change subscription plans.",
       },
     });
@@ -1087,7 +1087,7 @@ describe("start-owned billing api", () => {
         expect(response!.status).toBe(403);
         await expect(response!.json()).resolves.toEqual({
           error: {
-            code: "forbidden",
+            code: "billing.forbidden",
             message: testCase.expectedMessage,
           },
         });

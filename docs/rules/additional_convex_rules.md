@@ -16,6 +16,7 @@
 - If Convex code in subdirectories needs shared helpers, prefer a `convex/*_shared.ts` bridge over deep relative imports into `packages/shared/src`.
 - Keep Convex fixed-path files as wrappers only when Convex requires the filename; canonical runtime logic must live outside the wrapper.
 - When a test or dashboard caller uses a fixed-path Convex reference like `"mcp:foo"` or `"e2e:bar"`, export that function from the top-level fixed-path module in the same change; helpers left only in submodules will fail at runtime even if TypeScript compiles.
+- Test-only Convex helpers that mutate auth/session state must stay `internalQuery`/`internalMutation`; do not expose them as public functions guarded only by local or E2E env checks.
 - In React code, do not create `makeFunctionReference(...)` objects inside hook dependency chains. Hoist stable Convex references to module scope when they are used in `useEffect`, `useCallback`, or `useMemo` dependencies.
 
 ## Boundary contracts

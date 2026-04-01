@@ -699,13 +699,18 @@ const canManageBillingPlan = (role: UserRole): boolean => {
 
 const billingManagementForbiddenResponse = (
   request: Request,
-  action: "manage billing" | "start checkout" | "buy AI credits" | "buy automation run top-ups",
+  action:
+    | "manage billing"
+    | "start checkout"
+    | "buy AI credits"
+    | "buy automation run top-ups"
+    | "change subscription plans",
 ): Response => {
   return jsonResponse(
     request,
     {
       error: {
-        code: "forbidden",
+        code: "billing.forbidden",
         message: `Only owners and admins can ${action}.`,
       },
     },
@@ -1249,16 +1254,7 @@ export const handleBillingSubscriptionChangeRequest = async (
     }
 
     if (!canManageBillingPlan(authSession.identity.role)) {
-      return jsonResponse(
-        request,
-        {
-          error: {
-            code: "forbidden",
-            message: "Only owners and admins can change subscription plans.",
-          },
-        },
-        403,
-      );
+      return billingManagementForbiddenResponse(request, "change subscription plans");
     }
 
     const activeStripeSubscription = getActiveStripeBilling(

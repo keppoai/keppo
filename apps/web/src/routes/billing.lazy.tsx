@@ -71,7 +71,7 @@ type OptimisticInvitePromo = {
 };
 
 const BILLING_ADMIN_NOTE =
-  "Only organization owners and admins can start checkout, change plans, or open the billing portal.";
+  "Only organization owners and admins can start checkout, buy top-ups, change plans, or open the billing portal.";
 
 function BillingCapacityTopups({
   canManageBilling,
@@ -987,17 +987,26 @@ function BillingPage() {
                 You will move to the Free plan afterward.
               </span>
             </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="min-h-11 shrink-0 sm:min-h-10"
-              onClick={() => void handleUndoCancel()}
-              disabled={busyAction !== null}
-              data-testid="billing-undo-cancel"
-            >
-              {busyAction === "undo_cancel" ? "Updating..." : "Keep subscription"}
-            </Button>
+            {canManageBilling ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="min-h-11 shrink-0 sm:min-h-10"
+                onClick={() => void handleUndoCancel()}
+                disabled={busyAction !== null}
+                data-testid="billing-undo-cancel"
+              >
+                {busyAction === "undo_cancel" ? "Updating..." : "Keep subscription"}
+              </Button>
+            ) : (
+              <p
+                className="text-sm text-muted-foreground sm:max-w-xs sm:text-right"
+                data-testid="billing-undo-cancel-note"
+              >
+                Ask an owner or admin to keep this subscription active.
+              </p>
+            )}
           </div>
         </div>
       ) : null}

@@ -107,15 +107,16 @@ describe("user-facing dashboard errors", () => {
     const error = new ApiError("Forbidden", 403, {
       payload: {
         error: {
-          code: "forbidden",
+          code: "billing.forbidden",
           message: "Only owners and admins can manage billing.",
         },
       },
       responseText:
-        '{"error":{"code":"forbidden","message":"Only owners and admins can manage billing."}}',
+        '{"error":{"code":"billing.forbidden","message":"Only owners and admins can manage billing."}}',
     });
 
     expect(toUserFacingError(error, { audience: "public" })).toMatchObject({
+      code: "billing.forbidden",
       title: "Billing admin access required",
       summary: "Only organization owners and admins can manage billing for this organization.",
       nextSteps: [

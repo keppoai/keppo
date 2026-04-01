@@ -259,6 +259,7 @@ const getGuidance = (params: {
   }
 
   if (
+    params.code === "billing.forbidden" ||
     /only owners and admins can (?:start checkout|buy ai credits|buy automation run top-ups|manage billing|change subscription plans)\./i.test(
       params.message,
     )
