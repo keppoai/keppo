@@ -208,8 +208,6 @@ jobs:
       - name: Setup pnpm
         if: steps.pr-info.outputs.should_continue == 'true'
         uses: pnpm/action-setup@v4
-        with:
-          version: 9.15.4
 
       - name: Setup Node
         if: steps.pr-info.outputs.should_continue == 'true'
