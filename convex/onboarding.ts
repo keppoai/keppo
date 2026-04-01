@@ -1,6 +1,7 @@
 import { v } from "convex/values";
 import { query } from "./_generated/server";
 import { requireWorkspaceRole } from "./_auth";
+import { isIntegrationConnected } from "./integrations/model";
 
 const onboardingReadinessValidator = v.object({
   has_connected_integration: v.boolean(),
@@ -54,8 +55,12 @@ export const getReadiness = query({
     }
 
     return {
-      has_connected_integration: integrations.some(
-        (integration) => integration.status === "connected",
+      has_connected_integration: integrations.some((integration) =>
+        isIntegrationConnected({
+          status: integration.status,
+          lastErrorCategory: integration.last_error_category,
+          credentialExpiresAt: undefined,
+        }),
       ),
       has_enabled_workspace_integration: workspaceIntegrations.some(
         (integration) => integration.enabled,

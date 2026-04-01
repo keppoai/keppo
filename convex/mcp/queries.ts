@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import { internalQuery } from "../_generated/server";
 import { decryptSecretValue } from "../crypto_helpers";
 import { ACTION_STATUS, INTEGRATION_STATUS, RUN_STATUS } from "../domain_constants";
+import { isIntegrationConnected } from "../integrations/model";
 import { listConnectedProviderIdsForOrg } from "../integrations/read_model";
 import { normalizeJsonRecord } from "../mcp_runtime_shared";
 import { assertCanonicalStoredProvider, canonicalizeProvider } from "../provider_ids";
@@ -457,7 +458,14 @@ export const loadConnectorContext = internalQuery({
 
     const integration = await findOrgIntegrationByProvider(ctx, workspace.org_id, provider);
 
-    if (!integration || integration.status === INTEGRATION_STATUS.disconnected) {
+    if (
+      !integration ||
+      !isIntegrationConnected({
+        status: integration.status,
+        lastErrorCategory: integration.last_error_category,
+        credentialExpiresAt: undefined,
+      })
+    ) {
       const payload = {
         workspace: toWorkspaceBoundary(workspace),
         provider_enabled: providerEnabled,

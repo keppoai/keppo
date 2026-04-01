@@ -49,6 +49,39 @@ export const integrationValidator = v.object({
   metadata: jsonRecordValidator,
 });
 
+const isCredentialExpired = (expiresAt: string | null | undefined): boolean => {
+  if (!expiresAt) {
+    return false;
+  }
+  const expiresAtMillis = Date.parse(expiresAt);
+  return Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now();
+};
+
+export const isIntegrationReconnectRequired = (params: {
+  status: IntegrationStatus;
+  lastErrorCategory: IntegrationErrorCategory | null | undefined;
+  credentialExpiresAt: string | null | undefined;
+}): boolean => {
+  if (params.status === INTEGRATION_STATUS.disconnected) {
+    return false;
+  }
+  if (isCredentialExpired(params.credentialExpiresAt)) {
+    return true;
+  }
+  return params.status === INTEGRATION_STATUS.degraded && params.lastErrorCategory === "auth";
+};
+
+export const isIntegrationConnected = (params: {
+  status: IntegrationStatus;
+  lastErrorCategory: IntegrationErrorCategory | null | undefined;
+  credentialExpiresAt: string | null | undefined;
+}): boolean => {
+  if (params.status === INTEGRATION_STATUS.disconnected) {
+    return false;
+  }
+  return !isIntegrationReconnectRequired(params);
+};
+
 export const toIntegrationResponse = (params: {
   integration: {
     id: string;
@@ -83,7 +116,11 @@ export const toIntegrationResponse = (params: {
   ),
   display_name: params.integration.display_name,
   status: params.integration.status,
-  connected: params.integration.status === INTEGRATION_STATUS.connected,
+  connected: isIntegrationConnected({
+    status: params.integration.status,
+    lastErrorCategory: params.integration.last_error_category,
+    credentialExpiresAt: params.credential?.expires_at,
+  }),
   created_at: params.integration.created_at,
   scopes: params.account?.scopes ?? [],
   external_account_id: params.account?.external_account_id ?? null,

@@ -452,4 +452,74 @@ describe("IntegrationDetailPage", () => {
     ).toBeGreaterThan(0);
     expect(screen.getByText("Auth / Missing scopes")).toBeInTheDocument();
   });
+
+  it("shows connected status for transient degraded integrations", async () => {
+    const providerId = MANAGED_OAUTH_PROVIDER_IDS[0]!;
+    const runtime = createFakeDashboardRuntime({
+      queryHandlers: {
+        "integrations:listForCurrentOrg": () => [
+          {
+            id: "integration_1",
+            org_id: "org_1",
+            provider: providerId,
+            display_name: "Google",
+            status: "degraded",
+            connected: true,
+            enabled: true,
+            external_account_id: "automation@example.com",
+            scopes: ["gmail.send"],
+            credential_expires_at: null,
+            created_at: "2026-03-08T00:00:00.000Z",
+            updated_at: "2026-03-08T00:00:00.000Z",
+            metadata: {},
+            last_health_check_at: "2026-03-08T00:08:00.000Z",
+            last_successful_health_check_at: "2026-03-08T00:05:00.000Z",
+            last_webhook_at: null,
+            last_error_code: "rate_limited",
+            last_error_category: "provider_api",
+            degraded_reason: null,
+          },
+        ],
+        "integrations:providerCatalog": () => [
+          {
+            provider: providerId,
+            supported_tools: [],
+          },
+        ],
+      },
+      convexQueryHandlers: {
+        "integrations:listForCurrentOrg": () => [],
+        "integrations:providerCatalog": () => [],
+      },
+    });
+
+    renderDashboard(<IntegrationDetailPage />, {
+      route: `/acme/workspace-1/integrations/${providerId}`,
+      auth: createAuthState({
+        isAuthenticated: true,
+        canManage: () => true,
+        canApprove: () => true,
+        getOrgId: () => "org_1",
+        getOrgSlug: () => "acme",
+      }),
+      workspace: createWorkspaceState({
+        selectedWorkspaceId: "ws_1",
+        selectedWorkspaceIntegrations: [
+          {
+            id: "wsi_1",
+            workspace_id: "ws_1",
+            provider: providerId,
+            enabled: true,
+            created_by: "user_1",
+            created_at: "2026-03-08T00:00:00.000Z",
+          },
+        ],
+      }),
+      runtime,
+    });
+
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(screen.getByText("Provider API / Rate limited")).toBeInTheDocument();
+    expect(screen.queryByText("Needs reconnect")).not.toBeInTheDocument();
+  });
 });

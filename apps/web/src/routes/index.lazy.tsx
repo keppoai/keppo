@@ -31,6 +31,7 @@ import { useWorkspace } from "@/hooks/use-workspace-context";
 import { humanizeRunStatus, parsePaginatedAutomations } from "@/lib/automations-view-model";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
 import { relativeTime } from "@/lib/format";
+import { isIntegrationReconnectRequired } from "@/lib/integration-health";
 
 export const indexRouteLazy = createLazyRoute(indexRoute.id)({
   component: DashboardPage,
@@ -591,6 +592,16 @@ export function DashboardPage() {
           integration.last_successful_health_check_at &&
           integration.last_health_check_at > integration.last_successful_health_check_at)),
   );
+  const reconnectRequiredIntegrations = integrations.filter((integration) => {
+    const expiresAtMillis = integration.credential_expires_at
+      ? Date.parse(integration.credential_expires_at)
+      : Number.NaN;
+    return isIntegrationReconnectRequired({
+      status: integration.status,
+      isExpired: Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now(),
+      lastErrorCategory: integration.last_error_category,
+    });
+  });
   const expiringCredentials = integrations.filter(
     (integration) =>
       integration.connected &&
@@ -607,6 +618,17 @@ export function DashboardPage() {
           detail: "High and critical actions are blocked until someone reviews them.",
           href: buildWorkspacePath("/approvals"),
           cta: "Review approvals",
+        }
+      : null,
+    reconnectRequiredIntegrations.length > 0
+      ? {
+          id: "integrations-reconnect",
+          icon: PlugIcon,
+          tone: "border-red-500/30 bg-red-500/5 text-red-700 dark:text-red-300",
+          title: `${reconnectRequiredIntegrations.length} integration${reconnectRequiredIntegrations.length === 1 ? " needs" : "s need"} reconnect`,
+          detail: "Saved credentials expired or lost required access.",
+          href: buildWorkspacePath("/integrations"),
+          cta: "Reconnect providers",
         }
       : null,
     degradedIntegrations.length > 0

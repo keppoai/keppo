@@ -22,6 +22,7 @@ import { fullTimestamp, relativeTime } from "@/lib/format";
 import {
   formatIntegrationErrorDiagnostic,
   getIntegrationUnhealthyReason,
+  isIntegrationReconnectRequired,
 } from "@/lib/integration-health";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
 import {
@@ -281,6 +282,7 @@ export const integrationDetailRouteLazy = createLazyRoute(integrationDetailRoute
 function IntegrationDetailsHeader({
   provider,
   connected,
+  needsReconnect,
   externalAccountId,
   scopes,
   status,
@@ -294,6 +296,7 @@ function IntegrationDetailsHeader({
 }: {
   provider: string;
   connected: boolean;
+  needsReconnect: boolean;
   externalAccountId: string | null;
   scopes: string[];
   status: string;
@@ -305,7 +308,11 @@ function IntegrationDetailsHeader({
   lastErrorCategory: string | null | undefined;
   degradedReason: string | null | undefined;
 }) {
-  const connectionLabel = connected ? "Connected" : "Needs reconnect";
+  const connectionLabel = connected
+    ? "Connected"
+    : needsReconnect
+      ? "Needs reconnect"
+      : "Not connected";
   const accountLabel = externalAccountId ?? "No account linked yet";
   const expiresAtMillis = expiresAt ? Date.parse(expiresAt) : Number.NaN;
   const isExpired = Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now();
@@ -325,7 +332,9 @@ function IntegrationDetailsHeader({
     ? unhealthyReason
     : connected
       ? "Connection looks healthy."
-      : "Connect the provider before testing actions.";
+      : needsReconnect
+        ? "Reconnect the provider before testing actions."
+        : "Connect the provider before testing actions.";
 
   return (
     <Card>
@@ -455,6 +464,15 @@ function IntegrationDetailPage() {
   }, [canonicalProvider, integrations]);
 
   const connected = integration?.connected === true;
+  const expiresAtMillis = integration?.credential_expires_at
+    ? Date.parse(integration.credential_expires_at)
+    : Number.NaN;
+  const isExpired = Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now();
+  const needsReconnect = isIntegrationReconnectRequired({
+    status: integration?.status,
+    isExpired,
+    lastErrorCategory: integration?.last_error_category,
+  });
   const integrationMetadata = useMemo(
     () => toRecord(integration?.metadata),
     [integration?.metadata],
@@ -635,7 +653,9 @@ function IntegrationDetailPage() {
   }
 
   const actionDisabledReason = !connected
-    ? `${providerLabel} is not connected.`
+    ? needsReconnect
+      ? `${providerLabel} needs reconnect before test actions can run.`
+      : `${providerLabel} is not connected.`
     : !workspaceProviderEnabled
       ? `${providerLabel} is disabled for the selected workspace.`
       : !hasWriteCapability
@@ -740,6 +760,7 @@ function IntegrationDetailPage() {
       <IntegrationDetailsHeader
         provider={providerLabel}
         connected={connected}
+        needsReconnect={needsReconnect}
         externalAccountId={integration.external_account_id}
         scopes={integration.scopes}
         status={integration.status}

@@ -14,6 +14,7 @@ Use these rules when a provider connector depends on the SDK boundary in `packag
 - If a write method accepts idempotency keys, connectors must pass deterministic keys into that call.
 - E2E and conformance coverage should assert SDK call logs for migrated providers, not just final business outcomes.
 - Shared connector contract tests should exercise provider HTTP through the shared transport harness so allowlists, request recording, and fixtures stay aligned across suites.
+- Connector/runtime error mapping must preserve reconnect semantics: auth and credential failures should mark integrations as reconnect-required, while transient network, provider API, rate-limit, and policy failures should keep already-valid integrations connected but degraded.
 
 ## Guardrails
 

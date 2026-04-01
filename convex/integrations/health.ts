@@ -9,7 +9,7 @@ import {
   integrationStatusValidator,
   providerValidator,
 } from "../validators";
-import { PROVIDER_MODULE_VERSION } from "./model";
+import { isIntegrationConnected, PROVIDER_MODULE_VERSION } from "./model";
 import { findIntegrationByProvider } from "./persistence";
 
 export const testProvider = mutation({
@@ -20,7 +20,14 @@ export const testProvider = mutation({
     const provider = canonicalizeProvider(args.provider);
 
     const integration = await findIntegrationByProvider(ctx, auth.orgId, provider);
-    if (!integration || integration.status !== INTEGRATION_STATUS.connected) {
+    if (
+      !integration ||
+      !isIntegrationConnected({
+        status: integration.status,
+        lastErrorCategory: integration.last_error_category,
+        credentialExpiresAt: undefined,
+      })
+    ) {
       return { ok: false, detail: `${provider} is not connected` };
     }
 

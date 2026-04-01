@@ -1,11 +1,12 @@
 import { query, type QueryCtx } from "../_generated/server";
 import { v } from "convex/values";
 import { requireOrgMember } from "../_auth";
-import { INTEGRATION_STATUS } from "../domain_constants";
+import type { IntegrationErrorCategory, IntegrationStatus } from "../domain_constants";
 import { assertCanonicalStoredProvider, type ProviderId } from "../provider_ids";
 import {
   PROVIDER_CATALOG_CONFIGURATION_STATUS,
   integrationValidator,
+  isIntegrationConnected,
   providerCatalogEntries,
   providerCatalogValidator,
   toIntegrationResponse,
@@ -15,7 +16,13 @@ const hasEnvValue = (value: string | undefined): boolean =>
   typeof value === "string" && value.trim().length > 0;
 
 const selectPreferredIntegrationsByProvider = <
-  T extends { id: string; provider: string; status: string; created_at: string },
+  T extends {
+    id: string;
+    provider: string;
+    status: IntegrationStatus;
+    created_at: string;
+    last_error_category?: IntegrationErrorCategory | null;
+  },
 >(
   integrations: T[],
 ): Map<ProviderId, T> => {
@@ -31,8 +38,16 @@ const selectPreferredIntegrationsByProvider = <
       continue;
     }
     if (
-      existing.status !== INTEGRATION_STATUS.connected &&
-      integration.status === INTEGRATION_STATUS.connected
+      !isIntegrationConnected({
+        status: existing.status,
+        lastErrorCategory: existing.last_error_category,
+        credentialExpiresAt: undefined,
+      }) &&
+      isIntegrationConnected({
+        status: integration.status,
+        lastErrorCategory: integration.last_error_category,
+        credentialExpiresAt: undefined,
+      })
     ) {
       dedupedByProvider.set(canonical, integration);
       continue;
@@ -61,7 +76,13 @@ export const listConnectedProviderIdsForOrg = async (
     .collect();
 
   return [...selectPreferredIntegrationsByProvider(integrations).entries()]
-    .filter(([, integration]) => integration.status === INTEGRATION_STATUS.connected)
+    .filter(([, integration]) =>
+      isIntegrationConnected({
+        status: integration.status,
+        lastErrorCategory: integration.last_error_category,
+        credentialExpiresAt: undefined,
+      }),
+    )
     .map(([provider]) => provider);
 };
 
