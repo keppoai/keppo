@@ -1,11 +1,23 @@
 import fs from "node:fs/promises";
 import { spawn } from "node:child_process";
+import os from "node:os";
+import path from "node:path";
+import { extractFirstJsonObject } from "../pr-review/extract-json.mjs";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
 const DEFAULT_ADVISORY_COLLABORATOR = "wwwillchen";
 const MAX_ADVISORIES_FOR_MODEL = 12;
 const MAX_MODEL_TEXT_CHARS = 1200;
+const MAX_CODEX_OUTPUT_CHARS = 200_000;
+const CODEX_TIMEOUT_MS = 60_000;
+
+const pickEnv = (source, keys) =>
+  Object.fromEntries(
+    keys
+      .filter((key) => source[key] !== undefined)
+      .map((key) => [key, source[key]]),
+  );
 
 const readResponseBody = async (response) => {
   const text = await response.text();
@@ -29,11 +41,14 @@ const tokenizeForSimilarity = (value) =>
   new Set(
     normalizeFreeText(value)
       .split(/\s+/)
-      .filter((token) => token.length >= 4),
+      .filter((token) => token.length >= 3),
   );
 
-const advisorySupportsSemanticDedupe = (advisory) =>
+const advisorySupportsLocalDedupe = (advisory) =>
   ["triage", "draft", "published"].includes(String(advisory?.state || "").toLowerCase());
+
+const advisorySupportsSemanticDedupe = (advisory) =>
+  String(advisory?.state || "").toLowerCase() === "published";
 
 const scoreAdvisorySimilarity = (finding, advisory) => {
   const findingTokens = tokenizeForSimilarity(`${finding.title} ${finding.description}`);
@@ -162,50 +177,198 @@ const parseJsonObject = (value) => {
 
   const fencedMatch = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
   if (fencedMatch) {
-    return JSON.parse(fencedMatch[1]);
+    try {
+      return JSON.parse(fencedMatch[1]);
+    } catch {}
   }
 
-  const firstBrace = trimmed.indexOf("{");
-  const lastBrace = trimmed.lastIndexOf("}");
-  if (firstBrace >= 0 && lastBrace > firstBrace) {
-    return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1));
+  let firstBrace = trimmed.indexOf("{");
+  while (firstBrace >= 0) {
+    const candidate = extractFirstJsonObject(trimmed.slice(firstBrace));
+    try {
+      return JSON.parse(candidate);
+    } catch {}
+    firstBrace = trimmed.indexOf("{", firstBrace + 1);
   }
 
   throw new Error("Codex did not return parseable JSON");
 };
 
-const runCodexPrompt = async (prompt) =>
-  await new Promise((resolve, reject) => {
-    const child = spawn("codex", ["exec", "--dangerously-bypass-approvals-and-sandbox", "-"], {
-      env: process.env,
-      stdio: ["pipe", "pipe", "pipe"],
-    });
+const buildCodexExecArgs = () => [
+  "exec",
+  "--skip-git-repo-check",
+  "--sandbox",
+  "read-only",
+  "--disable",
+  "responses_websockets",
+  "-",
+];
 
-    let stdout = "";
-    let stderr = "";
+const buildCodexExecEnv = (env = process.env) =>
+  pickEnv(env, [
+    "PATH",
+    "HOME",
+    "LANG",
+    "LC_ALL",
+    "TMPDIR",
+    "TEMP",
+    "TMP",
+    "OPENAI_API_KEY",
+    "OPENAI_BASE_URL",
+    "OPENAI_ORG_ID",
+    "OPENAI_PROJECT_ID",
+    "NO_COLOR",
+    "FORCE_COLOR",
+  ]);
 
-    child.stdout.on("data", (chunk) => {
-      stdout += chunk.toString();
+const appendLimited = (value, chunk) => {
+  if (value.length >= MAX_CODEX_OUTPUT_CHARS) {
+    return value;
+  }
+  const remaining = MAX_CODEX_OUTPUT_CHARS - value.length;
+  return value + chunk.slice(0, remaining);
+};
+
+const runCodexPrompt = async (prompt) => {
+  const sandboxDir = await fs.mkdtemp(path.join(os.tmpdir(), "security-review-codex-"));
+
+  try {
+    return await new Promise((resolve, reject) => {
+      const child = spawn("codex", buildCodexExecArgs(), {
+        cwd: sandboxDir,
+        env: buildCodexExecEnv(),
+        stdio: ["pipe", "pipe", "pipe"],
+      });
+
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      let timedOut = false;
+      let exceededOutputLimit = false;
+      let killTimer = null;
+
+      const clearKillTimer = () => {
+        if (killTimer) {
+          clearTimeout(killTimer);
+          killTimer = null;
+        }
+      };
+
+      const finish = (callback) => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clearTimeout(timeoutId);
+        clearKillTimer();
+        callback();
+      };
+
+      const terminateChild = (reason) => {
+        if (child.exitCode !== null || child.killed) {
+          return;
+        }
+        stderr = appendLimited(stderr, `\n${reason}`);
+        child.kill("SIGTERM");
+        killTimer = setTimeout(() => {
+          if (child.exitCode === null && !child.killed) {
+            child.kill("SIGKILL");
+          }
+        }, 5_000);
+      };
+
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        terminateChild(`Codex timed out after ${CODEX_TIMEOUT_MS}ms`);
+      }, CODEX_TIMEOUT_MS);
+
+      const handleOutput = (target, chunk) => {
+        const text = chunk.toString();
+        const nextValue = appendLimited(target(), text);
+        if (target === getStdout) {
+          stdout = nextValue;
+        } else {
+          stderr = nextValue;
+        }
+        if (!exceededOutputLimit && nextValue.length >= MAX_CODEX_OUTPUT_CHARS) {
+          exceededOutputLimit = true;
+          terminateChild("Codex output exceeded limit");
+        }
+      };
+
+      const getStdout = () => stdout;
+      const getStderr = () => stderr;
+
+      child.stdout.on("data", (chunk) => {
+        handleOutput(getStdout, chunk);
+      });
+      child.stderr.on("data", (chunk) => {
+        handleOutput(getStderr, chunk);
+      });
+      child.on("error", (error) => {
+        finish(() => reject(error));
+      });
+      child.on("close", (code, signal) => {
+        finish(() => {
+          if (code === 0 && !timedOut && !exceededOutputLimit) {
+            resolve(stdout);
+            return;
+          }
+
+          const reason = timedOut
+            ? `timed out after ${CODEX_TIMEOUT_MS}ms`
+            : exceededOutputLimit
+              ? `exceeded ${MAX_CODEX_OUTPUT_CHARS} chars of output`
+              : signal
+                ? `terminated by signal ${signal}`
+                : `failed with exit code ${code}`;
+          reject(new Error(`Codex dedupe prompt ${reason}: ${stderr.trim().slice(0, 1000)}`));
+        });
+      });
+
+      child.stdin.end(prompt);
     });
-    child.stderr.on("data", (chunk) => {
-      stderr += chunk.toString();
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      if (code === 0) {
-        resolve(stdout);
-        return;
+  } finally {
+    await fs.rm(sandboxDir, { recursive: true, force: true });
+  }
+};
+
+const buildCreateRepositoryAdvisoryPayload = ({
+  repositoryName,
+  finding,
+  advisoryCollaborator,
+}) => ({
+  summary: finding.title,
+  description: [
+    finding.description,
+    "",
+    "This draft advisory was generated by the nightly `security-review:recent` workflow as defensive security research on an open-source project in coordination with the maintainer.",
+  ].join("\n"),
+  severity: finding.severity,
+  cve_id: null,
+  vulnerabilities: [
+    {
+      package: {
+        ecosystem: "other",
+        name: repositoryName,
+      },
+      vulnerable_version_range: null,
+      patched_versions: null,
+      vulnerable_functions: [],
+    },
+  ],
+  ...(advisoryCollaborator
+    ? {
+        credits: [
+          {
+            login: advisoryCollaborator,
+            type: "coordinator",
+          },
+        ],
       }
-
-      reject(
-        new Error(
-          `Codex dedupe prompt failed with exit code ${code}: ${stderr.trim().slice(0, 1000)}`,
-        ),
-      );
-    });
-
-    child.stdin.end(prompt);
-  });
+    : {}),
+  start_private_fork: false,
+});
 
 const fetchExistingAdvisories = async ({ apiBaseUrl, repo, token }) => {
   let nextUrl = new URL(`${apiBaseUrl}/repos/${repo}/security-advisories`);
@@ -254,36 +417,13 @@ const createRepositoryAdvisory = async ({
       "X-GitHub-Api-Version": GITHUB_API_VERSION,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      summary: finding.title,
-      description: [
-        finding.description,
-        "",
-        "This draft advisory was generated by the nightly `security-review:recent` workflow as defensive security research on an open-source project in coordination with the maintainer.",
-      ].join("\n"),
-      severity: finding.severity,
-      cve_id: null,
-      vulnerabilities: [
-        {
-          package: {
-            ecosystem: "other",
-            name: repositoryName,
-          },
-          vulnerable_version_range: null,
-          patched_versions: null,
-          vulnerable_functions: [],
-        },
-      ],
-      credits: advisoryCollaborator
-        ? [
-            {
-              login: advisoryCollaborator,
-              type: "coordinator",
-            },
-          ]
-        : null,
-      start_private_fork: false,
-    }),
+    body: JSON.stringify(
+      buildCreateRepositoryAdvisoryPayload({
+        repositoryName,
+        finding,
+        advisoryCollaborator,
+      }),
+    ),
   });
 
   if (!response.ok) {
@@ -294,85 +434,183 @@ const createRepositoryAdvisory = async ({
   return response.json();
 };
 
-const findSemanticDuplicate = async ({ finding, advisories }) => {
-  const candidates = advisories
-    .filter(advisorySupportsSemanticDedupe)
-    .map((advisory) => ({
-      advisory,
-      score: scoreAdvisorySimilarity(finding, advisory),
-    }))
-    .filter(({ score }) => score > 0)
-    .sort((left, right) => right.score - left.score)
-    .slice(0, MAX_ADVISORIES_FOR_MODEL)
-    .map(({ advisory }, index) => ({
-      candidateIndex: index,
-      ghsaId: String(advisory.ghsa_id || ""),
-      state: String(advisory.state || ""),
-      summary: truncate(String(advisory.summary || "")),
-      description: truncate(String(advisory.description || "")),
-      advisory,
-    }));
+const advisoryFingerprint = (advisory) =>
+  normalizeFreeText(`${String(advisory.summary || "")}\n${String(advisory.description || "")}`);
 
-  if (candidates.length === 0) {
+const findingFingerprint = (finding) =>
+  normalizeFreeText(`${String(finding.title || "")}\n${String(finding.description || "")}`);
+
+const findLocalExactDuplicate = ({ finding, advisories }) => {
+  const fingerprint = findingFingerprint(finding);
+  if (!fingerprint) {
     return null;
   }
 
-  const prompt = [
-    "You are deduplicating GitHub repository security advisories.",
-    "Decide whether the proposed finding is the same underlying vulnerability as one existing advisory.",
-    "Only mark a duplicate when they describe materially the same vulnerable behavior or exploit path.",
-    "Return JSON only with this schema:",
-    '{"duplicateIndex":number|null,"confidence":"high"|"low","reason":string}',
-    "",
-    "Proposed finding:",
-    JSON.stringify(
-      {
-        title: finding.title,
-        severity: finding.severity,
-        description: truncate(finding.description),
-      },
-      null,
-      2,
-    ),
-    "",
-    "Existing advisories:",
-    JSON.stringify(
-      candidates.map(({ advisory, ...candidate }) => candidate),
-      null,
-      2,
-    ),
-    "",
-    "If none are clearly the same vulnerability, set duplicateIndex to null.",
-    "If you are uncertain, set confidence to low.",
-  ].join("\n");
-
-  let parsed;
-  try {
-    parsed = parseJsonObject(await runCodexPrompt(prompt));
-  } catch (error) {
-    console.warn(
-      `Codex semantic dedupe failed for "${finding.title}". Proceeding without semantic dedupe. ${String(error)}`,
-    );
-    return null;
-  }
-
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    parsed.duplicateIndex == null ||
-    parsed.confidence !== "high"
-  ) {
-    return null;
-  }
-
-  const match = candidates.find((candidate) => candidate.candidateIndex === parsed.duplicateIndex);
+  const match = advisories.find(
+    (advisory) =>
+      advisorySupportsLocalDedupe(advisory) && advisoryFingerprint(advisory) === fingerprint,
+  );
   if (!match) {
     return null;
   }
 
   return {
-    advisory: match.advisory,
-    reason: String(parsed.reason || "").trim() || "semantic duplicate",
+    advisory: match,
+    reason: "exact duplicate of existing advisory",
+  };
+};
+
+const buildSemanticDuplicateWorkItems = ({ findings, advisories }) =>
+  findings
+    .map((finding, findingIndex) => ({
+      findingIndex,
+      finding,
+      candidates: advisories
+        .filter(advisorySupportsSemanticDedupe)
+        .map((advisory) => ({
+          advisory,
+          score: scoreAdvisorySimilarity(finding, advisory),
+        }))
+        .filter(({ score }) => score > 0)
+        .sort((left, right) => right.score - left.score)
+        .slice(0, MAX_ADVISORIES_FOR_MODEL)
+        .map(({ advisory }, candidateIndex) => ({
+          advisory,
+          candidateIndex,
+          ghsaId: String(advisory.ghsa_id || ""),
+          state: String(advisory.state || ""),
+          summary: truncate(String(advisory.summary || "")),
+          description: truncate(String(advisory.description || "")),
+        })),
+    }))
+    .filter((item) => item.candidates.length > 0);
+
+const buildSemanticDuplicatePrompt = (workItems) =>
+  [
+    "You are deduplicating GitHub repository security advisories.",
+    "For each proposed finding, decide whether it is the same underlying vulnerability as one existing published advisory.",
+    "Only mark a duplicate when they describe materially the same vulnerable behavior or exploit path.",
+    "Return JSON only with this schema:",
+    '{"matches":[{"findingIndex":number,"duplicateIndex":number|null,"confidence":"high"|"low","reason":string}]}',
+    "",
+    "Work items:",
+    JSON.stringify(
+      workItems.map(({ findingIndex, finding, candidates }) => ({
+        findingIndex,
+        finding: {
+          title: finding.title,
+          severity: finding.severity,
+          description: truncate(finding.description),
+        },
+        candidates: candidates.map(({ advisory, ...candidate }) => candidate),
+      })),
+      null,
+      2,
+    ),
+    "",
+    "Rules:",
+    "- `findingIndex` must match one of the provided work items.",
+    "- `duplicateIndex` refers to the candidateIndex within that work item's candidates array.",
+    "- If none are clearly the same vulnerability, set duplicateIndex to null.",
+    "- If you are uncertain, set confidence to low.",
+  ].join("\n");
+
+const parseSemanticDuplicateMatches = (parsed, workItems) => {
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.matches)) {
+    return [];
+  }
+
+  const workItemsByIndex = new Map(workItems.map((item) => [item.findingIndex, item]));
+  const matches = [];
+
+  for (const rawMatch of parsed.matches) {
+    if (!rawMatch || typeof rawMatch !== "object") {
+      continue;
+    }
+
+    const findingIndex = rawMatch.findingIndex;
+    const duplicateIndex = rawMatch.duplicateIndex;
+    if (
+      typeof findingIndex !== "number" ||
+      !Number.isInteger(findingIndex) ||
+      rawMatch.confidence !== "high"
+    ) {
+      continue;
+    }
+
+    const workItem = workItemsByIndex.get(findingIndex);
+    if (!workItem) {
+      continue;
+    }
+
+    if (duplicateIndex == null) {
+      continue;
+    }
+
+    if (
+      typeof duplicateIndex !== "number" ||
+      !Number.isInteger(duplicateIndex) ||
+      duplicateIndex < 0 ||
+      duplicateIndex >= workItem.candidates.length
+    ) {
+      continue;
+    }
+
+    const matchedCandidate = workItem.candidates[duplicateIndex];
+    if (!matchedCandidate) {
+      continue;
+    }
+
+    matches.push({
+      findingIndex,
+      advisory: matchedCandidate.advisory,
+      reason: String(rawMatch.reason || "").trim() || "semantic duplicate",
+    });
+  }
+
+  return matches;
+};
+
+const findSemanticDuplicates = async ({ findings, advisories }) => {
+  const workItems = buildSemanticDuplicateWorkItems({ findings, advisories });
+  if (workItems.length === 0) {
+    return {
+      matchesByFindingIndex: new Map(),
+      audit: {
+        skippedBecauseModelFailed: [],
+      },
+    };
+  }
+
+  let parsed;
+  try {
+    parsed = parseJsonObject(await runCodexPrompt(buildSemanticDuplicatePrompt(workItems)));
+  } catch (error) {
+    const titles = workItems.map(({ finding }) => finding.title);
+    console.warn(
+      `Codex semantic dedupe failed for ${titles.length} finding(s). Proceeding without semantic dedupe. ${String(error)}`,
+    );
+    return {
+      matchesByFindingIndex: new Map(),
+      audit: {
+        skippedBecauseModelFailed: titles,
+      },
+    };
+  }
+
+  return {
+    matchesByFindingIndex: new Map(
+      parseSemanticDuplicateMatches(parsed, workItems).map((match) => [
+        match.findingIndex,
+        {
+          advisory: match.advisory,
+          reason: match.reason,
+        },
+      ]),
+    ),
+    audit: {
+      skippedBecauseModelFailed: [],
+    },
   };
 };
 
@@ -433,21 +671,56 @@ const main = async () => {
   const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
 
   const existing = await fetchExistingAdvisories({ apiBaseUrl, repo, token });
+  const existingSnapshot = [...existing];
   const created = [];
   const skipped = [];
+  const exactDuplicatesByFindingIndex = new Map();
+  const findingsNeedingSemanticDedupe = [];
+  const semanticAudit = {
+    skippedBecauseModelFailed: [],
+  };
 
-  for (const finding of findings) {
-    const semanticDuplicate = await findSemanticDuplicate({
+  for (const [findingIndex, finding] of findings.entries()) {
+    const exactDuplicate = findLocalExactDuplicate({
       finding,
-      advisories: existing,
+      advisories: existingSnapshot,
     });
-    if (semanticDuplicate) {
+    if (exactDuplicate) {
+      exactDuplicatesByFindingIndex.set(findingIndex, exactDuplicate);
+      continue;
+    }
+    findingsNeedingSemanticDedupe.push({
+      findingIndex,
+      finding,
+    });
+  }
+
+  const semanticDuplicates = await findSemanticDuplicates({
+    findings: findingsNeedingSemanticDedupe.map(({ finding }) => finding),
+    advisories: existingSnapshot,
+  });
+  semanticAudit.skippedBecauseModelFailed.push(...semanticDuplicates.audit.skippedBecauseModelFailed);
+
+  const semanticDuplicatesByFindingIndex = new Map();
+  for (const [relativeFindingIndex, duplicate] of semanticDuplicates.matchesByFindingIndex) {
+    const workItem = findingsNeedingSemanticDedupe[relativeFindingIndex];
+    if (!workItem) {
+      continue;
+    }
+    semanticDuplicatesByFindingIndex.set(workItem.findingIndex, duplicate);
+  }
+
+  for (const [findingIndex, finding] of findings.entries()) {
+    const duplicate =
+      exactDuplicatesByFindingIndex.get(findingIndex) ||
+      semanticDuplicatesByFindingIndex.get(findingIndex);
+    if (duplicate) {
       skipped.push({
         ...finding,
-        duplicateReason: semanticDuplicate.reason,
-        ghsaId: semanticDuplicate.advisory.ghsa_id || null,
-        htmlUrl: semanticDuplicate.advisory.html_url || null,
-        state: semanticDuplicate.advisory.state || null,
+        duplicateReason: duplicate.reason,
+        ghsaId: duplicate.advisory.ghsa_id || null,
+        htmlUrl: duplicate.advisory.html_url || null,
+        state: duplicate.advisory.state || null,
       });
       continue;
     }
@@ -467,11 +740,18 @@ const main = async () => {
       htmlUrl: advisory.html_url || null,
       state: advisory.state || null,
     });
-    existing.push(advisory);
   }
 
   await appendStepSummary(`Created advisories: ${created.length}`);
   await appendStepSummary(`Skipped as duplicates: ${skipped.length}`);
+  await appendStepSummary(
+    `Semantic dedupe model failures: ${semanticAudit.skippedBecauseModelFailed.length}`,
+  );
+  if (semanticAudit.skippedBecauseModelFailed.length > 0) {
+    await appendStepSummary(
+      `Semantic dedupe skipped for: ${semanticAudit.skippedBecauseModelFailed.join(", ")}`,
+    );
+  }
 
   const runUrl = runId ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
   const subject = `[ALERT] security-review:recent found ${findings.length} vulnerability finding(s) for ${repo}`;
@@ -481,6 +761,7 @@ const main = async () => {
     `Confirmed findings: ${findings.length}`,
     `Created advisories: ${created.length}`,
     `Skipped as duplicates: ${skipped.length}`,
+    `Semantic dedupe model failures: ${semanticAudit.skippedBecauseModelFailed.length}`,
     "",
     "Created advisories:",
     ...(created.length === 0
@@ -498,6 +779,14 @@ const main = async () => {
             `- [${finding.severity}] ${finding.title}${finding.ghsaId ? ` (${finding.ghsaId})` : ""}${finding.duplicateReason ? ` [${finding.duplicateReason}]` : ""}${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
         )),
   ];
+
+  if (semanticAudit.skippedBecauseModelFailed.length > 0) {
+    textSections.push(
+      "",
+      "Semantic dedupe model failures:",
+      ...semanticAudit.skippedBecauseModelFailed.map((title) => `- ${title}`),
+    );
+  }
 
   if (sessionLogLinks.length > 0) {
     textSections.push(
@@ -520,7 +809,8 @@ const main = async () => {
     <p style="margin:0 0 12px;">
       Confirmed findings: <strong>${findings.length}</strong><br />
       Created advisories: <strong>${created.length}</strong><br />
-      Skipped as duplicates: <strong>${skipped.length}</strong>
+      Skipped as duplicates: <strong>${skipped.length}</strong><br />
+      Semantic dedupe model failures: <strong>${semanticAudit.skippedBecauseModelFailed.length}</strong>
     </p>
     <h3 style="margin:16px 0 8px;">Created advisories</h3>
     <ul style="margin:0 0 16px;padding-left:20px;">
@@ -561,6 +851,18 @@ const main = async () => {
       }
     </ul>
     ${
+      semanticAudit.skippedBecauseModelFailed.length === 0
+        ? ""
+        : `
+    <h3 style="margin:16px 0 8px;">Semantic dedupe model failures</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${semanticAudit.skippedBecauseModelFailed
+        .map((title) => `<li>${escapeHtml(title)}</li>`)
+        .join("")}
+    </ul>
+    `
+    }
+    ${
       sessionLogLinks.length > 0
         ? `
     <h3 style="margin:16px 0 8px;">Session log viewer</h3>
@@ -599,4 +901,26 @@ const main = async () => {
   );
 };
 
-await main();
+export {
+  advisoryFingerprint,
+  advisorySupportsLocalDedupe,
+  advisorySupportsSemanticDedupe,
+  appendLimited,
+  buildCodexExecArgs,
+  buildCodexExecEnv,
+  buildCreateRepositoryAdvisoryPayload,
+  buildSemanticDuplicatePrompt,
+  buildSemanticDuplicateWorkItems,
+  findingFingerprint,
+  findLocalExactDuplicate,
+  findSemanticDuplicates,
+  normalizeFreeText,
+  parseJsonObject,
+  parseSemanticDuplicateMatches,
+  scoreAdvisorySimilarity,
+  tokenizeForSimilarity,
+};
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  await main();
+}

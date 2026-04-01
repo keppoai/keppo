@@ -348,7 +348,7 @@ Required configuration:
 
 ## Nightly recent security review workflow
 
-The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. It runs Codex with the repo-local `security-review:recent` skill against commits from the last 7 days, writes confirmed `critical`/`high` findings to `out-security-review/findings.json`, files draft repository security advisories for new findings, credits `wwwillchen` on newly created advisories, deduplicates against existing advisories with a bounded Codex semantic check, and sends a Mailgun email when the run confirms any vulnerabilities.
+The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time and on manual dispatch in the `ai-bots` GitHub Actions environment. It runs Codex with the repo-local `security-review:recent` skill against commits from the last 7 days, writes confirmed `critical`/`high` findings to `out-security-review/findings.json`, files draft repository security advisories for new findings, credits `wwwillchen` on newly created advisories, performs local exact-match dedupe against unpublished advisories, performs a bounded Codex semantic check only against already published advisories, and sends a Mailgun email when the run confirms any vulnerabilities.
 
 Required configuration:
 
@@ -359,6 +359,7 @@ Required configuration:
 - environment variable `MAILGUN_DOMAIN`
 - environment variable `MAILGUN_FROM_EMAIL`
 - environment variable `SECURITY_ADVISORY_ALERT_EMAILS` — comma-separated recipient list
+- environment variable `SECURITY_ADVISORY_COLLABORATOR` — optional collaborator login to credit on newly created advisories; defaults to `wwwillchen`
 
 Token requirements:
 
