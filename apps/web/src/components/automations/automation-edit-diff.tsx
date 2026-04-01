@@ -1,7 +1,7 @@
 import { resolveProviderAutomationTriggerDefinition } from "../../../../../packages/shared/src/providers/automation-trigger-registry.js";
 import type { AutomationContextSnapshot } from "@keppo/shared/ai_generation";
 import {
-  getAiModelProviderLabel,
+  getAutomationModelClassMeta,
   getNetworkAccessMeta,
   type Automation,
   type AutomationConfigVersion,
@@ -89,14 +89,9 @@ export const buildAutomationEditDiffSections = (
       title: "Runtime",
       rows: [
         {
-          label: "Model provider",
-          before: getAiModelProviderLabel(config.ai_model_provider),
-          after: getAiModelProviderLabel(draft.ai_model_provider),
-        },
-        {
           label: "Model",
-          before: stringify(config.ai_model_name),
-          after: stringify(draft.ai_model_name),
+          before: getAutomationModelClassMeta(config.model_class).label,
+          after: getAutomationModelClassMeta(draft.model_class).label,
         },
         {
           label: "Network access",

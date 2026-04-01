@@ -9,6 +9,15 @@ export const AUTOMATION_RUNNER_TYPE = {
   claudeCode: "claude_code",
 } as const satisfies Record<string, AutomationRunnerType>;
 
+export const AUTOMATION_MODEL_CLASSES = ["auto", "frontier", "balanced", "value"] as const;
+export type AutomationModelClass = (typeof AUTOMATION_MODEL_CLASSES)[number];
+export const AUTOMATION_MODEL_CLASS = {
+  auto: "auto",
+  frontier: "frontier",
+  balanced: "balanced",
+  value: "value",
+} as const satisfies Record<string, AutomationModelClass>;
+
 export const AUTOMATION_CONFIG_TRIGGER_TYPES = ["schedule", "event", "manual"] as const;
 export type AutomationConfigTriggerType = (typeof AUTOMATION_CONFIG_TRIGGER_TYPES)[number];
 
@@ -349,6 +358,61 @@ export const getAiModelProviderLabel = (provider: AiModelProvider): string => {
   return provider === AI_MODEL_PROVIDER.openai ? "OpenAI" : "Anthropic";
 };
 
+export const getAutomationModelClassLabel = (modelClass: AutomationModelClass): string => {
+  switch (modelClass) {
+    case AUTOMATION_MODEL_CLASS.frontier:
+      return "Frontier";
+    case AUTOMATION_MODEL_CLASS.balanced:
+      return "Balanced";
+    case AUTOMATION_MODEL_CLASS.value:
+      return "Value";
+    case AUTOMATION_MODEL_CLASS.auto:
+    default:
+      return "Auto";
+  }
+};
+
+export const getAutomationModelClassDescription = (modelClass: AutomationModelClass): string => {
+  switch (modelClass) {
+    case AUTOMATION_MODEL_CLASS.frontier:
+      return "Highest capability for harder work.";
+    case AUTOMATION_MODEL_CLASS.balanced:
+      return "Balanced speed and quality for most automations.";
+    case AUTOMATION_MODEL_CLASS.value:
+      return "Lower-cost model choice for simpler tasks.";
+    case AUTOMATION_MODEL_CLASS.auto:
+    default:
+      return "Recommended default. Currently routes to the balanced model.";
+  }
+};
+
+export const coerceAutomationModelClass = (value: unknown): AutomationModelClass => {
+  switch (value) {
+    case AUTOMATION_MODEL_CLASS.frontier:
+    case AUTOMATION_MODEL_CLASS.balanced:
+    case AUTOMATION_MODEL_CLASS.value:
+      return value;
+    case AUTOMATION_MODEL_CLASS.auto:
+    default:
+      return AUTOMATION_MODEL_CLASS.auto;
+  }
+};
+
+export const inferAutomationModelClassFromLegacyFields = (params: {
+  aiModelProvider?: string | null;
+  aiModelName?: string | null;
+}): AutomationModelClass => {
+  const provider = params.aiModelProvider?.trim().toLowerCase();
+  const modelName = params.aiModelName?.trim().toLowerCase() ?? "";
+  if (provider === AI_MODEL_PROVIDER.anthropic || modelName.includes("opus")) {
+    return AUTOMATION_MODEL_CLASS.frontier;
+  }
+  if (modelName.includes("mini") || modelName.includes("haiku") || modelName.includes("5.2")) {
+    return AUTOMATION_MODEL_CLASS.value;
+  }
+  return AUTOMATION_MODEL_CLASS.auto;
+};
+
 export const getAiKeyModeLabel = (keyMode: AiKeyMode): string => {
   if (keyMode === AI_KEY_MODE.byok) {
     return "API key";
@@ -571,20 +635,24 @@ export const AI_CREDIT_USAGE_SOURCE = {
 export type IncludedAiCredits = {
   total: number;
   bundled_runtime_enabled: boolean;
+  reset_period: "monthly" | "one_time";
 };
 
 export const INCLUDED_AI_CREDITS: Record<SubscriptionTierId, IncludedAiCredits> = {
   free: {
-    total: AI_CREDIT_ALLOWANCES.free,
+    total: 20,
     bundled_runtime_enabled: false,
+    reset_period: "one_time",
   },
   starter: {
     total: AI_CREDIT_ALLOWANCES.starter,
     bundled_runtime_enabled: true,
+    reset_period: "monthly",
   },
   pro: {
     total: AI_CREDIT_ALLOWANCES.pro,
     bundled_runtime_enabled: true,
+    reset_period: "monthly",
   },
 } as const;
 
@@ -602,6 +670,10 @@ export const convertAiCreditsToDyadGatewayBudgetUsd = (credits: number): number 
       DYAD_GATEWAY_BUDGET_AI_CREDITS
     ).toFixed(4),
   );
+};
+
+export const isGatewayRuntimeEnabled = (gatewayUrl: string | null | undefined): boolean => {
+  return Boolean(gatewayUrl?.trim());
 };
 
 export const AI_CREDIT_PACKAGES = [

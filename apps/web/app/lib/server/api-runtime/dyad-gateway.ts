@@ -1,4 +1,7 @@
-import { convertAiCreditsToDyadGatewayBudgetUsd } from "@keppo/shared/automations";
+import {
+  convertAiCreditsToDyadGatewayBudgetUsd,
+  isGatewayRuntimeEnabled,
+} from "@keppo/shared/automations";
 import { getEnv, type ApiEnv } from "./env.js";
 
 export type DyadGatewayConfig = {
@@ -20,11 +23,7 @@ const trimToUndefined = (value: string | undefined): string | undefined => {
 };
 
 export const hasDyadGatewayConfig = (env: ApiEnv = getEnv()): boolean => {
-  return Boolean(
-    trimToUndefined(env.KEPPO_LLM_GATEWAY_URL) &&
-    trimToUndefined(env.KEPPO_LLM_GATEWAY_MASTER_KEY) &&
-    trimToUndefined(env.KEPPO_LLM_GATEWAY_TEAM_ID),
-  );
+  return isGatewayRuntimeEnabled(trimToUndefined(env.KEPPO_LLM_GATEWAY_URL));
 };
 
 export const resolveDyadGatewayConfig = (env: ApiEnv = getEnv()): DyadGatewayConfig => {

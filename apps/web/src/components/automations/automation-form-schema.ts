@@ -5,14 +5,20 @@ import {
 } from "../../../../../packages/shared/src/providers/automation-trigger-registry.js";
 import type {
   AutomationConfigTriggerType,
+  AutomationModelClass,
   AutomationRunnerType,
   AiModelProvider,
   NetworkAccessMode,
 } from "@/lib/automations-view-model";
 
-export const AI_MODELS: Record<AiModelProvider, string[]> = {
-  openai: ["gpt-5.4", "gpt-5.2"],
-  anthropic: ["claude-sonnet-4-6", "claude-opus-4"],
+const MODEL_CLASS_COMPATIBILITY: Record<
+  AutomationModelClass,
+  { provider: AiModelProvider; model: string; runner: AutomationRunnerType }
+> = {
+  auto: { provider: "openai", model: "gpt-5.4", runner: "chatgpt_codex" },
+  frontier: { provider: "openai", model: "gpt-5.4", runner: "chatgpt_codex" },
+  balanced: { provider: "openai", model: "gpt-5.4", runner: "chatgpt_codex" },
+  value: { provider: "openai", model: "gpt-5.2", runner: "chatgpt_codex" },
 };
 
 const CRON_FIELD_PATTERN = /^[A-Za-z0-9*/,\-?LW#]+$/;
@@ -143,6 +149,7 @@ export const automationFormSchema = z
     provider_trigger_provider_id: trimmedString,
     provider_trigger_key: trimmedString,
     provider_trigger_filter: z.record(z.string(), providerTriggerFilterValueSchema),
+    model_class: z.enum(["auto", "frontier", "balanced", "value"]),
     runner_type: z.enum(["chatgpt_codex", "claude_code"]),
     ai_model_provider: z.enum(["openai", "anthropic"]),
     ai_model_name: trimmedString.min(1, "Model is required."),
@@ -232,6 +239,11 @@ export type AutomationFormValues = z.infer<typeof automationFormSchema>;
 
 type AutomationFormOverrides = Partial<AutomationFormValues>;
 
+export const AI_MODELS: Record<AiModelProvider, string[]> = {
+  openai: ["gpt-5.4", "gpt-5.2"],
+  anthropic: ["claude-sonnet-4-6", "claude-opus-4"],
+};
+
 export const getDefaultModelForProvider = (provider: AiModelProvider): string => {
   return AI_MODELS[provider][0] ?? "gpt-5.4";
 };
@@ -254,6 +266,13 @@ export const parseAiModelProvider = (value: string): AiModelProvider => {
   return value === "anthropic" ? "anthropic" : "openai";
 };
 
+export const parseModelClass = (value: string): AutomationModelClass => {
+  if (value === "frontier" || value === "balanced" || value === "value") {
+    return value;
+  }
+  return "auto";
+};
+
 export const parseNetworkAccess = (value: string): NetworkAccessMode => {
   return value === "mcp_and_web" ? "mcp_and_web" : "mcp_only";
 };
@@ -269,6 +288,7 @@ export const getDefaultAutomationFormValues = (
   provider_trigger_provider_id: "",
   provider_trigger_key: "",
   provider_trigger_filter: {},
+  model_class: "auto",
   runner_type: "chatgpt_codex",
   ai_model_provider: "openai",
   ai_model_name: "gpt-5.4",
@@ -282,39 +302,43 @@ export const getDefaultAutomationFormValues = (
 export const buildAutomationConfigInput = (
   values: AutomationFormValues,
   _options: { triggerCelEnabled: boolean },
-) => ({
-  trigger_type: values.trigger_type,
-  ...(values.trigger_type === "schedule" ? { schedule_cron: values.schedule_cron } : {}),
-  ...(values.trigger_type === "event"
-    ? (() => {
-        const triggerDefinition = resolveProviderAutomationTriggerDefinition(
-          values.provider_trigger_provider_id,
-          values.provider_trigger_key,
-        );
-        if (!triggerDefinition) {
+) => {
+  const compatibility = MODEL_CLASS_COMPATIBILITY[values.model_class];
+  return {
+    trigger_type: values.trigger_type,
+    ...(values.trigger_type === "schedule" ? { schedule_cron: values.schedule_cron } : {}),
+    ...(values.trigger_type === "event"
+      ? (() => {
+          const triggerDefinition = resolveProviderAutomationTriggerDefinition(
+            values.provider_trigger_provider_id,
+            values.provider_trigger_key,
+          );
+          if (!triggerDefinition) {
+            return {
+              event_provider: values.provider_trigger_provider_id,
+              event_type: values.provider_trigger_key,
+            };
+          }
+          const defaultTrigger = triggerDefinition.buildDefaultTrigger();
           return {
-            event_provider: values.provider_trigger_provider_id,
-            event_type: values.provider_trigger_key,
+            provider_trigger: {
+              ...defaultTrigger,
+              provider_id: values.provider_trigger_provider_id,
+              trigger_key: triggerDefinition.key,
+              filter: buildProviderTriggerFilterPayload(
+                values.provider_trigger_provider_id,
+                triggerDefinition.key,
+                values.provider_trigger_filter,
+              ),
+            },
           };
-        }
-        const defaultTrigger = triggerDefinition.buildDefaultTrigger();
-        return {
-          provider_trigger: {
-            ...defaultTrigger,
-            provider_id: values.provider_trigger_provider_id,
-            trigger_key: triggerDefinition.key,
-            filter: buildProviderTriggerFilterPayload(
-              values.provider_trigger_provider_id,
-              triggerDefinition.key,
-              values.provider_trigger_filter,
-            ),
-          },
-        };
-      })()
-    : {}),
-  runner_type: values.runner_type,
-  ai_model_provider: values.ai_model_provider,
-  ai_model_name: values.ai_model_name,
-  prompt: values.prompt,
-  network_access: values.network_access,
-});
+        })()
+      : {}),
+    model_class: values.model_class,
+    runner_type: compatibility.runner,
+    ai_model_provider: compatibility.provider,
+    ai_model_name: compatibility.model,
+    prompt: values.prompt,
+    network_access: values.network_access,
+  };
+};

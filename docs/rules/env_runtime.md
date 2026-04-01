@@ -74,6 +74,7 @@
 - Docker sandboxes must rewrite host loopback URLs to `host.docker.internal` or an equivalent gateway alias.
 - Local Code Mode should default to the sandbox provider, not a silent in-process fallback.
 - Bundled Codex OpenAI runs that point `OPENAI_BASE_URL` at the Dyad gateway must disable Codex `responses_websockets`; that gateway only supports the HTTP Responses transport, so bundled automation dispatch should pass `--disable responses_websockets` on `codex exec`.
+- Automation model-class routing must resolve from the explicit env contract: `KEPPO_AUTOMATION_MODEL_AUTO`, `KEPPO_AUTOMATION_MODEL_FRONTIER`, `KEPPO_AUTOMATION_MODEL_BALANCED`, and `KEPPO_AUTOMATION_MODEL_VALUE`. Treat `Auto` as an env alias, not a hard-coded model name.
 
 ## Serverless state
 

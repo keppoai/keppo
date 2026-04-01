@@ -51,6 +51,12 @@ const parseDraft = (value: unknown, currentContext: AutomationContextSnapshot): 
   const description = typeof record.description === "string" ? record.description : "";
   const mermaidContent = typeof record.mermaid_content === "string" ? record.mermaid_content : "";
   const name = typeof record.name === "string" ? record.name : "";
+  const modelClass =
+    record.model_class === "frontier" ||
+    record.model_class === "balanced" ||
+    record.model_class === "value"
+      ? record.model_class
+      : currentContext.model_class;
   const aiModelProvider = record.ai_model_provider === "anthropic" ? "anthropic" : "openai";
   const aiModelName = typeof record.ai_model_name === "string" ? record.ai_model_name : "";
   const networkAccess = record.network_access === "mcp_and_web" ? "mcp_and_web" : "mcp_only";
@@ -68,6 +74,7 @@ const parseDraft = (value: unknown, currentContext: AutomationContextSnapshot): 
     schedule_cron: typeof record.schedule_cron === "string" ? record.schedule_cron : null,
     event_provider: typeof record.event_provider === "string" ? record.event_provider : null,
     event_type: typeof record.event_type === "string" ? record.event_type : null,
+    model_class: modelClass,
     ai_model_provider: aiModelProvider,
     ai_model_name: aiModelName,
     network_access: networkAccess,
@@ -87,6 +94,7 @@ const currentContextFromAutomation = (
   schedule_cron: config.schedule_cron,
   event_provider: config.provider_trigger?.provider_id ?? config.event_provider,
   event_type: config.provider_trigger?.trigger_key ?? config.event_type,
+  model_class: config.model_class,
   ai_model_provider: config.ai_model_provider,
   ai_model_name: config.ai_model_name,
   network_access: config.network_access,
@@ -280,6 +288,7 @@ export function AutomationAiEditFlow({
                 }
           : {}),
         runner_type: getRunnerTypeForModelProvider(draft.ai_model_provider),
+        model_class: draft.model_class,
         ai_model_provider: draft.ai_model_provider,
         ai_model_name: draft.ai_model_name,
         prompt: draft.prompt,

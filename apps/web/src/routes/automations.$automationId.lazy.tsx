@@ -411,6 +411,7 @@ function AutomationDetailPage() {
           event_provider:
             currentConfig.provider_trigger?.provider_id ?? currentConfig.event_provider,
           event_type: currentConfig.provider_trigger?.trigger_key ?? currentConfig.event_type,
+          model_class: currentConfig.model_class,
           ai_model_provider: currentConfig.ai_model_provider,
           ai_model_name: currentConfig.ai_model_name,
           network_access: currentConfig.network_access,

@@ -77,7 +77,7 @@ describe("ai_generation", () => {
         11. Keep Mermaid simple and conservative. Prefer plain flowchart nodes and edges; avoid syntax tricks unless required.
         12. Never invent unavailable actions, APIs, or credentials.
         13. Infer a short, descriptive automation name from the user request (max 60 chars).
-        14. Choose ai_model_provider, ai_model_name, and network_access conservatively. Prefer OpenAI, the first-party default model, and mcp_only unless the request clearly needs something else.
+        14. Choose model_class and network_access conservatively. Prefer auto and mcp_only unless the request clearly needs frontier, balanced, or value.
         15. Infer the trigger type: "schedule" if the user mentions a recurring time/interval, "event" if they mention reacting to a webhook/event, or "manual" otherwise.
         16. If trigger_type is "schedule", produce a valid 5-field cron expression in schedule_cron (minute hour day-of-month month day-of-week). Examples: "0 9 * * *" = every day at 9 AM, "0 17 * * 5" = every Friday at 5 PM, "*/30 * * * *" = every 30 minutes. Otherwise set schedule_cron to null.
         17. If trigger_type is "event", set event_provider to the provider name (e.g. "github", "stripe") and event_type to the event (e.g. "issues.opened", "refund.created"). Otherwise set both event_provider and event_type to null.
@@ -89,8 +89,7 @@ describe("ai_generation", () => {
           "prompt": "...",
           "description": "...",
           "mermaid_content": "...",
-          "ai_model_provider": "openai" | "anthropic",
-          "ai_model_name": "...",
+          "model_class": "auto" | "frontier" | "balanced" | "value",
           "network_access": "mcp_only" | "mcp_and_web",
           "trigger_type": "schedule" | "event" | "manual",
           "schedule_cron": "... | null",
@@ -261,8 +260,7 @@ describe("ai_generation", () => {
         "prompt",
         "description",
         "mermaid_content",
-        "ai_model_provider",
-        "ai_model_name",
+        "model_class",
         "network_access",
         "trigger_type",
         "schedule_cron",

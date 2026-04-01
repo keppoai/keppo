@@ -110,8 +110,7 @@ type StartOwnedAutomationApiDeps = {
     description: string;
     mermaid_content: string;
     name: string;
-    ai_model_provider: "openai" | "anthropic";
-    ai_model_name: string;
+    model_class: "auto" | "frontier" | "balanced" | "value";
     network_access: "mcp_only" | "mcp_and_web";
     trigger_type: "schedule" | "event" | "manual";
     schedule_cron?: string;
@@ -328,14 +327,18 @@ const parseAutomationContextSnapshot = (value: unknown): AutomationContextSnapsh
   const mermaidContent =
     typeof record.mermaid_content === "string" ? record.mermaid_content.trim() : "";
   const prompt = typeof record.prompt === "string" ? record.prompt.trim() : "";
-  const aiModelProvider = record.ai_model_provider === "anthropic" ? "anthropic" : "openai";
+  const modelClass =
+    record.model_class === "frontier" ||
+    record.model_class === "balanced" ||
+    record.model_class === "value"
+      ? record.model_class
+      : "auto";
   const networkAccess = record.network_access === "mcp_and_web" ? "mcp_and_web" : "mcp_only";
   const triggerType =
     record.trigger_type === "schedule" || record.trigger_type === "event"
       ? record.trigger_type
       : "manual";
-  const aiModelName = typeof record.ai_model_name === "string" ? record.ai_model_name.trim() : "";
-  if (!name || !prompt || !aiModelName) {
+  if (!name || !prompt) {
     return undefined;
   }
   return {
@@ -358,8 +361,14 @@ const parseAutomationContextSnapshot = (value: unknown): AutomationContextSnapsh
       typeof record.event_type === "string" && record.event_type.trim().length > 0
         ? record.event_type.trim()
         : null,
-    ai_model_provider: aiModelProvider,
-    ai_model_name: aiModelName,
+    model_class: modelClass,
+    ai_model_provider: record.ai_model_provider === "anthropic" ? "anthropic" : "openai",
+    ai_model_name:
+      typeof record.ai_model_name === "string" && record.ai_model_name.trim().length > 0
+        ? record.ai_model_name.trim()
+        : modelClass === "value"
+          ? "gpt-5.2"
+          : "gpt-5.4",
     network_access: networkAccess,
     prompt,
   };
@@ -733,8 +742,7 @@ const generateAutomationPromptWithOpenAi = async (args: {
   description: string;
   mermaid_content: string;
   name: string;
-  ai_model_provider: "openai" | "anthropic";
-  ai_model_name: string;
+  model_class: "auto" | "frontier" | "balanced" | "value";
   network_access: "mcp_only" | "mcp_and_web";
   trigger_type: "schedule" | "event" | "manual";
   schedule_cron?: string;
@@ -787,8 +795,7 @@ const generateAutomationPromptWithOpenAi = async (args: {
     description: parsed.description,
     mermaid_content: parsed.mermaid_content,
     name: parsed.name,
-    ai_model_provider: parsed.ai_model_provider,
-    ai_model_name: parsed.ai_model_name,
+    model_class: parsed.model_class,
     network_access: parsed.network_access,
     trigger_type: parsed.trigger_type,
     ...(parsed.schedule_cron ? { schedule_cron: parsed.schedule_cron } : {}),
@@ -1218,8 +1225,7 @@ export const handleGenerateAutomationPromptRequest = async (
       description: generated.description,
       mermaid_content: generated.mermaid_content,
       name: generated.name,
-      ai_model_provider: generated.ai_model_provider,
-      ai_model_name: generated.ai_model_name,
+      model_class: generated.model_class,
       network_access: generated.network_access,
       trigger_type: generated.trigger_type,
       ...(generated.schedule_cron ? { schedule_cron: generated.schedule_cron } : {}),

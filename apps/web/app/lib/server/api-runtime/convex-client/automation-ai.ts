@@ -8,6 +8,7 @@ import type {
   AiKeyCredentialKind,
   AiKeyMode,
   AiModelProvider,
+  AutomationModelClass,
   AutomationConfigTriggerType,
   AutomationProviderTriggerDeliveryMode,
   AutomationRunEventType,
@@ -129,6 +130,7 @@ export type AutomationRunDispatchContext = {
     event_provider: string | null;
     event_type: string | null;
     event_predicate: string | null;
+    model_class: AutomationModelClass;
     runner_type: AutomationRunnerType;
     ai_model_provider: AiModelProvider;
     ai_model_name: string;

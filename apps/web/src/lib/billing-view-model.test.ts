@@ -25,8 +25,9 @@ describe("billing view-model helpers", () => {
         max_tool_calls_per_month: 100,
         max_total_tool_call_time_ms: 900_000,
         included_ai_credits: {
-          total: 5,
+          total: 20,
           bundled_runtime_enabled: false,
+          reset_period: "one_time",
         },
       },
     });
@@ -34,7 +35,7 @@ describe("billing view-model helpers", () => {
     expect(view.callsValue).toBe("18/100");
     expect(view.timeValue).toBe("2.0 / 15.0 min");
     expect(view.periodRangeValue).toBe("2026-03-01 to 2026-04-01");
-    expect(view.nextInvoicePreview).toBe("No upcoming invoice on the Free tier.");
+    expect(view.nextInvoicePreview).toBe("No upcoming invoice on the Free trial tier.");
   });
 
   it("formats recurring plan preview without overage language", () => {
@@ -142,7 +143,7 @@ describe("billing view-model helpers", () => {
   });
 
   it("maps internal tier ids to display labels", () => {
-    expect(toTierLabel("free")).toBe("Free");
+    expect(toTierLabel("free")).toBe("Free trial");
     expect(toTierLabel("starter")).toBe("Starter");
     expect(toTierLabel("pro")).toBe("Pro");
   });

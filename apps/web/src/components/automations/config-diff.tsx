@@ -3,7 +3,7 @@ import { resolveProviderAutomationTriggerDefinition } from "../../../../../packa
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
-  getAiModelProviderLabel,
+  getAutomationModelClassMeta,
   getAutomationTriggerLabel,
   getNetworkAccessMeta,
   getProviderTriggerSubscriptionSummary,
@@ -15,9 +15,7 @@ const FIELD_LABELS: Partial<Record<keyof AutomationConfigVersion, string>> = {
   schedule_cron: "Schedule",
   provider_trigger: "Provider trigger",
   provider_trigger_migration_state: "Trigger migration",
-  runner_type: "Runner",
-  ai_model_provider: "Model provider",
-  ai_model_name: "Model",
+  model_class: "Model",
   network_access: "Network access",
   prompt: "Prompt",
   change_summary: "Change summary",
@@ -82,6 +80,7 @@ const formatFieldValue = (field: keyof AutomationConfigVersion, value: unknown):
       event_provider: null,
       event_type: null,
       event_predicate: null,
+      model_class: "auto",
       runner_type: "chatgpt_codex",
       ai_model_provider: "openai",
       ai_model_name: "",
@@ -114,8 +113,11 @@ const formatFieldValue = (field: keyof AutomationConfigVersion, value: unknown):
       .filter((entry): entry is string => typeof entry === "string" && entry.length > 0)
       .join("\n");
   }
-  if (field === "ai_model_provider" && (value === "openai" || value === "anthropic")) {
-    return getAiModelProviderLabel(value);
+  if (
+    field === "model_class" &&
+    (value === "auto" || value === "frontier" || value === "balanced" || value === "value")
+  ) {
+    return getAutomationModelClassMeta(value).label;
   }
   if (field === "network_access" && (value === "mcp_only" || value === "mcp_and_web")) {
     return getNetworkAccessMeta(value).label;
@@ -144,9 +146,7 @@ export function ConfigDiff({ current, compareTo }: ConfigDiffProps) {
       "schedule_cron",
       "provider_trigger",
       "provider_trigger_migration_state",
-      "runner_type",
-      "ai_model_provider",
-      "ai_model_name",
+      "model_class",
       "network_access",
       "prompt",
       "change_summary",

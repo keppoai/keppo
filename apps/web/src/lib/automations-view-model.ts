@@ -42,6 +42,7 @@ export type AutomationRunStatus =
 export type AutomationRunOutcomeSource = "agent_recorded" | "fallback_missing";
 export type AutomationRunnerType = "chatgpt_codex" | "claude_code";
 export type AiModelProvider = "openai" | "anthropic";
+export type AutomationModelClass = "auto" | "frontier" | "balanced" | "value";
 export type AiKeyMode = "byok" | "bundled" | "subscription_token";
 export type NetworkAccessMode = "mcp_only" | "mcp_and_web";
 export type AutomationProviderTriggerDeliveryMode = "webhook" | "polling";
@@ -74,6 +75,25 @@ export type AutomationExecutionState = {
 const AI_MODEL_PROVIDER_LABELS: Record<AiModelProvider, string> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
+};
+
+const MODEL_CLASS_META: Record<AutomationModelClass, AutomationChoiceMeta> = {
+  auto: {
+    label: "Auto",
+    description: "Recommended. Currently routes to the balanced model.",
+  },
+  frontier: {
+    label: "Frontier",
+    description: "Highest capability for harder automations.",
+  },
+  balanced: {
+    label: "Balanced",
+    description: "Balanced speed and quality for most work.",
+  },
+  value: {
+    label: "Value",
+    description: "Lower-cost choice for simpler tasks.",
+  },
 };
 
 const AI_KEY_MODE_META: Record<AiKeyMode, AutomationChoiceMeta> = {
@@ -117,6 +137,12 @@ export const getRunnerTypeForModelProvider = (
 
 export const getAiModelProviderLabel = (provider: AiModelProvider): string => {
   return AI_MODEL_PROVIDER_LABELS[provider];
+};
+
+export const getAutomationModelClassMeta = (
+  modelClass: AutomationModelClass,
+): AutomationChoiceMeta => {
+  return MODEL_CLASS_META[modelClass];
 };
 
 export const getAiKeyModeMeta = (mode: AiKeyMode): AutomationChoiceMeta => {
@@ -219,6 +245,13 @@ const parseAiProvider = (value: unknown): AiModelProvider => {
   return value === "anthropic" ? "anthropic" : "openai";
 };
 
+const parseModelClass = (value: unknown): AutomationModelClass => {
+  if (value === "frontier" || value === "balanced" || value === "value") {
+    return value;
+  }
+  return "auto";
+};
+
 const parseAiKeyMode = (value: unknown): AiKeyMode => {
   if (value === "bundled") {
     return "bundled";
@@ -282,6 +315,7 @@ export type AutomationConfigVersion = {
   event_provider: string | null;
   event_type: string | null;
   event_predicate: string | null;
+  model_class: AutomationModelClass;
   runner_type: AutomationRunnerType;
   ai_model_provider: AiModelProvider;
   ai_model_name: string;
@@ -297,6 +331,7 @@ export type AutomationConfigSummary = Pick<
   | "id"
   | "version_number"
   | "trigger_type"
+  | "model_class"
   | "runner_type"
   | "ai_model_provider"
   | "ai_model_name"
@@ -405,6 +440,7 @@ export type AiCreditBalance = {
   period_start: string;
   period_end: string;
   allowance_total: number;
+  allowance_reset_period: "monthly" | "one_time";
   allowance_used: number;
   allowance_remaining: number;
   purchased_remaining: number;
@@ -512,6 +548,7 @@ const parseConfigVersion = (value: unknown): AutomationConfigVersion | null => {
     event_provider: asNullableString(value.event_provider),
     event_type: asNullableString(value.event_type),
     event_predicate: asNullableString(value.event_predicate),
+    model_class: parseModelClass(value.model_class),
     runner_type: parseRunnerType(value.runner_type),
     ai_model_provider: parseAiProvider(value.ai_model_provider),
     ai_model_name: asString(value.ai_model_name),
@@ -537,6 +574,7 @@ const parseConfigSummary = (value: unknown): AutomationConfigSummary | null => {
     id: parsed.id,
     version_number: parsed.version_number,
     trigger_type: parsed.trigger_type,
+    model_class: parsed.model_class,
     runner_type: parsed.runner_type,
     ai_model_provider: parsed.ai_model_provider,
     ai_model_name: parsed.ai_model_name,
@@ -782,6 +820,7 @@ export const parseAiCreditBalance = (value: unknown): AiCreditBalance | null => 
     period_start: asString(value.period_start),
     period_end: asString(value.period_end),
     allowance_total: asNumber(value.allowance_total),
+    allowance_reset_period: value.allowance_reset_period === "one_time" ? "one_time" : "monthly",
     allowance_used: asNumber(value.allowance_used),
     allowance_remaining: asNumber(value.allowance_remaining),
     purchased_remaining: asNumber(value.purchased_remaining),

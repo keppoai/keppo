@@ -34,6 +34,7 @@ import {
   CONFIG_TRIGGER_TYPES,
   RUN_TRIGGER_TYPES,
   RUNNER_TYPES,
+  MODEL_CLASSES,
   AI_MODEL_PROVIDERS,
   AI_KEY_MODES,
   AUTOMATION_RUN_STATUSES,
@@ -136,6 +137,7 @@ export const runTriggerTypeValidator = createLiteralUnionValidator(
   "Run trigger type",
 );
 export const runnerTypeValidator = createLiteralUnionValidator(RUNNER_TYPES, "Runner type");
+export const modelClassValidator = createLiteralUnionValidator(MODEL_CLASSES, "Model class");
 export const aiModelProviderValidator = createLiteralUnionValidator(
   AI_MODEL_PROVIDERS,
   "AI model provider",

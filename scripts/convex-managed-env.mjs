@@ -33,6 +33,7 @@ const managedConvexEnv = [
   { key: "KEPPO_MASTER_KEY_INTEGRATION", modes: ["local"] },
   { key: "KEPPO_MASTER_KEY_ACTION", modes: ["local"] },
   { key: "KEPPO_MASTER_KEY_BLOB", modes: ["local"] },
+  { key: "KEPPO_LLM_GATEWAY_URL", modes: ["local", "hosted"] },
   { key: "KEPPO_LOCAL_QUEUE_CONSUMER_URL", modes: ["local"] },
   { key: "VERCEL_AUTOMATION_BYPASS_SECRET", modes: ["hosted"] },
 ];

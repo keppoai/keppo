@@ -29,7 +29,7 @@
 ## Credits and seats
 
 - Included AI credits use one org-level ledger for prompt generation and bundled automation runtime.
-- Free-tier included credits remain generation-only; bundled runtime is paid-tier only.
+- Free-trial included credits are a one-time org-level grant for prompt generation only; bundled runtime remains paid-tier only unless the gateway-backed policy explicitly enables it.
 - Deduct included credits first, then the oldest active purchased credits.
 - Purchased credit fulfillment must map a completed Stripe event to exactly one credit grant.
 - Automation run top-ups use a separate org-level ledger plus per-purchase records with a 90-day expiry.
@@ -43,5 +43,5 @@
 - The shipped subscription tiers are `free`, `starter`, and `pro`.
 - `starter` is `$25/month` with `100` bundled AI credits per billing cycle.
 - `pro` is `$75/month` with `300` bundled AI credits per billing cycle.
-- `free` remains `$0/month` with `5` generation-only AI credits per billing cycle.
+- `free` is labeled `Free trial` and grants a one-time `20` generation-only AI credits for newly created orgs; existing free orgs may still carry legacy monthly credit rows until migrated separately.
 - Base monthly tool-call allowances track `50x` the run budget: free `7,500`, starter `75,000`, pro `750,000`.
