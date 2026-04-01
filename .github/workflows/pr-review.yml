@@ -80,7 +80,7 @@ jobs:
     env:
       REVIEW_CONTEXT_PATH: tmp/pr-review/codex-context.json
       REVIEW_PROMPT_PATH: tmp/pr-review/codex-prompt.txt
-      REVIEW_OUTPUT_PATH: tmp/pr-review/codex-review.json
+      REVIEW_OUTPUT_PATH: tmp/pr-review/codex-review.md
       CODEX_HOME: tmp/pr-review/codex-home
     steps:
       - name: Create read-only agent token
@@ -135,7 +135,7 @@ jobs:
           TEMPLATE_PATH: .github/prompts/codex-pr-review.txt
           OUTPUT_PATH: ${{ env.REVIEW_PROMPT_PATH }}
           CONTEXT_PATH: ${{ env.REVIEW_CONTEXT_PATH }}
-          OUTPUT_JSON_PATH: ${{ env.REVIEW_OUTPUT_PATH }}
+          OUTPUT_MD_PATH: ${{ env.REVIEW_OUTPUT_PATH }}
         run: node scripts/issue-agent/render-template.mjs
 
       - name: Run Codex PR review
@@ -173,8 +173,7 @@ jobs:
               throw new Error('REVIEW_PATH is required');
             }
 
-            const parsed = JSON.parse(fs.readFileSync(reviewPath, 'utf8'));
-            const summary = String(parsed.summary || '').trim();
+            const summary = fs.readFileSync(reviewPath, 'utf8').trim();
             if (!summary) {
               throw new Error('Validated Codex review is missing summary text');
             }

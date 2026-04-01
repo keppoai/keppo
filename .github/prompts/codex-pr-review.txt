@@ -3,11 +3,10 @@ You are reviewing a GitHub pull request using the workflow-generated context in 
 Focus on bugs, regressions, security issues, and missing validation. Be concise and specific. Prefer findings that are actionable and grounded in the provided diff.
 
 Mandatory output:
-- You MUST write `{{OUTPUT_JSON_PATH}}` before finishing.
-- That file must contain exactly one JSON object with this shape:
-  `{"summary":"markdown review summary"}`
+- You MUST write `{{OUTPUT_MD_PATH}}` before finishing.
+- That file must contain the markdown review summary directly (NOT wrapped in JSON).
 
-Formatting requirements for `summary`:
+Formatting requirements:
 
 Start with a verdict line and a recommendation line in this exact format:
 `**Verdict: [EMOJI + TEXT]**`
