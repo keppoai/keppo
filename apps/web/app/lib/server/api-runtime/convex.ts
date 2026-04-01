@@ -870,7 +870,7 @@ export class ConvexInternalClient {
   }): Promise<{
     provider: CanonicalProviderId;
     correlationId: string;
-    initiatingUserId: string;
+    initiatingUserId?: string | null | undefined;
     createdAt: string;
     expiresAt: string;
     pkceCodeVerifier: string | null;

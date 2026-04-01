@@ -29,6 +29,7 @@ import type {
 import type { CanonicalProviderId } from "@keppo/shared/provider-ids";
 import type { ProviderRuntimeContext } from "@keppo/shared/provider-runtime-context";
 import {
+  API_DEDUPE_STATUS,
   API_DEDUPE_SCOPE,
   IDEMPOTENCY_RESOLUTION_STATUS,
   OAUTH_METRIC_REASON_CODE,
@@ -74,6 +75,10 @@ type ApiSessionIdentity = {
   userId: string;
   orgId: string;
   role: UserRole;
+};
+
+type OAuthCallbackReplayPayload = {
+  initiatingUserId: string;
 };
 
 type StartOwnedOAuthConvex = Pick<
@@ -185,6 +190,17 @@ const resolveSessionFromRequest = async (
 
 const canManageOrgIntegrations = (identity: ApiSessionIdentity): boolean => {
   return ORG_INTEGRATION_MANAGER_ROLES.has(identity.role);
+};
+
+const parseOAuthCallbackReplayPayload = (
+  payload: Record<string, unknown> | null,
+): OAuthCallbackReplayPayload | null => {
+  if (!payload) {
+    return null;
+  }
+  return typeof payload.initiatingUserId === "string"
+    ? { initiatingUserId: payload.initiatingUserId }
+    : null;
 };
 
 const resolveFeatureFlag = async (
@@ -848,26 +864,29 @@ export const handleOAuthProviderCallbackRequest = async (
     correlationId: state.correlation_id,
   });
 
-  if (requiresPkce && !managedOAuthConnectState?.pkceCodeVerifier) {
-    recordOAuthCallbackMetric({
-      provider,
-      orgId,
-      outcome: PROVIDER_METRIC_OUTCOME.failure,
-      reasonCode: OAUTH_METRIC_REASON_CODE.invalidState,
+  if (!managedOAuthConnectState?.initiatingUserId) {
+    const replayedCallback = await deps.convex.getApiDedupeKey({
+      scope: API_DEDUPE_SCOPE.oauthCallback,
+      dedupeKey: exchangeKey,
     });
-    return jsonResponse(
-      request,
-      oauthErrorPayload({
-        provider,
-        code: "invalid_state",
-        message: "Missing OAuth PKCE verifier; restart the connection flow.",
-        correlationId,
-      }),
-      400,
-    );
-  }
+    const replayPayload =
+      replayedCallback?.status === API_DEDUPE_STATUS.completed
+        ? parseOAuthCallbackReplayPayload(replayedCallback.payload)
+        : null;
 
-  if (!managedOAuthConnectState) {
+    if (
+      replayPayload?.initiatingUserId === sessionIdentity.userId &&
+      sessionIdentity.orgId === orgId &&
+      canManageOrgIntegrations(sessionIdentity)
+    ) {
+      recordOAuthCallbackMetric({
+        provider,
+        orgId,
+        outcome: PROVIDER_METRIC_OUTCOME.success,
+      });
+      return buildConnectedRedirect(request, deps, state, provider);
+    }
+
     recordOAuthCallbackMetric({
       provider,
       orgId,
@@ -880,6 +899,25 @@ export const handleOAuthProviderCallbackRequest = async (
         provider,
         code: "invalid_state",
         message: "Missing OAuth connect state; restart the connection flow.",
+        correlationId,
+      }),
+      400,
+    );
+  }
+
+  if (requiresPkce && !managedOAuthConnectState.pkceCodeVerifier) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.invalidState,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "invalid_state",
+        message: "Missing OAuth PKCE verifier; restart the connection flow.",
         correlationId,
       }),
       400,
@@ -970,7 +1008,7 @@ export const handleOAuthProviderCallbackRequest = async (
             return assertNever(resolution, "OAuth idempotency replay resolution");
         }
       },
-      execute: async () => {
+      execute: async ({ setPayload }) => {
         const runtimeContext = deps.toProviderRuntimeContext(namespace);
 
         try {
@@ -1002,6 +1040,9 @@ export const handleOAuthProviderCallbackRequest = async (
               oauth_correlation_id: state.correlation_id,
               ...(state.e2e_namespace ? { e2e_namespace: state.e2e_namespace } : {}),
             },
+          });
+          await setPayload({
+            initiatingUserId: managedOAuthConnectState.initiatingUserId,
           });
           await deps.convex.deleteManagedOAuthConnectState({
             orgId,

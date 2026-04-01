@@ -391,8 +391,50 @@ describe("start-owned oauth api handlers", () => {
     await expect(response.json()).resolves.toMatchObject({
       error: {
         code: "invalid_state",
-        message: "Missing OAuth PKCE verifier; restart the connection flow.",
+        message: "Missing OAuth connect state; restart the connection flow.",
         provider: "x",
+      },
+    });
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when callback state predates initiating user persistence", async () => {
+    const deps = createDeps();
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue({
+      provider: "google",
+      correlationId: "corr_test",
+      initiatingUserId: null,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      pkceCodeVerifier: null,
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_state",
+        message: "Missing OAuth connect state; restart the connection flow.",
+        provider: "google",
       },
     });
     expect(deps.exchangeCredentials).not.toHaveBeenCalled();
@@ -520,6 +562,86 @@ describe("start-owned oauth api handlers", () => {
     });
     expect(deps.exchangeCredentials).not.toHaveBeenCalled();
     expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
+  });
+
+  it("replays a completed callback redirect for the initiating manager after state cleanup", async () => {
+    const deps = createDeps();
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue(null);
+    deps.convex.getApiDedupeKey = vi.fn().mockResolvedValue({
+      status: "completed",
+      payload: {
+        initiatingUserId: "user_test",
+      },
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "http://127.0.0.1/integrations?integration_connected=google",
+    );
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+  });
+
+  it("rejects a completed callback replay from a different user after state cleanup", async () => {
+    const deps = createDeps();
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue(null);
+    deps.convex.getApiDedupeKey = vi.fn().mockResolvedValue({
+      status: "completed",
+      payload: {
+        initiatingUserId: "user_owner",
+      },
+      expiresAtMs: Date.now() + 60_000,
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_state",
+        message: "Missing OAuth connect state; restart the connection flow.",
+        provider: "google",
+      },
+    });
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
   });
 
   it("supports Reddit as a managed OAuth provider in Start-owned routes", async () => {

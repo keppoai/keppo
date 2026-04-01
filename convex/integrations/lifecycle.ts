@@ -212,7 +212,7 @@ export const getManagedOAuthConnectState = internalQuery({
     v.object({
       provider: providerValidator,
       correlationId: v.string(),
-      initiatingUserId: v.string(),
+      initiatingUserId: v.optional(v.string()),
       createdAt: v.string(),
       expiresAt: v.string(),
       pkceCodeVerifier: v.union(v.string(), v.null()),
@@ -239,7 +239,7 @@ export const getManagedOAuthConnectState = internalQuery({
     return {
       provider,
       correlationId: args.correlationId,
-      initiatingUserId: existing.initiating_user_id,
+      ...(existing.initiating_user_id ? { initiatingUserId: existing.initiating_user_id } : {}),
       createdAt: existing.created_at,
       expiresAt: existing.expires_at,
       pkceCodeVerifier:

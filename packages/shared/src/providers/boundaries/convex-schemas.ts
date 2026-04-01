@@ -50,7 +50,7 @@ export const convexManagedOAuthConnectStatePayloadSchema = z.object({
 export const convexManagedOAuthConnectStateSchema = z.object({
   provider: canonicalProviderIdSchema,
   correlationId: nonEmptyStringSchema,
-  initiatingUserId: nonEmptyStringSchema,
+  initiatingUserId: nonEmptyStringSchema.nullish(),
   createdAt: nonEmptyStringSchema,
   expiresAt: nonEmptyStringSchema,
   pkceCodeVerifier: z.union([nonEmptyStringSchema, z.null()]),
