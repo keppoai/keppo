@@ -123,6 +123,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - refresh OpenAI OAuth-backed `subscription_token` credentials server-side before dispatch when the cached access token is expired or near expiry,
   - create automation-attributed MCP session identity and update run lifecycle to `running`,
   - issue an automation-scoped workspace credential whose auth metadata includes the owning `automation_run_id` so automation-only MCP tools can be enforced at runtime,
+  - revoke automation-issued credentials on terminal lifecycle transitions and reject them at MCP auth time if the referenced run is missing, workspace-mismatched, or already terminal,
   - wrap the saved automation prompt with runtime-owned instructions that require a final `record_outcome({ success, summary })` tool call exactly once and define approval-waiting as `success=true` when the requested work is otherwise complete.
 - Desktop helper boundary:
   - the Tauri helper listens on `127.0.0.1:1455/auth/callback` for the ChatGPT/OpenAI localhost redirect,

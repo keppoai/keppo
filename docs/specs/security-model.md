@@ -54,7 +54,8 @@
   - `mcp_and_web` is explicit opt-in per automation config version.
   - Production Vercel sandboxes enforce the fine-grained outbound allowlist.
   - Local Docker sandboxes provide container isolation and must translate host-loopback callback and MCP URLs to `host.docker.internal` so the isolated container can reach local API services without falling back to host-process execution.
-  - sandbox bootstrap uses a separate bootstrap stage with minimal env and a package-registry-only policy; AI keys, MCP bearer tokens, and signed callback URLs are injected only into the runtime stage.
+- sandbox bootstrap uses a separate bootstrap stage with minimal env and a package-registry-only policy; AI keys, MCP bearer tokens, and signed callback URLs are injected only into the runtime stage.
+  - automation-issued MCP bearer tokens remain run-scoped: Convex revokes them when the owning run reaches a terminal state, and MCP auth rejects tokens whose `automation_run_id` no longer resolves to a non-terminal run in the same workspace.
 - Callback ingress hardening:
   - sandbox log/complete callbacks use per-run HMAC-signed URLs with expiry.
   - API rejects callbacks with missing/invalid signatures or expired timestamps.

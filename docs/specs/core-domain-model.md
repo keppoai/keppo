@@ -18,7 +18,7 @@ Keppo is multi-tenant by organization. Most tables are keyed by `org_id` or `wor
 - Better Auth organization membership is the identity source.
 - `subscriptions`, `usage_meters`, `invite_codes`, `invite_code_redemptions`, `invites`, `org_suspensions`, and `retention_policies` track org-level access and lifecycle.
 - `workspaces` stores policy mode, default action behavior, optional Code Mode enablement, and workspace status.
-- `workspace_credentials` stores bearer or client credentials for MCP access. Automation-issued workspace credentials may also carry metadata that ties the credential back to a specific `automation_run_id` for runtime-scoped tool enforcement.
+- `workspace_credentials` stores bearer or client credentials for MCP access. Automation-issued workspace credentials may also carry metadata that ties the credential back to a specific `automation_run_id`; those credentials are run-scoped, revoked when the run becomes terminal, and rejected if MCP auth can no longer resolve that run as active in the same workspace.
 
 ## Provider and tool access
 

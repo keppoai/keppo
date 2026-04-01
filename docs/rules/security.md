@@ -20,6 +20,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 - When a Convex function is only meant for server-side bridges authenticated with the Convex admin key, expose it as `internalQuery`/`internalMutation` instead of a public function with a user-identity check that admin-key callers cannot satisfy.
 - Internal routes must require cryptographic proof such as the internal bearer secret or callback HMAC.
 - Security-sensitive token, credential, and secret generation must use a CSPRNG (`crypto.getRandomValues`, `randomUUID`, or Node crypto), never `Math.random()`.
+- Run-scoped credentials must be enforced at both ends: revoke them when the owning run becomes terminal, and reject them at auth time if the referenced run is missing, mismatched, or no longer active.
 - PKCE `code_verifier` values are secrets. Do not place them in readable front-channel state, query strings, or other browser-visible payloads; store them server-side or in an encrypted backend-owned channel and retrieve them for token exchange on the callback.
 - Secret comparisons for bearer tokens, callback signatures, and similar auth material must use constant-time comparison with a length guard.
 - Webhook handlers must verify provider signatures before any state mutation.
