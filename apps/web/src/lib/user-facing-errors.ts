@@ -259,6 +259,23 @@ const getGuidance = (params: {
   }
 
   if (
+    /only owners and admins can (?:start checkout|buy ai credits|buy automation run top-ups|manage billing|change subscription plans)\./i.test(
+      params.message,
+    )
+  ) {
+    return {
+      title: "Billing admin access required",
+      summary: "Only organization owners and admins can manage billing for this organization.",
+      nextSteps: [
+        "Ask an owner or admin to complete the billing action.",
+        "If you should manage billing, ask an owner to update your role.",
+      ],
+      severity: "warning",
+      publicSafe: true,
+    };
+  }
+
+  if (
     params.status === 403 ||
     params.code === "forbidden" ||
     params.code.endsWith(".forbidden") ||

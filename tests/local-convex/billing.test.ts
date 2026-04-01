@@ -713,26 +713,27 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
       "billing-role-restrictions",
       async ({ namespace, headers }) => {
         const store = createStore();
-        const seeded = await seedWorkspace({
-          namespace,
-          suffix: "billing-role-restrictions",
-          subscriptionTier: "starter",
-        });
-        await store.setOrgSubscription({
-          org_id: seeded.orgId,
-          tier: "starter",
-          status: "active",
-          stripe_customer_id: "cus_role_restrictions",
-          stripe_subscription_id: "sub_role_restrictions",
-        });
 
         for (const role of ["viewer", "approver"] as const) {
+          const seeded = await seedWorkspace({
+            namespace,
+            suffix: `billing-role-restrictions-${role}`,
+            subscriptionTier: "starter",
+          });
+          await store.setOrgSubscription({
+            org_id: seeded.orgId,
+            tier: "starter",
+            status: "active",
+            stripe_customer_id: `cus_role_restrictions_${role}`,
+            stripe_subscription_id: `sub_role_restrictions_${role}`,
+          });
+
           const memberHeaders = await createSharedOrgMemberHeaders({
             headers,
             orgId: seeded.orgId,
             inviterEmail: seeded.userEmail,
             role,
-            suffix: `${namespace}-billing-role-restrictions`,
+            suffix: `${namespace}-billing-role-restrictions-${role}`,
           });
 
           const checkoutResponse = await createCheckoutSessionFetch({

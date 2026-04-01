@@ -102,4 +102,26 @@ describe("user-facing dashboard errors", () => {
       summary: "This invite link has expired or is no longer available.",
     });
   });
+
+  it("uses billing-specific guidance for billing permission failures", () => {
+    const error = new ApiError("Forbidden", 403, {
+      payload: {
+        error: {
+          code: "forbidden",
+          message: "Only owners and admins can manage billing.",
+        },
+      },
+      responseText:
+        '{"error":{"code":"forbidden","message":"Only owners and admins can manage billing."}}',
+    });
+
+    expect(toUserFacingError(error, { audience: "public" })).toMatchObject({
+      title: "Billing admin access required",
+      summary: "Only organization owners and admins can manage billing for this organization.",
+      nextSteps: [
+        "Ask an owner or admin to complete the billing action.",
+        "If you should manage billing, ask an owner to update your role.",
+      ],
+    });
+  });
 });

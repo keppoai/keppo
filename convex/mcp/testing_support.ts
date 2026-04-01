@@ -2,6 +2,7 @@ import { v } from "convex/values";
 import {
   internalMutation,
   internalQuery,
+  mutation,
   query,
   type MutationCtx,
   type QueryCtx,
@@ -386,13 +387,14 @@ export const seedUserOrg = internalMutation({
   },
 });
 
-export const setUserActiveOrganizationForTesting = internalMutation({
+export const setUserActiveOrganizationForTesting = mutation({
   args: {
     userId: v.string(),
     orgId: v.string(),
   },
   returns: v.null(),
   handler: async (ctx, args) => {
+    await requireE2EIdentity(ctx);
     await safeRunMutation("mcp.setUserActiveOrganizationForTesting.updateSessions", () =>
       ctx.runMutation(components.betterAuth.adapter.updateMany, {
         input: {

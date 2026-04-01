@@ -48,4 +48,78 @@ describe("BillingPage", () => {
     expect(screen.getByTestId("billing-redeem-invite-code-input")).toBeVisible();
     expect(screen.getByText("Capacity details temporarily unavailable")).toBeInTheDocument();
   });
+
+  it("hides billing management controls for viewer members", async () => {
+    renderDashboard(<BillingPage />, {
+      route: "/acme/settings/billing",
+      auth: createAuthState({
+        isAuthenticated: true,
+        session: {
+          authenticated: true,
+          user: {
+            id: "user_viewer",
+            email: "viewer@example.com",
+            name: "Viewer User",
+          },
+          organizationId: "org_1",
+          orgSlug: "acme",
+          role: "viewer",
+        },
+        getOrgId: () => "org_1",
+        getOrgSlug: () => "acme",
+        getRole: () => "viewer",
+        canManage: () => false,
+      }),
+      runtime: createFakeDashboardRuntime({
+        queryHandlers: {
+          "billing:getCurrentOrgBilling": () => ({
+            org_id: "org_1",
+            tier: "starter",
+            status: "active",
+            billing_source: "stripe",
+            invite_promo: null,
+            period_start: "2026-03-01T00:00:00.000Z",
+            period_end: "2026-04-01T00:00:00.000Z",
+            usage: {
+              tool_call_count: 10,
+              total_tool_call_time_ms: 1200,
+            },
+            limits: {
+              price_cents_monthly: 4900,
+              max_tool_calls_per_month: 75_000,
+              max_total_tool_call_time_ms: 72_000_000,
+              included_ai_credits: {
+                total: 100,
+                bundled_runtime_enabled: true,
+              },
+            },
+          }),
+          "ai_credits:getAiCreditBalance": () => ({
+            allowance_total: 100,
+            allowance_used: 10,
+            purchased_remaining: 0,
+            total_available: 90,
+          }),
+          "automation_runs:getCurrentOrgAutomationRunUsage": () => ({
+            run_count: 3,
+            max_runs_per_period: 25,
+          }),
+          "automation_run_topups:getAutomationRunTopupBalance": () => ({
+            purchased_runs_balance: 0,
+          }),
+        },
+      }),
+    });
+
+    expect(await screen.findByRole("heading", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByTestId("billing-management-note")).toHaveTextContent(
+      "Only organization owners and admins can start checkout, change plans, or open the billing portal.",
+    );
+    expect(screen.queryByTestId("billing-change-plan")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("billing-manage-subscription")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Buy 100 credits ($10)" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("billing-topups-note")).toHaveTextContent(
+      "Ask an owner or admin to purchase AI credit packs for this organization.",
+    );
+  });
 });

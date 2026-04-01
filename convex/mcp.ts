@@ -38,6 +38,7 @@ import {
   getDbSnapshot,
   rotateWorkspaceCredentialForTesting,
   seedUserOrg,
+  setUserActiveOrganizationForTesting,
   setWorkspaceIntegrationsForTesting,
 } from "./mcp/testing_support.js";
 
@@ -72,6 +73,7 @@ export {
   runSecurityMaintenance,
   seedUserOrg,
   setActionStatus,
+  setUserActiveOrganizationForTesting,
   setWorkspaceIntegrationsForTesting,
   timeoutInactiveRuns,
   touchRun,
