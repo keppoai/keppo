@@ -183,6 +183,7 @@ jobs:
             const repo = context.repo.repo;
             const issue_number = context.payload.pull_request.number;
             const body = [
+              '<!-- pr-review:codex -->',
               '## :mag: Code Review Summary (Codex)',
               '',
               summary,
