@@ -762,7 +762,11 @@ export const resetMonthlyAllowance = internalMutation({
     const now = nowIso();
     const activePurchases = await listActivePurchases(ctx, args.org_id, now);
     const purchasedBalance = sumPurchasedBalance(activePurchases);
-    if (allowanceConfig.allowanceResetPeriod === "one_time" && allowanceTotal === 0) {
+    if (
+      allowanceConfig.allowanceResetPeriod === "one_time" &&
+      allowanceTotal === 0 &&
+      purchasedBalance === 0
+    ) {
       const syntheticRow = {
         id,
         org_id: args.org_id,

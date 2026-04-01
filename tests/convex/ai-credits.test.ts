@@ -50,6 +50,7 @@ const insertAiCreditsRow = async (
     periodStart: string;
     periodEnd: string;
     allowanceTotal: number;
+    allowanceResetPeriod?: "monthly" | "one_time";
     allowanceUsed: number;
     purchasedBalance: number;
   },
@@ -61,6 +62,7 @@ const insertAiCreditsRow = async (
       period_start: params.periodStart,
       period_end: params.periodEnd,
       allowance_total: params.allowanceTotal,
+      allowance_reset_period: params.allowanceResetPeriod,
       allowance_used: params.allowanceUsed,
       purchased_balance: params.purchasedBalance,
       updated_at: new Date().toISOString(),
@@ -451,5 +453,52 @@ describe("convex ai credit functions", () => {
     expect(reset.allowance_used).toBe(0);
     expect(reset.allowance_total).toBe(getAiCreditAllowanceForTier(SUBSCRIPTION_TIER.starter));
     expect(reset.purchased_balance).toBe(5);
+  });
+
+  it("persists one-time reset rows when purchased credits still remain", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-22T12:00:00.000Z"));
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_ai_one_time_reset_with_purchase";
+
+    const period = await seedSubscription(t, orgId, "free");
+    await insertPurchase(t, {
+      id: "aicp_one_time_reset_1",
+      orgId,
+      creditsRemaining: 4,
+      purchasedAt: "2026-03-05T00:00:00.000Z",
+      expiresAt: "2026-06-20T12:00:00.000Z",
+    });
+    await insertAiCreditsRow(t, {
+      orgId,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      allowanceTotal: 0,
+      allowanceResetPeriod: "one_time",
+      allowanceUsed: 20,
+      purchasedBalance: 4,
+    });
+
+    const reset = await t.mutation(refs.resetMonthlyAllowance, {
+      org_id: orgId,
+      period_start: "2026-04-01T00:00:00.000Z",
+      period_end: "2026-05-01T00:00:00.000Z",
+    });
+
+    expect(reset.allowance_total).toBe(0);
+    expect(reset.allowance_reset_period).toBe("one_time");
+    expect(reset.purchased_balance).toBe(4);
+
+    const persisted = await t.run((ctx) =>
+      ctx.db
+        .query("ai_credits")
+        .withIndex("by_org_period", (q) =>
+          q.eq("org_id", orgId).eq("period_start", "2026-04-01T00:00:00.000Z"),
+        )
+        .unique(),
+    );
+    expect(persisted?.period_start).toBe("2026-04-01T00:00:00.000Z");
+    expect(persisted?.allowance_total).toBe(0);
+    expect(persisted?.purchased_balance).toBe(4);
   });
 });
