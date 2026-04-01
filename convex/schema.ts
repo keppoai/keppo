@@ -382,6 +382,7 @@ export default defineSchema({
   oauth_connect_states: defineTable({
     id: v.string(),
     org_id: v.string(),
+    initiating_user_id: v.string(),
     provider: providerValidator,
     correlation_id: v.string(),
     pkce_code_verifier_enc: v.union(v.string(), v.null()),

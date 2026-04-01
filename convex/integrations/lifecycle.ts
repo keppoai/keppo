@@ -154,6 +154,7 @@ export const upsertManagedOAuthConnectState = internalMutation({
     orgId: v.string(),
     provider: providerValidator,
     correlationId: v.string(),
+    initiatingUserId: v.string(),
     createdAt: v.string(),
     expiresAt: v.string(),
     pkceCodeVerifier: v.optional(v.string()),
@@ -179,6 +180,7 @@ export const upsertManagedOAuthConnectState = internalMutation({
       await ctx.db.insert("oauth_connect_states", {
         id: randomIdFor("oauthst"),
         org_id: args.orgId,
+        initiating_user_id: args.initiatingUserId,
         provider,
         correlation_id: args.correlationId,
         pkce_code_verifier_enc: encryptedPkceCodeVerifier,
@@ -190,6 +192,7 @@ export const upsertManagedOAuthConnectState = internalMutation({
     }
 
     await ctx.db.patch(existing._id, {
+      initiating_user_id: args.initiatingUserId,
       pkce_code_verifier_enc: encryptedPkceCodeVerifier,
       key_version: "convex_first_v1",
       created_at: args.createdAt,
@@ -209,6 +212,7 @@ export const getManagedOAuthConnectState = internalQuery({
     v.object({
       provider: providerValidator,
       correlationId: v.string(),
+      initiatingUserId: v.string(),
       createdAt: v.string(),
       expiresAt: v.string(),
       pkceCodeVerifier: v.union(v.string(), v.null()),
@@ -235,6 +239,7 @@ export const getManagedOAuthConnectState = internalQuery({
     return {
       provider,
       correlationId: args.correlationId,
+      initiatingUserId: existing.initiating_user_id,
       createdAt: existing.created_at,
       expiresAt: existing.expires_at,
       pkceCodeVerifier:

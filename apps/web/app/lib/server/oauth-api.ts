@@ -62,6 +62,7 @@ const OAUTH_CALLBACK_IDEMPOTENCY_TTL_MS = 10 * 60_000;
 const OAUTH_CALLBACK_DEDUPE_WAIT_MS = 2_000;
 const OAUTH_CALLBACK_DEDUPE_POLL_INTERVAL_MS = 120;
 const SYSTEM_METRICS_ORG_ID = "system";
+const ORG_INTEGRATION_MANAGER_ROLES = new Set<UserRole>(["owner", "admin"]);
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -180,6 +181,10 @@ const resolveSessionFromRequest = async (
     return null;
   }
   return await deps.convex.resolveApiSessionFromToken(sessionToken);
+};
+
+const canManageOrgIntegrations = (identity: ApiSessionIdentity): boolean => {
+  return ORG_INTEGRATION_MANAGER_ROLES.has(identity.role);
 };
 
 const resolveFeatureFlag = async (
@@ -484,6 +489,24 @@ export const handleOAuthProviderConnectRequest = async (
     );
   }
 
+  if (!canManageOrgIntegrations(sessionIdentity)) {
+    recordOAuthConnectMetric({
+      provider,
+      orgId: sessionIdentity.orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "forbidden",
+        message: "Only owners and admins can manage organization integrations.",
+      }),
+      403,
+    );
+  }
+
   const orgId = sessionIdentity.orgId;
   const providerModule = await deps.getProviderModule(provider);
   const defaultScopes = providerModule.metadata.oauth?.defaultScopes ?? [];
@@ -515,6 +538,7 @@ export const handleOAuthProviderConnectRequest = async (
     orgId,
     provider,
     correlationId,
+    initiatingUserId: sessionIdentity.userId,
     createdAt: stateCreatedAt,
     expiresAt: new Date(Date.parse(stateCreatedAt) + OAUTH_STATE_TTL_MS).toISOString(),
     ...(pkceCodeVerifier ? { pkceCodeVerifier } : {}),
@@ -781,6 +805,25 @@ export const handleOAuthProviderCallbackRequest = async (
   }
 
   const orgId = state.org_id;
+  const sessionIdentity = await resolveSessionFromRequest(request, deps);
+  if (!sessionIdentity) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "unauthorized",
+        message: "Authentication required.",
+        correlationId,
+      }),
+      401,
+    );
+  }
   deps.logger.info("oauth.flow", {
     provider,
     step: "callback_received",
@@ -821,6 +864,48 @@ export const handleOAuthProviderCallbackRequest = async (
         correlationId,
       }),
       400,
+    );
+  }
+
+  if (!managedOAuthConnectState) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.invalidState,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "invalid_state",
+        message: "Missing OAuth connect state; restart the connection flow.",
+        correlationId,
+      }),
+      400,
+    );
+  }
+
+  if (
+    managedOAuthConnectState.initiatingUserId !== sessionIdentity.userId ||
+    sessionIdentity.orgId !== orgId ||
+    !canManageOrgIntegrations(sessionIdentity)
+  ) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "forbidden",
+        message: "Only the initiating owner or admin can complete this organization integration.",
+        correlationId,
+      }),
+      403,
     );
   }
 

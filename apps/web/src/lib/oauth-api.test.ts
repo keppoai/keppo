@@ -45,17 +45,14 @@ const createDeps = (provider: "google" | "reddit" | "x" = "google") => {
       deleteManagedOAuthConnectState: vi.fn().mockResolvedValue(undefined),
       getFeatureFlag: vi.fn().mockResolvedValue(true),
       getApiDedupeKey: vi.fn().mockResolvedValue(null),
-      getManagedOAuthConnectState: vi.fn().mockResolvedValue(
-        storedPkceCodeVerifier === null
-          ? null
-          : {
-              provider,
-              correlationId: "corr_x_test",
-              createdAt: new Date().toISOString(),
-              expiresAt: new Date(Date.now() + 60_000).toISOString(),
-              pkceCodeVerifier: storedPkceCodeVerifier,
-            },
-      ),
+      getManagedOAuthConnectState: vi.fn().mockResolvedValue({
+        provider,
+        correlationId: provider === "x" ? "corr_x_test" : "corr_test",
+        initiatingUserId: "user_test",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60_000).toISOString(),
+        pkceCodeVerifier: storedPkceCodeVerifier,
+      }),
       recordProviderMetric: vi.fn().mockResolvedValue(undefined),
       releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
       resolveApiSessionFromToken: vi.fn().mockResolvedValue({
@@ -188,6 +185,13 @@ describe("start-owned oauth api handlers", () => {
       }),
       {},
     );
+    expect(deps.convex.upsertManagedOAuthConnectState).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_test",
+        provider: "google",
+        initiatingUserId: "user_test",
+      }),
+    );
     expect(deps.convex.recordProviderMetric).toHaveBeenCalledWith(
       expect.objectContaining({
         metric: "oauth_connect",
@@ -259,6 +263,7 @@ describe("start-owned oauth api handlers", () => {
       expect.objectContaining({
         orgId: "org_test",
         provider: "x",
+        initiatingUserId: "user_test",
         pkceCodeVerifier: expect.any(String),
       }),
     );
@@ -286,6 +291,9 @@ describe("start-owned oauth api handlers", () => {
     const response = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
       ),
       deps,
     );
@@ -329,6 +337,9 @@ describe("start-owned oauth api handlers", () => {
     const response = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/x/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
       ),
       deps,
     );
@@ -369,6 +380,9 @@ describe("start-owned oauth api handlers", () => {
     const response = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/x/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
       ),
       deps,
     );
@@ -382,6 +396,130 @@ describe("start-owned oauth api handlers", () => {
       },
     });
     expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+  });
+
+  it("rejects OAuth connect for non-manager org members", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue({
+      userId: "user_viewer",
+      orgId: "org_test",
+      role: "viewer",
+    });
+
+    const response = await handleOAuthProviderConnectRequest(
+      withJson(
+        "/api/oauth/integrations/google/connect",
+        {
+          org_id: "org_test",
+          return_to: "/integrations",
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        message: "Only owners and admins can manage organization integrations.",
+        provider: "google",
+      },
+    });
+    expect(deps.convex.upsertManagedOAuthConnectState).not.toHaveBeenCalled();
+  });
+
+  it("rejects OAuth callback when the current member cannot manage org integrations", async () => {
+    const deps = createDeps();
+    deps.convex.resolveApiSessionFromToken = vi.fn().mockResolvedValue({
+      userId: "user_viewer",
+      orgId: "org_test",
+      role: "viewer",
+    });
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue({
+      provider: "google",
+      correlationId: "corr_test",
+      initiatingUserId: "user_viewer",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      pkceCodeVerifier: null,
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        message: "Only the initiating owner or admin can complete this organization integration.",
+        provider: "google",
+      },
+    });
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+    expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
+  });
+
+  it("rejects OAuth callback when a different user tries to complete the flow", async () => {
+    const deps = createDeps();
+    deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue({
+      provider: "google",
+      correlationId: "corr_test",
+      initiatingUserId: "user_owner",
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+      pkceCodeVerifier: null,
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "forbidden",
+        message: "Only the initiating owner or admin can complete this organization integration.",
+        provider: "google",
+      },
+    });
+    expect(deps.exchangeCredentials).not.toHaveBeenCalled();
+    expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
   });
 
   it("supports Reddit as a managed OAuth provider in Start-owned routes", async () => {
@@ -426,6 +564,9 @@ describe("start-owned oauth api handlers", () => {
     const callbackResponse = await handleOAuthProviderCallbackRequest(
       withGet(
         `/oauth/integrations/reddit/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
       ),
       deps,
     );
