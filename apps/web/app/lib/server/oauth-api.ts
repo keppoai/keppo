@@ -29,6 +29,7 @@ import type {
 import type { CanonicalProviderId } from "@keppo/shared/provider-ids";
 import type { ProviderRuntimeContext } from "@keppo/shared/provider-runtime-context";
 import {
+  API_DEDUPE_STATUS,
   API_DEDUPE_SCOPE,
   IDEMPOTENCY_RESOLUTION_STATUS,
   OAUTH_METRIC_REASON_CODE,
@@ -62,6 +63,7 @@ const OAUTH_CALLBACK_IDEMPOTENCY_TTL_MS = 10 * 60_000;
 const OAUTH_CALLBACK_DEDUPE_WAIT_MS = 2_000;
 const OAUTH_CALLBACK_DEDUPE_POLL_INTERVAL_MS = 120;
 const SYSTEM_METRICS_ORG_ID = "system";
+const ORG_INTEGRATION_MANAGER_ROLES = new Set<UserRole>(["owner", "admin"]);
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -73,6 +75,10 @@ type ApiSessionIdentity = {
   userId: string;
   orgId: string;
   role: UserRole;
+};
+
+type OAuthCallbackReplayPayload = {
+  initiatingUserId: string;
 };
 
 type StartOwnedOAuthConvex = Pick<
@@ -180,6 +186,21 @@ const resolveSessionFromRequest = async (
     return null;
   }
   return await deps.convex.resolveApiSessionFromToken(sessionToken);
+};
+
+const canManageOrgIntegrations = (identity: ApiSessionIdentity): boolean => {
+  return ORG_INTEGRATION_MANAGER_ROLES.has(identity.role);
+};
+
+const parseOAuthCallbackReplayPayload = (
+  payload: Record<string, unknown> | null,
+): OAuthCallbackReplayPayload | null => {
+  if (!payload) {
+    return null;
+  }
+  return typeof payload.initiatingUserId === "string"
+    ? { initiatingUserId: payload.initiatingUserId }
+    : null;
 };
 
 const resolveFeatureFlag = async (
@@ -355,6 +376,19 @@ const buildConnectedRedirect = (
   return redirectResponse(request, returnUrl.toString());
 };
 
+const buildCallbackErrorRedirect = (
+  request: Request,
+  deps: Pick<StartOwnedOAuthDeps, "safeReturnToPath">,
+  state: OAuthStatePayload,
+  provider: ManagedOAuthProvider,
+  code: "forbidden" | "unauthorized",
+): Response => {
+  const returnUrl = new URL(deps.safeReturnToPath(state.return_to), new URL(request.url).origin);
+  returnUrl.searchParams.set("oauth_error", code);
+  returnUrl.searchParams.set("oauth_provider", provider);
+  return redirectResponse(request, returnUrl.toString());
+};
+
 export const handleOAuthProviderConnectRequest = async (
   request: Request,
   deps = getDefaultDeps(),
@@ -484,6 +518,24 @@ export const handleOAuthProviderConnectRequest = async (
     );
   }
 
+  if (!canManageOrgIntegrations(sessionIdentity)) {
+    recordOAuthConnectMetric({
+      provider,
+      orgId: sessionIdentity.orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "forbidden",
+        message: "Only owners and admins can manage organization integrations.",
+      }),
+      403,
+    );
+  }
+
   const orgId = sessionIdentity.orgId;
   const providerModule = await deps.getProviderModule(provider);
   const defaultScopes = providerModule.metadata.oauth?.defaultScopes ?? [];
@@ -515,6 +567,7 @@ export const handleOAuthProviderConnectRequest = async (
     orgId,
     provider,
     correlationId,
+    initiatingUserId: sessionIdentity.userId,
     createdAt: stateCreatedAt,
     expiresAt: new Date(Date.parse(stateCreatedAt) + OAUTH_STATE_TTL_MS).toISOString(),
     ...(pkceCodeVerifier ? { pkceCodeVerifier } : {}),
@@ -781,6 +834,23 @@ export const handleOAuthProviderCallbackRequest = async (
   }
 
   const orgId = state.org_id;
+  const [sessionIdentity, managedOAuthConnectState] = await Promise.all([
+    resolveSessionFromRequest(request, deps),
+    deps.convex.getManagedOAuthConnectState({
+      orgId,
+      provider,
+      correlationId: state.correlation_id,
+    }),
+  ]);
+  if (!sessionIdentity) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
+    });
+    return buildCallbackErrorRedirect(request, deps, state, provider, "unauthorized");
+  }
   deps.logger.info("oauth.flow", {
     provider,
     step: "callback_received",
@@ -799,13 +869,46 @@ export const handleOAuthProviderCallbackRequest = async (
   const redirectUri = deps.getRedirectUri(request.url, provider);
   const namespace = state.e2e_namespace ?? deps.getE2ENamespace(parsedQuery.namespace);
   const exchangeKey = `${provider}:${orgId}:${code}`;
-  const managedOAuthConnectState = await deps.convex.getManagedOAuthConnectState({
-    orgId,
-    provider,
-    correlationId: state.correlation_id,
-  });
 
-  if (requiresPkce && !managedOAuthConnectState?.pkceCodeVerifier) {
+  if (!managedOAuthConnectState?.initiatingUserId) {
+    const replayedCallback = await deps.convex.getApiDedupeKey({
+      scope: API_DEDUPE_SCOPE.oauthCallback,
+      dedupeKey: exchangeKey,
+    });
+    const replayPayload = parseOAuthCallbackReplayPayload(replayedCallback?.payload ?? null);
+
+    if (
+      replayPayload?.initiatingUserId === sessionIdentity.userId &&
+      sessionIdentity.orgId === orgId &&
+      canManageOrgIntegrations(sessionIdentity)
+    ) {
+      recordOAuthCallbackMetric({
+        provider,
+        orgId,
+        outcome: PROVIDER_METRIC_OUTCOME.success,
+      });
+      return buildConnectedRedirect(request, deps, state, provider);
+    }
+
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.invalidState,
+    });
+    return jsonResponse(
+      request,
+      oauthErrorPayload({
+        provider,
+        code: "invalid_state",
+        message: "Missing OAuth connect state; restart the connection flow.",
+        correlationId,
+      }),
+      400,
+    );
+  }
+
+  if (requiresPkce && !managedOAuthConnectState.pkceCodeVerifier) {
     recordOAuthCallbackMetric({
       provider,
       orgId,
@@ -822,6 +925,20 @@ export const handleOAuthProviderCallbackRequest = async (
       }),
       400,
     );
+  }
+
+  if (
+    managedOAuthConnectState.initiatingUserId !== sessionIdentity.userId ||
+    sessionIdentity.orgId !== orgId ||
+    !canManageOrgIntegrations(sessionIdentity)
+  ) {
+    recordOAuthCallbackMetric({
+      provider,
+      orgId,
+      outcome: PROVIDER_METRIC_OUTCOME.failure,
+      reasonCode: OAUTH_METRIC_REASON_CODE.unauthorized,
+    });
+    return buildCallbackErrorRedirect(request, deps, state, provider, "forbidden");
   }
 
   try {
@@ -885,7 +1002,7 @@ export const handleOAuthProviderCallbackRequest = async (
             return assertNever(resolution, "OAuth idempotency replay resolution");
         }
       },
-      execute: async () => {
+      execute: async ({ setPayload }) => {
         const runtimeContext = deps.toProviderRuntimeContext(namespace);
 
         try {
@@ -917,6 +1034,9 @@ export const handleOAuthProviderCallbackRequest = async (
               oauth_correlation_id: state.correlation_id,
               ...(state.e2e_namespace ? { e2e_namespace: state.e2e_namespace } : {}),
             },
+          });
+          await setPayload({
+            initiatingUserId: managedOAuthConnectState.initiatingUserId,
           });
           await deps.convex.deleteManagedOAuthConnectState({
             orgId,

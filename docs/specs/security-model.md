@@ -19,6 +19,7 @@
 - Automation log and completion callbacks use HMAC-signed requests.
 - Provider webhooks are accepted only after provider-specific signature verification.
 - Izzy treats the repo-scoped GitHub App user token as server-only session state: removing a login from `IZZY_ALLOWED_GITHUB_USERS` clears stored GitHub tokens, blocks refresh, and denies protected routes immediately.
+- Org-wide provider integration writes remain owner/admin-only even when the flow starts or completes through Start-owned OAuth routes; callback completion must be bound to the initiating authenticated owner/admin rather than only signed org-scoped state.
 - Provider-trigger delivery history stores only queue/match metadata plus payload references; operator-facing diagnostics must not expose raw provider payload bodies when skip reasons or lifecycle failures are enough.
 - E2E-only Convex helper mutations/queries are callable only when `KEPPO_E2E_MODE=true` and the runtime is local/test (`NODE_ENV in {development,test}`, `CONVEX_DEPLOYMENT=local:*`, or loopback Convex runtime URLs such as `CONVEX_CLOUD_URL=http://127.0.0.1:*`).
 
@@ -63,6 +64,7 @@
   - API rejects callbacks with missing/invalid signatures or expired timestamps.
   - OAuth integration callback state is HMAC-signed; callbacks reject missing/tampered state tokens.
   - PKCE verifiers for managed OAuth flows stay in server-side storage keyed by the signed state correlation ID; they are not embedded in readable front-channel state.
+  - Server-side OAuth connect state for org-scoped integrations also stores the initiating user binding, and callback completion revalidates that same user still has owner/admin integration-management rights before shared credentials are written.
 - Stuck-run safety:
   - sandbox provider enforces hard timeout.
   - Convex reaper cron (`automation_scheduler:reapStaleRuns`) marks stale runs `timed_out` and requests sandbox termination.

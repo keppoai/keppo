@@ -118,6 +118,22 @@ for (const header of [
   }
 }
 
+const oauthApiSource = read("apps/web/app/lib/server/oauth-api.ts");
+if (!/initiatingUserId:\s*sessionIdentity\.userId/u.test(oauthApiSource)) {
+  failures.push(
+    "apps/web/app/lib/server/oauth-api.ts must persist the initiating user id in managed OAuth connect state.",
+  );
+}
+if (
+  !/managedOAuthConnectState\.initiatingUserId\s*!==\s*sessionIdentity\.userId/u.test(
+    oauthApiSource,
+  )
+) {
+  failures.push(
+    "apps/web/app/lib/server/oauth-api.ts must revalidate the initiating user before completing org-scoped OAuth callbacks.",
+  );
+}
+
 if (failures.length > 0) {
   console.error("Security invariant check failed.");
   for (const failure of failures) {

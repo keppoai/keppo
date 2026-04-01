@@ -17,6 +17,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 
 - User-facing routes must derive identity from the Better Auth session, not caller-provided org or user fields.
 - NextAuth session callbacks must not copy provider or repository-scoped bearer tokens into the client-visible session payload when server-side code can read the JWT or provider token directly.
+- Start-owned routes that manage org-wide integrations or credentials must enforce the same owner/admin authorization as the canonical dashboard mutation path; do not rely on an internal Convex mutation caller to supply that missing role check.
 - Convex queries and mutations default to callable; every tenant-scoped or operationally sensitive public function must explicitly enforce `requireOrgMember`, `requireIdentity`, or platform-admin checks before reading or returning data.
 - When a Convex function is only meant for server-side bridges authenticated with the Convex admin key, expose it as `internalQuery`/`internalMutation` instead of a public function with a user-identity check that admin-key callers cannot satisfy.
 - Internal routes must require cryptographic proof such as the internal bearer secret or callback HMAC.
@@ -62,6 +63,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 
 - Security fixes should ship with targeted regression tests for the closed exploit path.
 - Security fixes that tighten Convex visibility should also add or update a static invariant in `scripts/check-security-invariants.mjs` when the contract can be expressed syntactically.
+- OAuth connect state for org-scoped credential writes must bind to the initiating user and callback handlers must re-check that same user's current authorization before persisting shared credentials.
 - If runtime or operator setup changes, update `docs/setup.md` and the relevant rules/specs in the same change.
 - Run `pnpm check:security` and the most relevant targeted tests when touching security-sensitive code.
 - `pnpm check:security` must cover static invariant checks plus targeted auth/API/Convex security regressions.

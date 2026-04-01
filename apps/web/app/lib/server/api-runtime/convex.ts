@@ -842,6 +842,7 @@ export class ConvexInternalClient {
     orgId: string;
     provider: CanonicalProviderId;
     correlationId: string;
+    initiatingUserId: string;
     createdAt: string;
     expiresAt: string;
     pkceCodeVerifier?: string;
@@ -853,6 +854,7 @@ export class ConvexInternalClient {
         orgId: payload.orgId,
         provider: payload.provider,
         correlationId: payload.correlationId,
+        initiatingUserId: payload.initiatingUserId,
         createdAt: payload.createdAt,
         expiresAt: payload.expiresAt,
         ...(payload.pkceCodeVerifier ? { pkceCodeVerifier: payload.pkceCodeVerifier } : {}),
@@ -868,6 +870,7 @@ export class ConvexInternalClient {
   }): Promise<{
     provider: CanonicalProviderId;
     correlationId: string;
+    initiatingUserId?: string | null | undefined;
     createdAt: string;
     expiresAt: string;
     pkceCodeVerifier: string | null;
