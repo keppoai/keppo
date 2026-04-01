@@ -1,4 +1,5 @@
 import fs from "node:fs/promises";
+import { pathToFileURL } from "node:url";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
@@ -87,28 +88,69 @@ const loadSessionLogLinks = async (path) => {
     .map(([, label, url]) => ({ label, url }));
 };
 
-const loadFindings = async (path) => {
-  const raw = (await fs.readFile(path, "utf8")).trim();
-  if (!raw) {
-    return [];
+export const parseFindingMarkdown = (raw, filePath) => {
+  const titleMatch = raw.match(/^#\s+(.+)$/m);
+  if (!titleMatch) {
+    return { error: `Malformed finding file ${filePath}: missing # title heading` };
   }
-  const parsed = JSON.parse(raw);
-  if (!Array.isArray(parsed)) {
-    throw new Error("findings.json must contain a JSON array");
+  const title = titleMatch[1].trim();
+
+  const severityMatch = raw.match(/^-\s*Severity:\s*(critical|high)\s*$/im);
+  if (!severityMatch) {
+    return { error: `Malformed finding file ${filePath}: missing or invalid severity line` };
   }
-  return parsed.map((finding, index) => {
-    const title = String(finding?.title ?? "").trim();
-    const description = String(finding?.description ?? "").trim();
-    const severity = String(finding?.severity ?? "").trim().toLowerCase();
-    if (!title || !description || !["critical", "high"].includes(severity)) {
-      throw new Error(`Invalid finding at index ${index}`);
-    }
-    return {
+  const severity = severityMatch[1].toLowerCase();
+
+  // Description is everything after the frontmatter (title + severity lines)
+  const summaryIndex = raw.indexOf("### Summary");
+  const description = summaryIndex !== -1
+    ? raw.slice(summaryIndex).trim()
+    : raw.slice(raw.indexOf("\n", raw.indexOf(severityMatch[0]) + severityMatch[0].length)).trim();
+
+  if (!description) {
+    return { error: `Malformed finding file ${filePath}: empty description` };
+  }
+
+  return {
+    finding: {
       title: title.slice(0, 256),
       description,
       severity,
-    };
-  });
+    },
+  };
+};
+
+export const loadFindings = async (dirPath) => {
+  let entries;
+  try {
+    entries = await fs.readdir(dirPath);
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
+      return { findings: [], malformed: [] };
+    }
+    throw error;
+  }
+
+  const mdFiles = entries.filter((f) => f.endsWith(".md")).sort();
+  const findings = [];
+  const malformed = [];
+
+  for (const file of mdFiles) {
+    const filePath = `${dirPath}/${file}`;
+    const raw = (await fs.readFile(filePath, "utf8")).trim();
+    if (!raw) {
+      malformed.push(`Malformed finding file ${filePath}: empty file`);
+      continue;
+    }
+    const parsed = parseFindingMarkdown(raw, filePath);
+    if (parsed.error) {
+      malformed.push(parsed.error);
+      continue;
+    }
+    findings.push(parsed.finding);
+  }
+
+  return { findings, malformed };
 };
 
 const fetchExistingAdvisories = async ({ apiBaseUrl, repo, token }) => {
@@ -229,15 +271,19 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
-const main = async () => {
-  const findingsPath = process.env.FINDINGS_PATH?.trim() || "out-security-review/findings.json";
-  const findings = await loadFindings(findingsPath);
+export const main = async () => {
+  const findingsDir = process.env.FINDINGS_DIR?.trim() || "out-security-review/findings";
+  const { findings, malformed } = await loadFindings(findingsDir);
 
   await appendStepSummary(`Findings reviewed: ${findings.length}`);
+  await appendStepSummary(`Malformed finding files: ${malformed.length}`);
 
   if (findings.length === 0) {
     console.log("No confirmed critical/high vulnerabilities to file.");
     await appendStepSummary("Created advisories: 0");
+    if (malformed.length > 0) {
+      throw new Error(malformed.join("\n"));
+    }
     return;
   }
 
@@ -294,6 +340,12 @@ const main = async () => {
 
   await appendStepSummary(`Created advisories: ${created.length}`);
   await appendStepSummary(`Skipped as duplicates: ${skipped.length}`);
+  if (malformed.length > 0) {
+    await appendStepSummary("Malformed findings:");
+    for (const message of malformed) {
+      await appendStepSummary(`- ${message}`);
+    }
+  }
 
   const runUrl = runId ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
   const subject = `[ALERT] security-review:recent found ${findings.length} vulnerability finding(s) for ${repo}`;
@@ -415,6 +467,12 @@ const main = async () => {
   console.log(
     `Processed ${findings.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s).`,
   );
+
+  if (malformed.length > 0) {
+    throw new Error(malformed.join("\n"));
+  }
 };
 
-await main();
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  await main();
+}

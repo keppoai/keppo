@@ -1,6 +1,6 @@
 ---
 name: security-review:recent
-description: Review the last 7 days of recent commits for critical and high severity security vulnerabilities. Use when Codex needs to clear `./out-security-review`, select 25 non-doc, non-test files from recent commits across different parts of the repo, spawn one security-review sub-agent per starting file, persist each candidate finding to `./out-security-review/<starting_filename>_<n>.md`, re-verify every candidate with fresh sub-agents, and emit a final JSON array for responsible disclosure.
+description: Review the last 7 days of recent commits for critical and high severity security vulnerabilities. Use when Codex needs to clear `./out-security-review`, select 25 non-doc, non-test files from recent commits across different parts of the repo, spawn one security-review sub-agent per starting file, persist each candidate finding to `./out-security-review/<starting_filename>_<timestamp>.md` using a filename-safe UTC ISO 8601 basic timestamp like `20260331T214512Z`, re-verify every candidate with fresh sub-agents, and emit final confirmed findings for responsible disclosure.
 ---
 
 # Security Review Recent
@@ -47,7 +47,12 @@ Run this skill only for defensive security research on this open-source project 
    - If no qualifying issue is found, the agent must return `[]`.
 
 4. Persist candidate findings.
-   - For each returned finding, write one markdown file to `./out-security-review/<starting_filename>_<n>.md`.
+   - For each returned finding, write one markdown file to `./out-security-review/<starting_filename>_<timestamp>.md`.
+   - Use a UTC ISO 8601 basic timestamp that is safe in filenames: `YYYYMMDDTHHMMSSZ`.
+   - Do not use colons, spaces, or timezone offsets in the filename timestamp.
+   - Examples:
+     - `auth.ts_20260331T214512Z.md`
+     - `routes_api_webhooks_stripe.ts_20260331T214734Z.md`
    - Use a stable format:
 
 ```md
@@ -96,26 +101,23 @@ Run this skill only for defensive security research on this open-source project 
 }
 ```
 
-6. Emit the final JSON artifact.
+6. Emit confirmed findings as individual markdown files.
    - Keep only confirmed findings with severity `critical` or `high`.
-   - The final `description` for each finding must be fully fleshed out, precise, technical, and evidence-driven. Treat it as the source text for responsible disclosure, not as a short summary.
+   - Write one `.md` file per confirmed finding to `./out-security-review/findings/`, using the naming convention `<short-slug>.md` (e.g. `auth-bypass.md`, `webhook-forgery.md`).
+   - If no qualifying vulnerabilities are confirmed, leave `./out-security-review/findings/` empty.
    - Do not speculate beyond the code and evidence you verified.
    - Do not inflate severity.
    - Focus only on real vulnerabilities with a concrete exploit path.
    - Write like a human security engineer, not like a generic scanner.
-   - Write `./out-security-review/findings.json` as a JSON array:
+   - Each finding file must use this exact structure:
 
-```json
-[
-  {
-    "title": "string",
-    "description": "string",
-    "severity": "critical"
-  }
-]
+```md
+# <Title>
+
+- Severity: critical|high
 ```
 
-   - Format each final `description` as Markdown with these exact sections, in this order:
+   - After the frontmatter, write the full description as Markdown with these exact sections, in this order:
 
 ```md
 ### Summary
@@ -153,7 +155,7 @@ Give concrete remediation steps:
 - include credential/session rotation advice when relevant
 ```
 
-   - Style rules for the final `description`:
+   - Style rules for the description:
      - Be specific to the codebase.
      - Mention exact function names, routes, mutations, and data objects when known.
      - Prefer concrete nouns over vague language.
@@ -162,7 +164,7 @@ Give concrete remediation steps:
      - Do not say "may allow" when the exploit path is already confirmed.
      - Do not include unsupported claims.
      - Do not refer to yourself or the review process.
-   - Severity rules for the final JSON:
+   - Severity rules:
      - `critical` is for severe compromise such as remote unauthenticated takeover, arbitrary code execution, or equivalent platform-wide compromise.
      - `high` is for serious authenticated privilege escalation, cross-tenant confidentiality or integrity failures, billing abuse with real financial control, or strong account-linking or credential-takeover issues.
      - If the issue does not clearly meet `high` or `critical`, drop it instead of stretching it.
