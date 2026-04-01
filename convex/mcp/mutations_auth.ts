@@ -6,8 +6,10 @@ import {
   AUDIT_ACTOR_TYPE,
   AUDIT_EVENT_TYPES,
   WORKSPACE_STATUS,
+  isAutomationRunTerminalStatus,
 } from "../domain_constants";
 import { MCP_CREDENTIAL_AUTH_STATUS } from "../mcp_runtime_shared";
+import { normalizeAutomationRunStatus } from "../automation_run_status";
 import { toWorkspaceBoundary } from "../workspaces_shared";
 import { workspaceValidator } from "./shared";
 
@@ -165,6 +167,25 @@ export const authenticateCredential = internalMutation({
       return null;
     }
 
+    const automationRunId =
+      typeof credential.metadata?.automation_run_id === "string"
+        ? credential.metadata.automation_run_id.trim()
+        : null;
+    if (automationRunId) {
+      const automationRun = await ctx.db
+        .query("automation_runs")
+        .withIndex("by_custom_id", (q) => q.eq("id", automationRunId))
+        .unique();
+      const isActiveAutomationCredential =
+        automationRun !== null &&
+        automationRun.workspace_id === args.workspaceId &&
+        !isAutomationRunTerminalStatus(normalizeAutomationRunStatus(automationRun));
+      if (!isActiveAutomationCredential) {
+        await ctx.db.patch(credential._id, { revoked_at: nowIso() });
+        return null;
+      }
+    }
+
     if (failure && (failure.attempt_count > 0 || failure.locked_at !== null)) {
       await ctx.db.patch(failure._id, {
         attempt_count: 0,
@@ -190,10 +211,7 @@ export const authenticateCredential = internalMutation({
       status: MCP_CREDENTIAL_AUTH_STATUS.ok,
       credential_id: credential.id,
       workspace: toWorkspaceBoundary(workspace),
-      ...(typeof credential.metadata?.automation_run_id === "string" &&
-      credential.metadata.automation_run_id.trim().length > 0
-        ? { automation_run_id: credential.metadata.automation_run_id.trim() }
-        : {}),
+      ...(automationRunId ? { automation_run_id: automationRunId } : {}),
     };
   },
 });

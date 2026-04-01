@@ -820,7 +820,6 @@ const updateAutomationRunStatusInternal = async (
           source: AUTOMATION_RUN_OUTCOME_SOURCE.fallbackMissing,
         })
       : null;
-
   await ctx.db.patch(run._id, {
     status: legacyStatus,
     metadata,
@@ -833,6 +832,22 @@ const updateAutomationRunStatusInternal = async (
     ...(params.mcp_session_id !== undefined ? { mcp_session_id: params.mcp_session_id } : {}),
     ...(terminalOutcomeRecord ? terminalOutcomeRecord.patch : {}),
   });
+
+  if (terminal) {
+    const workspaceCredentials = await ctx.db
+      .query("workspace_credentials")
+      .withIndex("by_workspace", (q) => q.eq("workspace_id", run.workspace_id))
+      .collect();
+    for (const credential of workspaceCredentials) {
+      if (
+        credential.revoked_at === null &&
+        typeof credential.metadata?.automation_run_id === "string" &&
+        credential.metadata.automation_run_id.trim() === run.id
+      ) {
+        await ctx.db.patch(credential._id, { revoked_at: now });
+      }
+    }
+  }
 
   if (
     params.status === AUTOMATION_RUN_STATUS.failed ||

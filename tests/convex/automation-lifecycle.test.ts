@@ -1,10 +1,15 @@
 import { makeFunctionReference } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
 import { AUTOMATION_RUN_STATUS, RUN_STATUS } from "../../convex/domain_constants";
+import { MCP_CREDENTIAL_AUTH_STATUS } from "../../packages/shared/src/mcp-auth.js";
 import { createConvexTestHarness, seedAutomationFixture } from "./harness";
 
 const refs = {
+  authenticateCredential: makeFunctionReference<"mutation">("mcp:authenticateCredential"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  issueAutomationWorkspaceCredential: makeFunctionReference<"mutation">(
+    "workspaces:issueAutomationWorkspaceCredential",
+  ),
   recordAutomationRunOutcome: makeFunctionReference<"mutation">(
     "automation_runs:recordAutomationRunOutcome",
   ),
@@ -181,5 +186,91 @@ describe("convex automation lifecycle functions", () => {
         status: AUTOMATION_RUN_STATUS.succeeded,
       }),
     ).rejects.toThrow("InvalidAutomationRunStatusTransition: pending -> succeeded");
+  });
+
+  it("revokes automation-issued workspace credentials when a run reaches a terminal state", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_credential_revoke";
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const createdRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+    await t.mutation(refs.issueAutomationWorkspaceCredential, {
+      workspaceId: fixture.workspaceId,
+      automationRunId: createdRun.id,
+    });
+
+    const activeCredential = await t.run((ctx) =>
+      ctx.db
+        .query("workspace_credentials")
+        .withIndex("by_workspace", (q) => q.eq("workspace_id", fixture.workspaceId))
+        .collect()
+        .then(
+          (rows) =>
+            rows.find(
+              (row) =>
+                row.revoked_at === null &&
+                typeof row.metadata?.automation_run_id === "string" &&
+                row.metadata.automation_run_id === createdRun.id,
+            ) ?? null,
+        ),
+    );
+    expect(activeCredential).not.toBeNull();
+
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.cancelled,
+      error_message: "Cancelled during credential lifetime regression test",
+    });
+
+    const revokedCredential = await t.run((ctx) =>
+      ctx.db
+        .query("workspace_credentials")
+        .withIndex("by_custom_id", (q) => q.eq("id", activeCredential!.id))
+        .unique(),
+    );
+    expect(revokedCredential?.revoked_at).not.toBeNull();
+  });
+
+  it("rejects automation-issued credentials after the owning run becomes terminal", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_credential_auth";
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const createdRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+    const issued = await t.mutation(refs.issueAutomationWorkspaceCredential, {
+      workspaceId: fixture.workspaceId,
+      automationRunId: createdRun.id,
+    });
+
+    const initialAuth = await t.mutation(refs.authenticateCredential, {
+      workspaceId: fixture.workspaceId,
+      secret: issued.credential_secret,
+    });
+    expect(initialAuth).toMatchObject({
+      status: MCP_CREDENTIAL_AUTH_STATUS.ok,
+      automation_run_id: createdRun.id,
+    });
+
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.running,
+    });
+
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.succeeded,
+    });
+
+    const terminalAuth = await t.mutation(refs.authenticateCredential, {
+      workspaceId: fixture.workspaceId,
+      secret: issued.credential_secret,
+    });
+    expect(terminalAuth).toBeNull();
   });
 });
