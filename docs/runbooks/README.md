@@ -7,7 +7,6 @@ Use this index during incidents. Each runbook follows `Symptoms -> Diagnosis -> 
 - [Stuck automation run](./stuck-automation-run.md)
 - [Stripe webhook failures](./stripe-webhook-failures.md)
 - [OAuth token refresh failures](./oauth-token-refresh.md)
-- [OAuth helper signing](./oauth-helper-signing.md)
 - [Cron job failure (STALE/FAILING)](./cron-job-failure.md)
 - [Convex deployment failure](./convex-deployment.md)
 - [Rate-limit spike (429 surge)](./rate-limit-spike.md)

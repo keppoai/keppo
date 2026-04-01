@@ -7,7 +7,6 @@ const repoRoot = resolve(dirname(new URL(import.meta.url).pathname), "..");
 const MANIFESTS = [
   { path: "package.json", scope: "repo" },
   { path: "apps/web/package.json", scope: "workspace" },
-  { path: "apps/oauth-helper/package.json", scope: "workspace" },
   { path: "cloud/package.json", scope: "workspace" },
   { path: "packages/shared/package.json", scope: "workspace" },
 ];

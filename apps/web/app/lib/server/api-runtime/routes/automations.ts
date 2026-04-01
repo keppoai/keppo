@@ -29,11 +29,9 @@ import {
   parseJsonValue,
   tryParseJsonValue,
 } from "@keppo/shared/providers/boundaries/json";
-import { verifyAndDecodeOAuthStatePayload } from "../app-helpers.js";
 import { getEnv, getRawEnv } from "../env.js";
 import type { AutomationSandboxProviderMode } from "../sandbox/index.js";
 
-const OPENAI_HELPER_SESSION_TTL_MS = 10 * 60_000;
 const VERCEL_PROTECTION_BYPASS_PARAM = "x-vercel-protection-bypass";
 const VERCEL_PROTECTION_BYPASS_HEADER = "x-vercel-protection-bypass";
 const automationRunLogLevelSet = new Set<AutomationRunLogLevel>(AUTOMATION_RUN_LOG_LEVELS);
@@ -44,17 +42,6 @@ type StoredOpenAiOauthPayload = {
   provider: "openai";
   kind: "oauth";
   credentials: StoredOpenAiOauthCredentials;
-};
-
-type OpenAiHelperSessionToken = {
-  kind: "openai_helper_session";
-  session_id: string;
-  org_id: string;
-  user_id: string;
-  return_to: string;
-  verifier: string;
-  issued_at: number;
-  expires_at: number;
 };
 
 type ClassifiedEvent = {
@@ -326,53 +313,6 @@ const isExpiredOrNearExpiry = (isoTimestamp: string, thresholdMs = 60_000): bool
     return true;
   }
   return Date.now() >= expiresMs - thresholdMs;
-};
-
-const parseOpenAiHelperSessionToken = (tokenRaw: string): OpenAiHelperSessionToken => {
-  const decoded = verifyAndDecodeOAuthStatePayload(tokenRaw);
-  if ("reason" in decoded) {
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "Invalid OpenAI helper session token.",
-    );
-  }
-  try {
-    const parsed = parseJsonRecordOrThrow(
-      decoded.payloadRaw,
-      "Invalid OpenAI helper session token.",
-    );
-    if (
-      parsed.kind !== "openai_helper_session" ||
-      typeof parsed.session_id !== "string" ||
-      typeof parsed.org_id !== "string" ||
-      typeof parsed.user_id !== "string" ||
-      typeof parsed.return_to !== "string" ||
-      typeof parsed.verifier !== "string" ||
-      typeof parsed.issued_at !== "number" ||
-      typeof parsed.expires_at !== "number"
-    ) {
-      throw new Error("Invalid OpenAI helper session token.");
-    }
-    if (Date.now() > parsed.expires_at) {
-      throw createAutomationRouteError(
-        "automation_route_failed",
-        "OpenAI helper session has expired.",
-      );
-    }
-    return parsed as OpenAiHelperSessionToken;
-  } catch (error) {
-    if (
-      error instanceof Error &&
-      parseAutomationRouteErrorCode(error.message) === "automation_route_failed" &&
-      error.message.includes("OpenAI helper session has expired.")
-    ) {
-      throw error;
-    }
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "Invalid OpenAI helper session token.",
-    );
-  }
 };
 
 const resolveOpenAiOauthTokenUrl = (): string =>
@@ -1015,11 +955,3 @@ export const parseCompletionPayload = (
     ...(errorMessage ? { error_message: errorMessage } : {}),
   };
 };
-
-const _keepHelperSessionContractStable = (): void => {
-  if (OPENAI_HELPER_SESSION_TTL_MS === 0) {
-    void parseOpenAiHelperSessionToken;
-  }
-};
-
-void _keepHelperSessionContractStable;

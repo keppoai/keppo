@@ -139,23 +139,6 @@ const getDefaultDeps = (): StartOwnedOperationalDeps => {
   };
 };
 
-const resolveOAuthHelperPlatform = (request: Request): "macos" | "windows" | null => {
-  const match = /^\/downloads\/oauth-helper\/([^/]+)\/latest\/?$/u.exec(
-    new URL(request.url).pathname,
-  );
-  if (!match?.[1]) {
-    return null;
-  }
-  if (match[1] === "macos" || match[1] === "windows") {
-    return match[1];
-  }
-  return null;
-};
-
-const isOAuthHelperDownloadPath = (pathname: string): boolean => {
-  return /^\/downloads\/oauth-helper\/[^/]+\/latest\/?$/u.test(pathname);
-};
-
 const isInternalCronPath = (pathname: string): boolean => {
   return pathname === "/internal/cron/maintenance";
 };
@@ -288,37 +271,6 @@ const internalUnauthorizedResponse = (request: Request, reason: string | undefin
     },
     statusCode,
   );
-};
-
-export const handleOAuthHelperLatestDownloadRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  const platform = resolveOAuthHelperPlatform(request);
-  const env = deps.getEnv();
-  const targetUrl =
-    platform === "macos"
-      ? env.KEPPO_OAUTH_HELPER_MACOS_URL
-      : platform === "windows"
-        ? env.KEPPO_OAUTH_HELPER_WINDOWS_URL
-        : null;
-
-  if (!targetUrl) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: "artifact_unavailable",
-        error:
-          platform === "macos" || platform === "windows"
-            ? `No ${platform} OAuth helper artifact has been configured.`
-            : "Unknown helper artifact platform.",
-      },
-      platform === "macos" || platform === "windows" ? 404 : 400,
-    );
-  }
-
-  return redirectResponse(request, targetUrl);
 };
 
 export const handleInternalQueueDispatchRequest = async (
@@ -752,9 +704,6 @@ export const dispatchStartOwnedOperationalRequest = async (
 ): Promise<Response | null> => {
   const pathname = new URL(request.url).pathname;
 
-  if (request.method === "GET" && isOAuthHelperDownloadPath(pathname)) {
-    return await handleOAuthHelperLatestDownloadRequest(request, deps);
-  }
   if ((request.method === "GET" || request.method === "POST") && isInternalCronPath(pathname)) {
     return await handleInternalCronMaintenanceRequest(request, deps);
   }

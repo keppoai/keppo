@@ -7,7 +7,6 @@ The unified web project owns all hosted entrypoints. Requests land in the Start 
 Start-owned hosted entrypoints now include:
 
 - Provider webhook ingress (`/webhooks/:provider`)
-- OAuth helper download redirects (`/downloads/oauth-helper/{macos|windows}/latest`)
 - Internal maintenance cron route (`/internal/cron/maintenance`)
 - Internal approved-action dispatch route (`/internal/queue/dispatch-approved-action`)
 - Internal automation runtime routes (`/internal/automations/dispatch`, `/internal/automations/terminate`, `/internal/automations/log`, `/internal/automations/complete`)
@@ -40,7 +39,6 @@ Important routes:
   - `POST /api/oauth/integrations/:provider/connect`
   - `GET /oauth/integrations/:provider/callback`
   - `POST /webhooks/:provider`
-  - `GET /downloads/oauth-helper/{macos|windows}/latest`
   - `POST /mcp/:workspaceId`
   - `DELETE /mcp/:workspaceId`
 - Internal (cron/queue):

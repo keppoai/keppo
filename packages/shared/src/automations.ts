@@ -432,8 +432,6 @@ export const AUTOMATION_ROUTE_STATUSES = [
   "missing_ai_key",
   "dispatch_failed",
   "invalid_signature",
-  "helper_session_expired",
-  "helper_callback_replayed",
 ] as const;
 export type AutomationRouteStatus = (typeof AUTOMATION_ROUTE_STATUSES)[number];
 export const AUTOMATION_ROUTE_STATUS = {
@@ -454,8 +452,6 @@ export const AUTOMATION_ROUTE_STATUS = {
   missingAiKey: "missing_ai_key",
   dispatchFailed: "dispatch_failed",
   invalidSignature: "invalid_signature",
-  helperSessionExpired: "helper_session_expired",
-  helperCallbackReplayed: "helper_callback_replayed",
 } as const satisfies Record<string, AutomationRouteStatus>;
 
 export const AUTOMATION_ROUTE_ERROR_CODES = [

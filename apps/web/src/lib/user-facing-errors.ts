@@ -411,16 +411,14 @@ const getGuidance = (params: {
   if (
     params.code.startsWith("org_ai_keys.") ||
     params.code.includes("invalid_ai_key") ||
-    params.code.includes("openai_helper") ||
-    params.code.includes("openai_oauth") ||
-    params.message.toLowerCase().includes("helper session")
+    params.code.includes("openai_oauth")
   ) {
     return {
       title: "AI key setup failed",
       summary: "Keppo could not complete the AI key setup flow.",
       nextSteps: [
         "Check the key or OAuth callback details, then retry.",
-        "If the helper flow keeps failing, copy the details and contact support.",
+        "If the OAuth flow keeps failing, copy the details and contact support.",
       ],
     };
   }

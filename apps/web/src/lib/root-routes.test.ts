@@ -8,7 +8,6 @@ describe("start-owned root routes", () => {
     expect(isStartOwnedRootPath("/mcp/ws_test")).toBe(true);
     expect(isStartOwnedRootPath("/oauth/integrations/google/callback")).toBe(true);
     expect(isStartOwnedRootPath("/webhooks/stripe")).toBe(true);
-    expect(isStartOwnedRootPath("/downloads/oauth-helper/macos/latest")).toBe(true);
     expect(isStartOwnedRootPath("/internal/automations/dispatch")).toBe(true);
     expect(isStartOwnedRootPath("/internal/automations/log")).toBe(true);
     expect(isStartOwnedRootPath("/internal/cron/maintenance")).toBe(true);
@@ -31,7 +30,6 @@ describe("start-owned root routes", () => {
     expect(isFailClosedRootPath("/billing/checkout")).toBe(false);
     expect(isFailClosedRootPath("/mcp/ws_test")).toBe(false);
     expect(isFailClosedRootPath("/oauth/integrations/google/callback")).toBe(false);
-    expect(isFailClosedRootPath("/downloads/oauth-helper/windows/latest")).toBe(false);
     expect(isFailClosedRootPath("/internal/automations/terminate")).toBe(false);
     expect(isFailClosedRootPath("/internal/cron/maintenance")).toBe(false);
     expect(isFailClosedRootPath("/internal/health/deep")).toBe(false);

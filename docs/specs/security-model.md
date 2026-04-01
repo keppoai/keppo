@@ -74,10 +74,7 @@
 - User-managed BYOK and `subscription_token` credentials are hard-deleted when removed; non-secret metadata needed for auditability is copied into the delete audit event payload before the row is deleted.
 - Dyad Gateway master credentials (`KEPPO_LLM_GATEWAY_MASTER_KEY`) stay in API runtime only; dashboard clients, Convex public functions, and sandbox env never receive that management bearer token.
 - OpenAI `subscription_token` automation keys are stored as encrypted refreshable OAuth credential envelopes; refresh occurs in API runtime before dispatch, and sandbox runs receive only run-scoped auth material.
-- OpenAI desktop-helper sessions use short-lived signed helper-session tokens rather than long-lived API credentials; the helper submits only the signed helper token plus the captured localhost callback URL.
-- Helper callback ingest validates helper token expiry, org/user/session binding, and signed OpenAI `state` correlation before exchanging the OAuth code, and replayed helper callbacks are blocked via durable API dedupe keys.
-- Signed helper distribution relies on out-of-repo release secrets only: Apple certificate/notarization credentials for macOS and Azure Trusted Signing credentials for Windows are injected at build time and never committed.
-- Release-mode helper workflows fail closed when required signing inputs are absent, while local and non-release packaging may remain unsigned for operator validation.
+- OpenAI localhost callback setup uses a signed OAuth `state` plus a user-run loopback listener; only the API runtime exchanges the returned code and stores refreshable credentials.
 - Dispatch decrypts key material only inside API runtime for active run provisioning; dashboard receives hints only (`key_hint`).
 - `_decryptForTestsOnly` remains internal-only and requires an explicit local/test flag before use; every successful invocation emits an audit-friendly warning.
 - Automation run attribution uses automation identity as MCP actor and does not rely on shared service-account secrets.
