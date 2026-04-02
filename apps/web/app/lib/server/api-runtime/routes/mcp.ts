@@ -429,6 +429,7 @@ const buildMcpFailureLogMetadata = (params: {
   provider?: CanonicalProviderId;
   rawMessage: string | undefined;
   sanitized: ReturnType<typeof sanitizeMcpClientErrorMessage>;
+  errorCode?: string;
 }): Record<string, unknown> => ({
   route: MCP_ROUTE_PATH,
   method: "tools/call",
@@ -438,13 +439,50 @@ const buildMcpFailureLogMetadata = (params: {
   tool_name: params.toolName,
   ...(params.sessionId ? { session_id: params.sessionId } : {}),
   ...(params.provider ? { provider: params.provider } : {}),
-  ...(resolveLoggedMcpErrorCode(params.rawMessage)
-    ? { error_code: resolveLoggedMcpErrorCode(params.rawMessage) }
+  ...((resolveLoggedMcpErrorCode(params.rawMessage) ?? params.errorCode)
+    ? { error_code: resolveLoggedMcpErrorCode(params.rawMessage) ?? params.errorCode }
     : {}),
   client_message: params.sanitized.message,
   message_redacted: params.sanitized.redacted,
   ...(params.sanitized.referenceId ? { reference_id: params.sanitized.referenceId } : {}),
 });
+
+const logReturnedMcpErrorResult = (
+  deps: Pick<McpRoutesDeps, "logger">,
+  params: {
+    eventName: string;
+    redactedEventName: string;
+    workspaceId: string;
+    runId: string;
+    orgId: string;
+    toolName: string;
+    sessionId?: string;
+    provider?: CanonicalProviderId;
+    rawMessage: string | undefined;
+    clientMessage: string;
+    errorCode?: string;
+  },
+): void => {
+  const sanitized = {
+    message: params.clientMessage,
+    redacted: false,
+    referenceId: null,
+  } satisfies ReturnType<typeof sanitizeMcpClientErrorMessage>;
+  deps.logger.warn(
+    params.eventName,
+    buildMcpFailureLogMetadata({
+      workspaceId: params.workspaceId,
+      runId: params.runId,
+      orgId: params.orgId,
+      toolName: params.toolName,
+      ...(params.sessionId ? { sessionId: params.sessionId } : {}),
+      ...(params.provider ? { provider: params.provider } : {}),
+      rawMessage: params.rawMessage,
+      sanitized,
+      ...(params.errorCode ? { errorCode: params.errorCode } : {}),
+    }),
+  );
+};
 
 const parseSearchToolsArgs = (
   args: Record<string, unknown>,
@@ -487,33 +525,36 @@ const parseExecuteCodeArgs = (args: Record<string, unknown>): { code: string } =
   return { code };
 };
 
+const formatExecuteCodeStructuredResultText = (payload: ExecuteCodeResultPayload): string =>
+  payload.tool_name === "execute_code"
+    ? `${payload.status}: ${payload.reason}`
+    : `${payload.status}: ${payload.tool_name}: ${payload.reason}`;
+
 const buildExecuteCodeStructuredResult = (payload: ExecuteCodeResultPayload): CallToolResult => {
-  const text =
-    payload.tool_name === "execute_code"
-      ? `${payload.status}: ${payload.reason}`
-      : `${payload.status}: ${payload.tool_name}: ${payload.reason}`;
-  return buildStructuredToolResult(payload, { text });
+  return buildStructuredToolResult(payload, {
+    text: formatExecuteCodeStructuredResultText(payload),
+  });
 };
 
-const parseExecuteCodeStructuredResult = (
+const parseExecuteCodeStructuredResultPayload = (
   errorMessage: string | undefined,
-): CallToolResult | null => {
+): ExecuteCodeResultPayload | null => {
   const structured = parseCodeModeStructuredExecutionError(errorMessage);
   if (!structured) {
     return null;
   }
-  return buildExecuteCodeStructuredResult({
+  return {
     status: structured.type,
     tool_name: structured.toolName,
     reason: structured.reason,
     ...(structured.errorCode ? { error_code: structured.errorCode } : {}),
     ...(structured.actionId ? { action_id: structured.actionId } : {}),
-  });
+  };
 };
 
-const parseExecuteCodeWorkerFailureResult = (
+const parseExecuteCodeWorkerFailurePayload = (
   errorMessage: string | undefined,
-): CallToolResult | null => {
+): ExecuteCodeResultPayload | null => {
   const errorCode = parseWorkerExecutionErrorCode(errorMessage);
   if (
     errorCode !== "execution_failed" &&
@@ -526,22 +567,22 @@ const parseExecuteCodeWorkerFailureResult = (
   if (errorCode === "provider_disabled" || errorCode === "integration_not_connected") {
     const normalizedMessage = message.replace(/^[a-z_]+:\s*/i, "");
     const provider = message.match(/Provider ([a-z0-9_]+)/i)?.[1] ?? "unknown";
-    return buildExecuteCodeStructuredResult({
+    return {
       status: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.blocked,
       tool_name: provider,
       reason: normalizedMessage || "Tool call is not available in this workspace.",
       error_code: errorCode,
-    });
+    };
   }
   if (!message.includes("requires a non-empty code string")) {
     return null;
   }
-  return buildExecuteCodeStructuredResult({
+  return {
     status: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
     tool_name: "execute_code",
     reason: message || "Code execution failed.",
     error_code: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
-  });
+  };
 };
 
 type ExecuteCodeToolCallStatus =
@@ -832,12 +873,36 @@ const createMcpServer = (
       });
 
       if (toolName === AUTOMATION_OUTCOME_TOOL_NAME && !handlerContext.automationRunId) {
-        return buildToolErrorResult("record_outcome is only available inside automation runs.");
+        const message = "record_outcome is only available inside automation runs.";
+        logReturnedMcpErrorResult(deps, {
+          eventName: "mcp.tool_call.failed",
+          redactedEventName: "mcp.tool_call.error_redacted",
+          workspaceId: handlerContext.workspaceId,
+          runId: handlerContext.runId,
+          orgId: handlerContext.orgId,
+          ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+          toolName,
+          rawMessage: message,
+          clientMessage: message,
+        });
+        return buildToolErrorResult(message);
       }
 
       if (toolName === "search_tools") {
         if (!handlerContext.codeModeEnabled) {
-          return buildToolErrorResult("Code Mode is disabled for this workspace.");
+          const message = "Code Mode is disabled for this workspace.";
+          logReturnedMcpErrorResult(deps, {
+            eventName: "mcp.search_tools.failed",
+            redactedEventName: "mcp.search_tools.error_redacted",
+            workspaceId: handlerContext.workspaceId,
+            runId: handlerContext.runId,
+            orgId: handlerContext.orgId,
+            ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+            toolName: "search_tools",
+            rawMessage: message,
+            clientMessage: message,
+          });
+          return buildToolErrorResult(message);
         }
         try {
           await deps.convex.seedToolIndex();
@@ -906,7 +971,19 @@ const createMcpServer = (
 
       if (toolName === "execute_code") {
         if (!handlerContext.codeModeEnabled) {
-          return buildToolErrorResult("Code Mode is disabled for this workspace.");
+          const message = "Code Mode is disabled for this workspace.";
+          logReturnedMcpErrorResult(deps, {
+            eventName: "mcp.execute_code.failed",
+            redactedEventName: "mcp.execute_code.error_redacted",
+            workspaceId: handlerContext.workspaceId,
+            runId: handlerContext.runId,
+            orgId: handlerContext.orgId,
+            ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+            toolName: "execute_code",
+            rawMessage: message,
+            clientMessage: message,
+          });
+          return buildToolErrorResult(message);
         }
 
         let lastExecuteCodeToolProvider: CanonicalProviderId | undefined;
@@ -1114,23 +1191,53 @@ const createMcpServer = (
           });
 
           if (!sandboxResult.success) {
-            const structuredResult = parseExecuteCodeStructuredResult(sandboxResult.error);
-            if (structuredResult) {
+            const structuredPayload = parseExecuteCodeStructuredResultPayload(sandboxResult.error);
+            if (structuredPayload) {
               recordTypedToolCallFailureMetrics(deps, {
                 errorMessage: sandboxResult.error,
                 orgId: handlerContext.orgId,
                 ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
               });
-              return structuredResult;
+              logReturnedMcpErrorResult(deps, {
+                eventName: "mcp.execute_code.failed",
+                redactedEventName: "mcp.execute_code.error_redacted",
+                workspaceId: handlerContext.workspaceId,
+                runId: handlerContext.runId,
+                orgId: handlerContext.orgId,
+                ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                toolName: "execute_code",
+                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+                rawMessage: sandboxResult.error,
+                clientMessage: formatExecuteCodeStructuredResultText(structuredPayload),
+                ...(structuredPayload.error_code
+                  ? { errorCode: structuredPayload.error_code }
+                  : {}),
+              });
+              return buildExecuteCodeStructuredResult(structuredPayload);
             }
-            const workerFailureResult = parseExecuteCodeWorkerFailureResult(sandboxResult.error);
-            if (workerFailureResult) {
+            const workerFailurePayload = parseExecuteCodeWorkerFailurePayload(sandboxResult.error);
+            if (workerFailurePayload) {
               recordTypedToolCallFailureMetrics(deps, {
                 errorMessage: sandboxResult.error,
                 orgId: handlerContext.orgId,
                 ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
               });
-              return workerFailureResult;
+              logReturnedMcpErrorResult(deps, {
+                eventName: "mcp.execute_code.failed",
+                redactedEventName: "mcp.execute_code.error_redacted",
+                workspaceId: handlerContext.workspaceId,
+                runId: handlerContext.runId,
+                orgId: handlerContext.orgId,
+                ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                toolName: "execute_code",
+                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+                rawMessage: sandboxResult.error,
+                clientMessage: formatExecuteCodeStructuredResultText(workerFailurePayload),
+                ...(workerFailurePayload.error_code
+                  ? { errorCode: workerFailurePayload.error_code }
+                  : {}),
+              });
+              return buildExecuteCodeStructuredResult(workerFailurePayload);
             }
             if (sandboxResult.failure) {
               const structuredFailure = createCodeModeStructuredExecutionError({
@@ -1141,19 +1248,35 @@ const createMcpServer = (
                   ? { errorCode: sandboxResult.failure.errorCode }
                   : {}),
               }).message;
-              recordTypedToolCallFailureMetrics(deps, {
-                errorMessage: structuredFailure,
-                orgId: handlerContext.orgId,
-                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
-              });
-              return buildExecuteCodeStructuredResult({
+              const structuredFailurePayload: ExecuteCodeResultPayload = {
                 status: sandboxResult.failure.type,
                 tool_name: "execute_code",
                 reason: sandboxResult.failure.reason,
                 ...(sandboxResult.failure.errorCode
                   ? { error_code: sandboxResult.failure.errorCode }
                   : {}),
+              };
+              recordTypedToolCallFailureMetrics(deps, {
+                errorMessage: structuredFailure,
+                orgId: handlerContext.orgId,
+                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
               });
+              logReturnedMcpErrorResult(deps, {
+                eventName: "mcp.execute_code.failed",
+                redactedEventName: "mcp.execute_code.error_redacted",
+                workspaceId: handlerContext.workspaceId,
+                runId: handlerContext.runId,
+                orgId: handlerContext.orgId,
+                ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                toolName: "execute_code",
+                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+                rawMessage: structuredFailure,
+                clientMessage: formatExecuteCodeStructuredResultText(structuredFailurePayload),
+                ...(structuredFailurePayload.error_code
+                  ? { errorCode: structuredFailurePayload.error_code }
+                  : {}),
+              });
+              return buildExecuteCodeStructuredResult(structuredFailurePayload);
             }
             recordTypedToolCallFailureMetrics(deps, {
               errorMessage: sandboxResult.error,
@@ -1231,23 +1354,51 @@ const createMcpServer = (
           };
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : undefined;
-          const structuredResult = parseExecuteCodeStructuredResult(rawMessage);
-          if (structuredResult) {
+          const structuredPayload = parseExecuteCodeStructuredResultPayload(rawMessage);
+          if (structuredPayload) {
             recordTypedToolCallFailureMetrics(deps, {
               errorMessage: rawMessage,
               orgId: handlerContext.orgId,
               ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
             });
-            return structuredResult;
+            logReturnedMcpErrorResult(deps, {
+              eventName: "mcp.execute_code.failed",
+              redactedEventName: "mcp.execute_code.error_redacted",
+              workspaceId: handlerContext.workspaceId,
+              runId: handlerContext.runId,
+              orgId: handlerContext.orgId,
+              ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+              toolName: "execute_code",
+              ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+              rawMessage,
+              clientMessage: formatExecuteCodeStructuredResultText(structuredPayload),
+              ...(structuredPayload.error_code ? { errorCode: structuredPayload.error_code } : {}),
+            });
+            return buildExecuteCodeStructuredResult(structuredPayload);
           }
-          const workerFailureResult = parseExecuteCodeWorkerFailureResult(rawMessage);
-          if (workerFailureResult) {
+          const workerFailurePayload = parseExecuteCodeWorkerFailurePayload(rawMessage);
+          if (workerFailurePayload) {
             recordTypedToolCallFailureMetrics(deps, {
               errorMessage: rawMessage,
               orgId: handlerContext.orgId,
               ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
             });
-            return workerFailureResult;
+            logReturnedMcpErrorResult(deps, {
+              eventName: "mcp.execute_code.failed",
+              redactedEventName: "mcp.execute_code.error_redacted",
+              workspaceId: handlerContext.workspaceId,
+              runId: handlerContext.runId,
+              orgId: handlerContext.orgId,
+              ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+              toolName: "execute_code",
+              ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+              rawMessage,
+              clientMessage: formatExecuteCodeStructuredResultText(workerFailurePayload),
+              ...(workerFailurePayload.error_code
+                ? { errorCode: workerFailurePayload.error_code }
+                : {}),
+            });
+            return buildExecuteCodeStructuredResult(workerFailurePayload);
           }
           recordTypedToolCallFailureMetrics(deps, {
             errorMessage: rawMessage,
@@ -1304,9 +1455,21 @@ const createMcpServer = (
         toolProvider !== null &&
         !isKeppoInternalToolName(toolName)
       ) {
-        return buildToolErrorResult(
-          "provider_registry_disabled: Provider registry path is disabled by kill switch.",
-        );
+        const message =
+          "provider_registry_disabled: Provider registry path is disabled by kill switch.";
+        logReturnedMcpErrorResult(deps, {
+          eventName: "mcp.tool_call.failed",
+          redactedEventName: "mcp.tool_call.error_redacted",
+          workspaceId: handlerContext.workspaceId,
+          runId: handlerContext.runId,
+          orgId: handlerContext.orgId,
+          ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+          toolName,
+          ...(toolProvider ? { provider: toolProvider } : {}),
+          rawMessage: message,
+          clientMessage: message,
+        });
+        return buildToolErrorResult(message);
       }
 
       try {
