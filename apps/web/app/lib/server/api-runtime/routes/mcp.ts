@@ -411,6 +411,41 @@ export const sanitizeMcpClientErrorMessage = (
   };
 };
 
+const resolveLoggedMcpErrorCode = (rawMessage: string | undefined): string | null => {
+  const workerErrorCode = parseWorkerExecutionErrorCode(rawMessage);
+  if (workerErrorCode) {
+    return workerErrorCode;
+  }
+  const structuredError = rawMessage ? parseCodeModeStructuredExecutionError(rawMessage) : null;
+  return structuredError?.errorCode ?? structuredError?.type ?? null;
+};
+
+const buildMcpFailureLogMetadata = (params: {
+  workspaceId: string;
+  runId: string;
+  orgId: string;
+  toolName: string;
+  sessionId?: string;
+  provider?: CanonicalProviderId;
+  rawMessage: string | undefined;
+  sanitized: ReturnType<typeof sanitizeMcpClientErrorMessage>;
+}): Record<string, unknown> => ({
+  route: MCP_ROUTE_PATH,
+  method: "tools/call",
+  workspace_id: params.workspaceId,
+  run_id: params.runId,
+  org_id: params.orgId,
+  tool_name: params.toolName,
+  ...(params.sessionId ? { session_id: params.sessionId } : {}),
+  ...(params.provider ? { provider: params.provider } : {}),
+  ...(resolveLoggedMcpErrorCode(params.rawMessage)
+    ? { error_code: resolveLoggedMcpErrorCode(params.rawMessage) }
+    : {}),
+  client_message: params.sanitized.message,
+  message_redacted: params.sanitized.redacted,
+  ...(params.sanitized.referenceId ? { reference_id: params.sanitized.referenceId } : {}),
+});
+
 const parseSearchToolsArgs = (
   args: Record<string, unknown>,
 ): {
@@ -749,7 +784,7 @@ const createMcpServer = (
         }
       }
 
-      return {
+      const result = {
         tools: await Promise.all(
           tools.map(async (tool) => ({
             name: tool.name,
@@ -758,6 +793,20 @@ const createMcpServer = (
           })),
         ),
       };
+
+      deps.logger.info("mcp.tools_list.completed", {
+        route: MCP_ROUTE_PATH,
+        method: "tools/list",
+        workspace_id: handlerContext.workspaceId,
+        run_id: handlerContext.runId,
+        org_id: handlerContext.orgId,
+        ...(extra.sessionId ? { session_id: extra.sessionId } : {}),
+        tool_count: tools.length,
+        automation_run: handlerContext.automationRunId !== null,
+        code_mode_enabled: handlerContext.codeModeEnabled,
+      });
+
+      return result;
     },
   );
 
@@ -769,6 +818,18 @@ const createMcpServer = (
 
       const toolName = request.params.name;
       const toolArgs = isRecord(request.params.arguments) ? request.params.arguments : {};
+
+      deps.logger.info("mcp.tool_call.received", {
+        route: MCP_ROUTE_PATH,
+        method: "tools/call",
+        workspace_id: handlerContext.workspaceId,
+        run_id: handlerContext.runId,
+        org_id: handlerContext.orgId,
+        ...(extra.sessionId ? { session_id: extra.sessionId } : {}),
+        tool_name: toolName,
+        automation_run: handlerContext.automationRunId !== null,
+        code_mode_enabled: handlerContext.codeModeEnabled,
+      });
 
       if (toolName === AUTOMATION_OUTCOME_TOOL_NAME && !handlerContext.automationRunId) {
         return buildToolErrorResult("record_outcome is only available inside automation runs.");
@@ -790,6 +851,21 @@ const createMcpServer = (
             availableProviders.has(entry.provider as CanonicalProviderId),
           );
 
+          deps.logger.info("mcp.search_tools.completed", {
+            route: MCP_ROUTE_PATH,
+            method: "tools/call",
+            workspace_id: handlerContext.workspaceId,
+            run_id: handlerContext.runId,
+            org_id: handlerContext.orgId,
+            ...(extra.sessionId ? { session_id: extra.sessionId } : {}),
+            tool_name: "search_tools",
+            results_count: filtered.length,
+            query_length: parsed.query.length,
+            provider_filter: parsed.provider ?? null,
+            capability_filter: parsed.capability ?? null,
+            limit: parsed.limit ?? null,
+          });
+
           return buildStructuredToolResult({ results: filtered });
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : undefined;
@@ -798,14 +874,31 @@ const createMcpServer = (
             orgId: handlerContext.orgId,
           });
           const sanitized = sanitizeMcpClientErrorMessage(rawMessage, "search_tools failed");
+          deps.logger.warn(
+            "mcp.search_tools.failed",
+            buildMcpFailureLogMetadata({
+              workspaceId: handlerContext.workspaceId,
+              runId: handlerContext.runId,
+              orgId: handlerContext.orgId,
+              toolName: "search_tools",
+              ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+              rawMessage,
+              sanitized,
+            }),
+          );
           if (sanitized.redacted) {
-            deps.logger.error("mcp.search_tools.error_redacted", {
-              reference_id: sanitized.referenceId,
-              route: MCP_ROUTE_PATH,
-              method: "tools/call",
-              tool_name: "search_tools",
-              raw_message: rawMessage,
-            });
+            deps.logger.error(
+              "mcp.search_tools.error_redacted",
+              buildMcpFailureLogMetadata({
+                workspaceId: handlerContext.workspaceId,
+                runId: handlerContext.runId,
+                orgId: handlerContext.orgId,
+                toolName: "search_tools",
+                ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                rawMessage,
+                sanitized,
+              }),
+            );
           }
           return buildToolErrorResult(sanitized.message);
         }
@@ -1071,14 +1164,33 @@ const createMcpServer = (
               sandboxResult.error,
               "Code execution failed in sandbox.",
             );
+            deps.logger.warn(
+              "mcp.execute_code.sandbox_failed",
+              buildMcpFailureLogMetadata({
+                workspaceId: handlerContext.workspaceId,
+                runId: handlerContext.runId,
+                orgId: handlerContext.orgId,
+                toolName: "execute_code",
+                ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+                rawMessage: sandboxResult.error,
+                sanitized,
+              }),
+            );
             if (sanitized.redacted) {
-              deps.logger.error("mcp.execute_code.sandbox_error_redacted", {
-                reference_id: sanitized.referenceId,
-                route: MCP_ROUTE_PATH,
-                method: "tools/call",
-                tool_name: "execute_code",
-                raw_message: sandboxResult.error,
-              });
+              deps.logger.error(
+                "mcp.execute_code.sandbox_error_redacted",
+                buildMcpFailureLogMetadata({
+                  workspaceId: handlerContext.workspaceId,
+                  runId: handlerContext.runId,
+                  orgId: handlerContext.orgId,
+                  toolName: "execute_code",
+                  ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                  ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+                  rawMessage: sandboxResult.error,
+                  sanitized,
+                }),
+              );
             }
             return buildToolErrorResult(sanitized.message);
           }
@@ -1102,6 +1214,17 @@ const createMcpServer = (
           if (lines.length === 0) {
             lines.push("(no output)");
           }
+
+          deps.logger.info("mcp.execute_code.completed", {
+            route: MCP_ROUTE_PATH,
+            method: "tools/call",
+            workspace_id: handlerContext.workspaceId,
+            run_id: handlerContext.runId,
+            org_id: handlerContext.orgId,
+            ...(extra.sessionId ? { session_id: extra.sessionId } : {}),
+            tool_name: "execute_code",
+            log_lines: lines.length,
+          });
 
           return {
             content: [{ type: "text", text: lines.join("\n") }],
@@ -1132,14 +1255,33 @@ const createMcpServer = (
             ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
           });
           const sanitized = sanitizeMcpClientErrorMessage(rawMessage, "execute_code failed");
+          deps.logger.warn(
+            "mcp.execute_code.failed",
+            buildMcpFailureLogMetadata({
+              workspaceId: handlerContext.workspaceId,
+              runId: handlerContext.runId,
+              orgId: handlerContext.orgId,
+              toolName: "execute_code",
+              ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+              ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+              rawMessage,
+              sanitized,
+            }),
+          );
           if (sanitized.redacted) {
-            deps.logger.error("mcp.execute_code.error_redacted", {
-              reference_id: sanitized.referenceId,
-              route: MCP_ROUTE_PATH,
-              method: "tools/call",
-              tool_name: "execute_code",
-              raw_message: rawMessage,
-            });
+            deps.logger.error(
+              "mcp.execute_code.error_redacted",
+              buildMcpFailureLogMetadata({
+                workspaceId: handlerContext.workspaceId,
+                runId: handlerContext.runId,
+                orgId: handlerContext.orgId,
+                toolName: "execute_code",
+                ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                ...(lastExecuteCodeToolProvider ? { provider: lastExecuteCodeToolProvider } : {}),
+                rawMessage,
+                sanitized,
+              }),
+            );
           }
           return buildToolErrorResult(sanitized.message);
         }
@@ -1197,6 +1339,19 @@ const createMcpServer = (
               credentialId: handlerContext.credentialId,
             });
 
+        deps.logger.info("mcp.tool_call.completed", {
+          route: MCP_ROUTE_PATH,
+          method: "tools/call",
+          workspace_id: handlerContext.workspaceId,
+          run_id: handlerContext.runId,
+          org_id: handlerContext.orgId,
+          ...(extra.sessionId ? { session_id: extra.sessionId } : {}),
+          tool_name: toolName,
+          is_custom_tool: isLikelyCustomTool,
+          ...(toolProvider ? { provider: toolProvider } : {}),
+          ...(typeof result.status === "string" ? { result_status: result.status } : {}),
+        });
+
         return buildStructuredToolResult(result);
       } catch (error) {
         const rawMessage = error instanceof Error ? error.message : undefined;
@@ -1206,14 +1361,33 @@ const createMcpServer = (
           ...(toolProvider ? { provider: toolProvider } : {}),
         });
         const sanitized = sanitizeMcpClientErrorMessage(rawMessage, "Unknown tool failure");
+        deps.logger.warn(
+          "mcp.tool_call.failed",
+          buildMcpFailureLogMetadata({
+            workspaceId: handlerContext.workspaceId,
+            runId: handlerContext.runId,
+            orgId: handlerContext.orgId,
+            toolName,
+            ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+            ...(toolProvider ? { provider: toolProvider } : {}),
+            rawMessage,
+            sanitized,
+          }),
+        );
         if (sanitized.redacted) {
-          deps.logger.error("mcp.tool_call.error_redacted", {
-            reference_id: sanitized.referenceId,
-            route: MCP_ROUTE_PATH,
-            method: "tools/call",
-            tool_name: toolName,
-            raw_message: rawMessage,
-          });
+          deps.logger.error(
+            "mcp.tool_call.error_redacted",
+            buildMcpFailureLogMetadata({
+              workspaceId: handlerContext.workspaceId,
+              runId: handlerContext.runId,
+              orgId: handlerContext.orgId,
+              toolName,
+              ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+              ...(toolProvider ? { provider: toolProvider } : {}),
+              rawMessage,
+              sanitized,
+            }),
+          );
         }
         return buildToolErrorResult(sanitized.message);
       }
@@ -1253,10 +1427,22 @@ export const createMcpRouteDispatcher = (
         state.sessionId = sessionId;
         state.runId = run.id;
         sessionStates.set(sessionId, state);
+        deps.logger.info("mcp.session.initialized", {
+          route: MCP_ROUTE_PATH,
+          workspace_id: params.workspaceId,
+          session_id: sessionId,
+          run_id: run.id,
+          client_type: CLIENT_TYPE.chatgpt,
+        });
       },
       onsessionclosed: async (sessionId) => {
         sessionStates.delete(sessionId);
         await deps.convex.closeRunBySession(params.workspaceId, sessionId);
+        deps.logger.info("mcp.session.closed", {
+          route: MCP_ROUTE_PATH,
+          workspace_id: params.workspaceId,
+          session_id: sessionId,
+        });
       },
     });
     const server = createMcpServer(deps, sessionStates);
@@ -1453,6 +1639,12 @@ export const createMcpRouteDispatcher = (
           recovered: true,
         };
         sessionStates.set(sessionId, sessionState);
+        deps.logger.info("mcp.session.recovered", {
+          route: MCP_ROUTE_PATH,
+          workspace_id: workspaceId,
+          session_id: sessionId,
+          run_id: run.id,
+        });
       }
 
       if (sessionState.recovered) {

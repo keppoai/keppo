@@ -346,6 +346,16 @@ describe("createMcpRouteDispatcher", () => {
     expect(secondResponse.status).toBe(200);
     await expect(parseStreamableHttpJson(firstResponse)).resolves.toBeTruthy();
     await expect(parseStreamableHttpJson(secondResponse)).resolves.toBeTruthy();
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      "mcp.tool_call.received",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "search_tools",
+        code_mode_enabled: true,
+      }),
+    );
   });
 
   it("returns parseable bodies for concurrent same-session tool calls", async () => {
@@ -523,5 +533,73 @@ describe("createMcpRouteDispatcher", () => {
       },
       credentialId: "cred_test",
     });
+  });
+
+  it("logs sanitized search_tools failures without raw secret-bearing messages", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.seedToolIndex.mockResolvedValue({ inserted: 0, updated: 0, total: 0 });
+    convex.getWorkspaceCodeModeContext.mockResolvedValue({
+      available_providers: ["github"],
+    });
+    convex.searchTools.mockRejectedValue(
+      new Error("custom_server_error: Authorization: Bearer ghp_1234567890abcdefghijklmnop"),
+    );
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "search_tools", { query: "repo triage" }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).toBe(true);
+    expect(payload.result?.content?.[0]?.text).toMatch(
+      /^search_tools failed \(ref: mcp_err_[a-f0-9]{12}\)$/,
+    );
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "mcp.search_tools.failed",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "search_tools",
+        message_redacted: true,
+        client_message: expect.stringMatching(
+          /^search_tools failed \(ref: mcp_err_[a-f0-9]{12}\)$/,
+        ),
+        reference_id: expect.stringMatching(/^mcp_err_[a-f0-9]{12}$/),
+      }),
+    );
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "mcp.search_tools.error_redacted",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "search_tools",
+        message_redacted: true,
+        client_message: expect.stringMatching(
+          /^search_tools failed \(ref: mcp_err_[a-f0-9]{12}\)$/,
+        ),
+        reference_id: expect.stringMatching(/^mcp_err_[a-f0-9]{12}$/),
+      }),
+    );
+
+    const redactedFailureMetadata = (deps.logger.error as ReturnType<typeof vi.fn>).mock.calls.find(
+      ([message]) => message === "mcp.search_tools.error_redacted",
+    )?.[1] as Record<string, unknown> | undefined;
+    expect(redactedFailureMetadata).toBeDefined();
+    expect(redactedFailureMetadata).not.toHaveProperty("raw_message");
   });
 });
