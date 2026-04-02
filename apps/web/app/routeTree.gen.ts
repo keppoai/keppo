@@ -44,9 +44,6 @@ import { Route as OauthIntegrationsProviderCallbackRouteImport } from "./routes/
 import { Route as ApiNotificationsPushSubscribeRouteImport } from "./routes/api/notifications/push/subscribe";
 import { Route as ApiBillingCreditsCheckoutRouteImport } from "./routes/api/billing/credits/checkout";
 import { Route as ApiBillingAutomationRunsCheckoutRouteImport } from "./routes/api/billing/automation-runs/checkout";
-import { Route as ApiAutomationsOpenaiConnectRouteImport } from "./routes/api/automations/openai/connect";
-import { Route as ApiAutomationsOpenaiCompleteRouteImport } from "./routes/api/automations/openai/complete";
-import { Route as ApiAutomationsOpenaiCallbackRouteImport } from "./routes/api/automations/openai/callback";
 import { Route as ApiOauthIntegrationsProviderConnectRouteImport } from "./routes/api/oauth/integrations/$provider/connect";
 import { Route as ApiHealthDlqIdReplayRouteImport } from "./routes/api/health/dlq/$id/replay";
 import { Route as ApiHealthDlqIdAbandonRouteImport } from "./routes/api/health/dlq/$id/abandon";
@@ -237,24 +234,6 @@ const ApiBillingAutomationRunsCheckoutRoute =
     path: "/api/billing/automation-runs/checkout",
     getParentRoute: () => rootRouteImport,
   } as any);
-const ApiAutomationsOpenaiConnectRoute =
-  ApiAutomationsOpenaiConnectRouteImport.update({
-    id: "/api/automations/openai/connect",
-    path: "/api/automations/openai/connect",
-    getParentRoute: () => rootRouteImport,
-  } as any);
-const ApiAutomationsOpenaiCompleteRoute =
-  ApiAutomationsOpenaiCompleteRouteImport.update({
-    id: "/api/automations/openai/complete",
-    path: "/api/automations/openai/complete",
-    getParentRoute: () => rootRouteImport,
-  } as any);
-const ApiAutomationsOpenaiCallbackRoute =
-  ApiAutomationsOpenaiCallbackRouteImport.update({
-    id: "/api/automations/openai/callback",
-    path: "/api/automations/openai/callback",
-    getParentRoute: () => rootRouteImport,
-  } as any);
 const ApiOauthIntegrationsProviderConnectRoute =
   ApiOauthIntegrationsProviderConnectRouteImport.update({
     id: "/api/oauth/integrations/$provider/connect",
@@ -304,9 +283,6 @@ export interface FileRoutesByFullPath {
   "/internal/cron/maintenance": typeof InternalCronMaintenanceRoute;
   "/internal/notifications/deliver": typeof InternalNotificationsDeliverRoute;
   "/internal/queue/dispatch-approved-action": typeof InternalQueueDispatchApprovedActionRoute;
-  "/api/automations/openai/callback": typeof ApiAutomationsOpenaiCallbackRoute;
-  "/api/automations/openai/complete": typeof ApiAutomationsOpenaiCompleteRoute;
-  "/api/automations/openai/connect": typeof ApiAutomationsOpenaiConnectRoute;
   "/api/billing/automation-runs/checkout": typeof ApiBillingAutomationRunsCheckoutRoute;
   "/api/billing/credits/checkout": typeof ApiBillingCreditsCheckoutRoute;
   "/api/notifications/push/subscribe": typeof ApiNotificationsPushSubscribeRoute;
@@ -347,9 +323,6 @@ export interface FileRoutesByTo {
   "/internal/cron/maintenance": typeof InternalCronMaintenanceRoute;
   "/internal/notifications/deliver": typeof InternalNotificationsDeliverRoute;
   "/internal/queue/dispatch-approved-action": typeof InternalQueueDispatchApprovedActionRoute;
-  "/api/automations/openai/callback": typeof ApiAutomationsOpenaiCallbackRoute;
-  "/api/automations/openai/complete": typeof ApiAutomationsOpenaiCompleteRoute;
-  "/api/automations/openai/connect": typeof ApiAutomationsOpenaiConnectRoute;
   "/api/billing/automation-runs/checkout": typeof ApiBillingAutomationRunsCheckoutRoute;
   "/api/billing/credits/checkout": typeof ApiBillingCreditsCheckoutRoute;
   "/api/notifications/push/subscribe": typeof ApiNotificationsPushSubscribeRoute;
@@ -391,9 +364,6 @@ export interface FileRoutesById {
   "/internal/cron/maintenance": typeof InternalCronMaintenanceRoute;
   "/internal/notifications/deliver": typeof InternalNotificationsDeliverRoute;
   "/internal/queue/dispatch-approved-action": typeof InternalQueueDispatchApprovedActionRoute;
-  "/api/automations/openai/callback": typeof ApiAutomationsOpenaiCallbackRoute;
-  "/api/automations/openai/complete": typeof ApiAutomationsOpenaiCompleteRoute;
-  "/api/automations/openai/connect": typeof ApiAutomationsOpenaiConnectRoute;
   "/api/billing/automation-runs/checkout": typeof ApiBillingAutomationRunsCheckoutRoute;
   "/api/billing/credits/checkout": typeof ApiBillingCreditsCheckoutRoute;
   "/api/notifications/push/subscribe": typeof ApiNotificationsPushSubscribeRoute;
@@ -436,9 +406,6 @@ export interface FileRouteTypes {
     | "/internal/cron/maintenance"
     | "/internal/notifications/deliver"
     | "/internal/queue/dispatch-approved-action"
-    | "/api/automations/openai/callback"
-    | "/api/automations/openai/complete"
-    | "/api/automations/openai/connect"
     | "/api/billing/automation-runs/checkout"
     | "/api/billing/credits/checkout"
     | "/api/notifications/push/subscribe"
@@ -479,9 +446,6 @@ export interface FileRouteTypes {
     | "/internal/cron/maintenance"
     | "/internal/notifications/deliver"
     | "/internal/queue/dispatch-approved-action"
-    | "/api/automations/openai/callback"
-    | "/api/automations/openai/complete"
-    | "/api/automations/openai/connect"
     | "/api/billing/automation-runs/checkout"
     | "/api/billing/credits/checkout"
     | "/api/notifications/push/subscribe"
@@ -522,9 +486,6 @@ export interface FileRouteTypes {
     | "/internal/cron/maintenance"
     | "/internal/notifications/deliver"
     | "/internal/queue/dispatch-approved-action"
-    | "/api/automations/openai/callback"
-    | "/api/automations/openai/complete"
-    | "/api/automations/openai/connect"
     | "/api/billing/automation-runs/checkout"
     | "/api/billing/credits/checkout"
     | "/api/notifications/push/subscribe"
@@ -562,9 +523,6 @@ export interface RootRouteChildren {
   InternalCronMaintenanceRoute: typeof InternalCronMaintenanceRoute;
   InternalNotificationsDeliverRoute: typeof InternalNotificationsDeliverRoute;
   InternalQueueDispatchApprovedActionRoute: typeof InternalQueueDispatchApprovedActionRoute;
-  ApiAutomationsOpenaiCallbackRoute: typeof ApiAutomationsOpenaiCallbackRoute;
-  ApiAutomationsOpenaiCompleteRoute: typeof ApiAutomationsOpenaiCompleteRoute;
-  ApiAutomationsOpenaiConnectRoute: typeof ApiAutomationsOpenaiConnectRoute;
   ApiBillingAutomationRunsCheckoutRoute: typeof ApiBillingAutomationRunsCheckoutRoute;
   ApiBillingCreditsCheckoutRoute: typeof ApiBillingCreditsCheckoutRoute;
   ApiNotificationsPushSubscribeRoute: typeof ApiNotificationsPushSubscribeRoute;
@@ -819,27 +777,6 @@ declare module "@tanstack/react-router" {
       preLoaderRoute: typeof ApiBillingAutomationRunsCheckoutRouteImport;
       parentRoute: typeof rootRouteImport;
     };
-    "/api/automations/openai/connect": {
-      id: "/api/automations/openai/connect";
-      path: "/api/automations/openai/connect";
-      fullPath: "/api/automations/openai/connect";
-      preLoaderRoute: typeof ApiAutomationsOpenaiConnectRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/api/automations/openai/complete": {
-      id: "/api/automations/openai/complete";
-      path: "/api/automations/openai/complete";
-      fullPath: "/api/automations/openai/complete";
-      preLoaderRoute: typeof ApiAutomationsOpenaiCompleteRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
-    "/api/automations/openai/callback": {
-      id: "/api/automations/openai/callback";
-      path: "/api/automations/openai/callback";
-      fullPath: "/api/automations/openai/callback";
-      preLoaderRoute: typeof ApiAutomationsOpenaiCallbackRouteImport;
-      parentRoute: typeof rootRouteImport;
-    };
     "/api/oauth/integrations/$provider/connect": {
       id: "/api/oauth/integrations/$provider/connect";
       path: "/api/oauth/integrations/$provider/connect";
@@ -925,9 +862,6 @@ const rootRouteChildren: RootRouteChildren = {
   InternalNotificationsDeliverRoute: InternalNotificationsDeliverRoute,
   InternalQueueDispatchApprovedActionRoute:
     InternalQueueDispatchApprovedActionRoute,
-  ApiAutomationsOpenaiCallbackRoute: ApiAutomationsOpenaiCallbackRoute,
-  ApiAutomationsOpenaiCompleteRoute: ApiAutomationsOpenaiCompleteRoute,
-  ApiAutomationsOpenaiConnectRoute: ApiAutomationsOpenaiConnectRoute,
   ApiBillingAutomationRunsCheckoutRoute: ApiBillingAutomationRunsCheckoutRoute,
   ApiBillingCreditsCheckoutRoute: ApiBillingCreditsCheckoutRoute,
   ApiNotificationsPushSubscribeRoute: ApiNotificationsPushSubscribeRoute,

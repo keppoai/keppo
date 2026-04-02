@@ -5,7 +5,6 @@ const START_OWNED_API_PREFIXES = [
   "/api/billing",
   "/api/automations/generate-questions",
   "/api/automations/generate-prompt",
-  "/api/automations/openai",
   "/api/mcp/test",
   "/api/oauth/integrations",
   "/api/notifications/push/subscribe",
