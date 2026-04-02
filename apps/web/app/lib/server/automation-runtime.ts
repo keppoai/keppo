@@ -104,6 +104,7 @@ const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
   "invalid_payload",
   "invalid_automation_run_terminal_status",
   "missing_automation_run_id",
+  "missing_dispatch_token",
 ]);
 
 const trimToUndefined = (value: string | null | undefined): string | undefined => {

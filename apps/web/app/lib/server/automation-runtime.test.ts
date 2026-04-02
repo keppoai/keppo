@@ -1198,4 +1198,25 @@ describe("start-owned automation runtime handlers", () => {
     });
     expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
   });
+
+  it("returns a 400 invalid payload response when dispatch_token is missing", async () => {
+    const deps = createDeps();
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_dispatch_test" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "invalid_payload",
+      error_code: "missing_dispatch_token",
+    });
+    expect(deps.convex.claimAutomationRunDispatchContext).not.toHaveBeenCalled();
+  });
 });

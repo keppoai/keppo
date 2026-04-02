@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import { nowIso, randomIdFor, requireOrgMember, requireWorkspaceRole } from "./_auth";
 import { getDefaultBillingPeriod, getTierConfig } from "../packages/shared/src/subscriptions.js";
+import { AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS } from "../packages/shared/src/automations.js";
 import {
   automationRunStatusValidator,
   automationStatusValidator,
@@ -314,6 +315,34 @@ const getAutomationRunById = async (
 const getAutomationRunDispatchTokenHash = (run: AutomationRunRow): string | null => {
   const value = run.metadata.dispatch_token_hash;
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const getAutomationRunDispatchTokenIssuedAt = (run: AutomationRunRow): string | null => {
+  const value = run.metadata.dispatch_token_issued_at;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const isDispatchTokenReusable = (issuedAt: string | null, now = Date.now()): boolean => {
+  if (!issuedAt) {
+    return false;
+  }
+  const issuedAtMs = Date.parse(issuedAt);
+  return (
+    Number.isFinite(issuedAtMs) &&
+    now - issuedAtMs >= 0 &&
+    now - issuedAtMs <= AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS
+  );
+};
+
+const constantTimeEqual = (left: string, right: string): boolean => {
+  if (left.length !== right.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return diff === 0;
 };
 
 const clearAutomationRunDispatchTokenMetadata = (
@@ -1157,8 +1186,11 @@ export const issueAutomationRunDispatchToken = internalMutation({
   args: {
     automation_run_id: v.string(),
     dispatch_token_hash: v.string(),
+    dispatch_token_issued_at: v.string(),
   },
-  returns: v.null(),
+  returns: v.object({
+    dispatch_token_issued_at: v.string(),
+  }),
   handler: async (ctx, args) => {
     const row = await ctx.db
       .query("automation_runs")
@@ -1168,16 +1200,29 @@ export const issueAutomationRunDispatchToken = internalMutation({
       throw new Error("AutomationRunNotFound");
     }
     const run = requireAutomationRunShape(row);
+    if (normalizeAutomationRunStatus(run) !== AUTOMATION_RUN_STATUS.pending) {
+      throw new Error("AutomationRunNotPending");
+    }
+
+    const existingDispatchTokenHash = getAutomationRunDispatchTokenHash(run);
+    const existingDispatchTokenIssuedAt = getAutomationRunDispatchTokenIssuedAt(run);
+    if (existingDispatchTokenHash && isDispatchTokenReusable(existingDispatchTokenIssuedAt)) {
+      return {
+        dispatch_token_issued_at: existingDispatchTokenIssuedAt!,
+      };
+    }
 
     await ctx.db.patch(row._id, {
       metadata: {
         ...clearAutomationRunDispatchTokenMetadata(run.metadata),
         dispatch_token_hash: args.dispatch_token_hash,
-        dispatch_token_issued_at: nowIso(),
+        dispatch_token_issued_at: args.dispatch_token_issued_at,
       },
     });
 
-    return null;
+    return {
+      dispatch_token_issued_at: args.dispatch_token_issued_at,
+    };
   },
 });
 
@@ -1197,7 +1242,17 @@ export const claimAutomationRunDispatchContext = internalMutation({
     }
     const run = requireAutomationRunShape(row);
     const expectedDispatchTokenHash = getAutomationRunDispatchTokenHash(run);
-    if (!expectedDispatchTokenHash || expectedDispatchTokenHash !== args.dispatch_token_hash) {
+    const dispatchTokenIssuedAt = getAutomationRunDispatchTokenIssuedAt(run);
+    if (
+      !expectedDispatchTokenHash ||
+      !constantTimeEqual(expectedDispatchTokenHash, args.dispatch_token_hash)
+    ) {
+      return null;
+    }
+    if (!isDispatchTokenReusable(dispatchTokenIssuedAt)) {
+      await ctx.db.patch(row._id, {
+        metadata: clearAutomationRunDispatchTokenMetadata(run.metadata),
+      });
       return null;
     }
 

@@ -1,6 +1,3 @@
-// SPDX-License-Identifier: FSL-1.1-Apache-2.0
-import { createHash, randomUUID } from "node:crypto";
-
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
 import {
@@ -10,7 +7,11 @@ import {
   type MutationCtx,
 } from "../../convex/_generated/server";
 import { getTierConfig } from "@keppo/shared/subscriptions";
-import { getAiKeyModeLabel, getAiModelProviderLabel } from "@keppo/shared/automations";
+import {
+  getAiKeyModeLabel,
+  getAiModelProviderLabel,
+  AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS,
+} from "@keppo/shared/automations";
 import {
   AUTOMATION_DISPATCH_ACTION_STATUS,
   AUTOMATION_STATUS,
@@ -78,6 +79,12 @@ const DEFAULT_SCHEDULE_SCAN_LIMIT = 200;
 const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
 const DEFAULT_COLD_LOG_SCAN_LIMIT = 500;
+const textEncoder = new TextEncoder();
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 
 const resolveNamespaceApiBase = (namespace?: string): string | null => {
   if (!namespace) {
@@ -177,11 +184,37 @@ const applyVercelProtectionBypassHeader = (headers: Headers): Headers => {
   return headers;
 };
 
-const createAutomationDispatchToken = (): { raw: string; hash: string } => {
-  const raw = `dispatch_${randomUUID().replace(/-/g, "")}`;
+const sha256Hex = async (value: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(value));
+  return bytesToHex(new Uint8Array(digest));
+};
+
+const computeAutomationDispatchToken = async (
+  runId: string,
+  issuedAt: string,
+): Promise<{ raw: string; hash: string }> => {
+  const secret =
+    process.env.KEPPO_AUTOMATION_DISPATCH_TOKEN_SECRET?.trim() ||
+    process.env.KEPPO_MASTER_KEY?.trim();
+  if (!secret) {
+    throw new Error("Missing KEPPO_MASTER_KEY for automation dispatch token derivation.");
+  }
+  const key = await crypto.subtle.importKey(
+    "raw",
+    textEncoder.encode(secret),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    textEncoder.encode(`${runId}:${issuedAt}`),
+  );
+  const raw = `dispatch_${bytesToHex(new Uint8Array(signature))}`;
   return {
     raw,
-    hash: createHash("sha256").update(raw, "utf8").digest("hex"),
+    hash: await sha256Hex(raw),
   };
 };
 
@@ -512,17 +545,23 @@ export const dispatchAutomationRun = internalAction({
     applyVercelProtectionBypassHeader(headers);
 
     try {
-      const dispatchToken = createAutomationDispatchToken();
-      await ctx.runMutation(refs.issueAutomationRunDispatchToken, {
+      const nextIssuedAt = new Date().toISOString();
+      const dispatchToken = await computeAutomationDispatchToken(args.runId, nextIssuedAt);
+      const issued = await ctx.runMutation(refs.issueAutomationRunDispatchToken, {
         automation_run_id: args.runId,
         dispatch_token_hash: dispatchToken.hash,
+        dispatch_token_issued_at: nextIssuedAt,
       });
+      const activeDispatchToken =
+        issued.dispatch_token_issued_at === nextIssuedAt
+          ? dispatchToken
+          : await computeAutomationDispatchToken(args.runId, issued.dispatch_token_issued_at);
       const response = await fetch(dispatchUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({
           automation_run_id: args.runId,
-          dispatch_token: dispatchToken.raw,
+          dispatch_token: activeDispatchToken.raw,
         }),
       });
       if (!response.ok) {
@@ -549,10 +588,17 @@ export const dispatchAutomationRun = internalAction({
       return {
         dispatched: true,
         status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatched,
-        http_status: null,
+        http_status: response.status,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage === "AutomationRunNotPending") {
+        return {
+          dispatched: false,
+          status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchRunNotPending,
+          http_status: null,
+        };
+      }
       await emitDispatchFailureAudit(errorMessage, "dispatch_action_request");
       await ctx
         .runMutation(refs.updateAutomationRunStatus, {

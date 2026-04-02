@@ -13,6 +13,7 @@ import betterAuthSchema from "../../convex/betterAuth/schema";
 const modules = import.meta.glob(["../../convex/**/*.{ts,js}", "!../../convex/tests/**/*.ts"]);
 
 process.env.BETTER_AUTH_SECRET ??= "better-auth-secret-for-convex-tests-0123456789";
+process.env.KEPPO_MASTER_KEY ??= "keppo-master-key-for-convex-tests-0123456789";
 process.env.KEPPO_URL ??= "http://localhost:3000";
 
 export const createConvexTestHarness = () => {
