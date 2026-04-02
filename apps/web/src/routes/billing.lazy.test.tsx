@@ -151,6 +151,12 @@ describe("BillingPage", () => {
     expect(screen.getByTestId("billing-automation-topups-note")).toHaveTextContent(
       "Ask an owner or admin to purchase automation run top-ups for this organization.",
     );
+    expect(screen.getByTestId("billing-plan-card-free")).toHaveTextContent(
+      "Ask an owner or admin to change plans.",
+    );
+    expect(screen.getByTestId("billing-plan-card-pro")).toHaveTextContent(
+      "Ask an owner or admin to change plans.",
+    );
   });
 
   it("shows current paid-plan management on the active card and hides a free-tier cancel action", async () => {
@@ -208,8 +214,62 @@ describe("BillingPage", () => {
     expect(screen.getByTestId("billing-manage-subscription")).toBeVisible();
     expect(screen.getByTestId("billing-change-plan")).toHaveTextContent("Upgrade to Pro");
     expect(screen.getByTestId("billing-plan-card-free")).toHaveTextContent(
-      "Free trial does not include a cancellation step.",
+      "No subscription to manage on the free trial.",
     );
+  });
+
+  it("keeps plan cards in a multi-column grid from medium screens upward", async () => {
+    renderDashboard(<BillingPage />, {
+      route: "/acme/settings/billing",
+      auth: createAuthState({
+        isAuthenticated: true,
+        getOrgId: () => "org_1",
+        getOrgSlug: () => "acme",
+      }),
+      runtime: createFakeDashboardRuntime({
+        queryHandlers: {
+          "billing:getCurrentOrgBilling": () => ({
+            org_id: "org_1",
+            tier: "free",
+            status: "active",
+            billing_source: "free",
+            invite_promo: null,
+            period_start: "2026-03-01T00:00:00.000Z",
+            period_end: "2026-04-01T00:00:00.000Z",
+            usage: {
+              tool_call_count: 0,
+              total_tool_call_time_ms: 0,
+            },
+            limits: {
+              price_cents_monthly: 0,
+              max_tool_calls_per_month: 7_500,
+              max_total_tool_call_time_ms: 7_200_000,
+              included_ai_credits: {
+                total: 5,
+                bundled_runtime_enabled: false,
+                reset_period: "one_time",
+              },
+            },
+          }),
+          "ai_credits:getAiCreditBalance": () => ({
+            allowance_total: 5,
+            allowance_used: 0,
+            purchased_remaining: 0,
+            total_available: 5,
+          }),
+          "automation_runs:getCurrentOrgAutomationRunUsage": () => ({
+            run_count: 0,
+            max_runs_per_period: 0,
+          }),
+          "automation_run_topups:getAutomationRunTopupBalance": () => ({
+            purchased_runs_balance: 0,
+          }),
+        },
+      }),
+    });
+
+    expect(await screen.findByRole("heading", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByTestId("billing-plan-card-grid")).toHaveClass("md:grid-cols-3");
   });
 
   it("lets pro orgs downgrade from the starter card", async () => {

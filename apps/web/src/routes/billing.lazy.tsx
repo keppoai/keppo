@@ -999,76 +999,86 @@ function BillingPage() {
 
   const currentBilling = displayBilling;
   const canManageBilling = canManage();
-  const unifiedPlanCards = tierComparison.map((tier) => {
-    const tierId: BillingTierId = tier.id;
-    const currentTierId: BillingTierId = currentBilling.tier;
-    const isCurrentTier = tier.id === currentBilling.tier;
-    const isInvitePromoTier =
-      billingSource === BILLING_SOURCE.invitePromo && invitePromo?.grant_tier === tier.id;
-    const highlightCurrent = isCurrentTier || isInvitePromoTier;
-    let action: PlanCardAction | null = null;
+  const unifiedPlanCards = useMemo(
+    () =>
+      tierComparison.map((tier) => {
+        const tierId: BillingTierId = tier.id;
+        const currentTierId: BillingTierId = currentBilling.tier;
+        const isCurrentTier = tier.id === currentBilling.tier;
+        const isInvitePromoTier =
+          billingSource === BILLING_SOURCE.invitePromo && invitePromo?.grant_tier === tier.id;
+        const highlightCurrent = isCurrentTier || isInvitePromoTier;
+        let action: PlanCardAction | null = null;
 
-    if (canManageBilling) {
-      if (billingSource === BILLING_SOURCE.invitePromo) {
-        if (
-          tierId !== "free" &&
-          (tierId === currentTierId || tierRank[tierId] > tierRank[currentTierId])
-        ) {
-          action = {
-            kind: "checkout",
-            label: `Start ${tier.label} subscription`,
-            testId: tierId === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro",
-            busyAction: tierId === "starter" ? "checkout_starter" : "checkout_pro",
-            tier: tierId,
-            variant: tierId === currentTierId ? "default" : "outline",
-          };
+        if (canManageBilling) {
+          if (billingSource === BILLING_SOURCE.invitePromo) {
+            if (
+              tierId !== "free" &&
+              (tierId === currentTierId || tierRank[tierId] > tierRank[currentTierId])
+            ) {
+              action = {
+                kind: "checkout",
+                label: `Start ${tier.label} subscription`,
+                testId: tierId === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro",
+                busyAction: tierId === "starter" ? "checkout_starter" : "checkout_pro",
+                tier: tierId,
+                variant: tierId === currentTierId ? "default" : "outline",
+              };
+            }
+          } else if (currentBilling.tier === "free") {
+            if (tierId !== "free") {
+              action = {
+                kind: "checkout",
+                label: `Upgrade to ${tier.label}`,
+                testId: tierId === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro",
+                busyAction: tierId === "starter" ? "checkout_starter" : "checkout_pro",
+                tier: tierId,
+              };
+            }
+          } else if (isCurrentTier) {
+            action = {
+              kind: "manage",
+              label: "Manage Subscription",
+              testId: "billing-manage-subscription",
+            };
+          } else if (
+            tierId !== "free" &&
+            (tierRank[tierId] > tierRank[currentTierId] ||
+              (currentTierId === "pro" && tierId === "starter"))
+          ) {
+            action = {
+              kind: "change_plan",
+              label:
+                tierRank[tierId] > tierRank[currentTierId]
+                  ? `Upgrade to ${tier.label}`
+                  : `Downgrade to ${tier.label}`,
+              testId: "billing-change-plan",
+              tier: tierId,
+              ...(pendingSubscription?.cancel_at_period_end === true
+                ? {
+                    disabledHint: "Undo the pending cancellation first to change plans.",
+                  }
+                : {}),
+            };
+          }
         }
-      } else if (currentBilling.tier === "free") {
-        if (tierId !== "free") {
-          action = {
-            kind: "checkout",
-            label: `Upgrade to ${tier.label}`,
-            testId: tierId === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro",
-            busyAction: tierId === "starter" ? "checkout_starter" : "checkout_pro",
-            tier: tierId,
-          };
-        }
-      } else if (isCurrentTier) {
-        action = {
-          kind: "manage",
-          label: "Manage Subscription",
-          testId: "billing-manage-subscription",
-        };
-      } else if (
-        tierId !== "free" &&
-        (tierRank[tierId] > tierRank[currentTierId] ||
-          (currentTierId === "pro" && tierId === "starter"))
-      ) {
-        action = {
-          kind: "change_plan",
-          label:
-            tierRank[tierId] > tierRank[currentTierId]
-              ? `Upgrade to ${tier.label}`
-              : `Downgrade to ${tier.label}`,
-          testId: "billing-change-plan",
-          tier: tierId,
-          ...(pendingSubscription?.cancel_at_period_end === true
-            ? {
-                disabledHint: "Undo the pending cancellation first to change plans.",
-              }
-            : {}),
-        };
-      }
-    }
 
-    return {
-      ...tier,
-      isCurrentTier,
-      highlightCurrent,
-      isInvitePromoTier,
-      action,
-    };
-  });
+        return {
+          ...tier,
+          isCurrentTier,
+          highlightCurrent,
+          isInvitePromoTier,
+          action,
+        };
+      }),
+    [
+      billingSource,
+      canManageBilling,
+      currentBilling.tier,
+      invitePromo?.grant_tier,
+      pendingSubscription,
+    ],
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -1200,7 +1210,7 @@ function BillingPage() {
                 : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation only. Automation runtime still requires Bring your own key.`}
           </div>
 
-          <div className="grid gap-3 xl:grid-cols-3">
+          <div data-testid="billing-plan-card-grid" className="grid gap-3 md:grid-cols-3">
             {unifiedPlanCards.map((tier) => {
               const action = tier.action;
               return (
@@ -1267,34 +1277,37 @@ function BillingPage() {
                           {busyAction === action.busyAction ? "Opening..." : action.label}
                         </Button>
                       ) : null}
-                      {action.kind === "change_plan" ? (
-                        <>
-                          <Button
-                            data-testid={action.testId}
-                            variant="outline"
-                            onClick={() => openChangePlanDialogForTier(action.tier)}
-                            disabled={
-                              busyAction !== null ||
-                              pendingSubscription?.cancel_at_period_end === true
-                            }
-                            aria-describedby={
-                              action.disabledHint ? "billing-change-plan-hint" : undefined
-                            }
-                            className="min-h-11 w-full"
-                          >
-                            {action.label}
-                          </Button>
-                          {action.disabledHint ? (
-                            <p
-                              id="billing-change-plan-hint"
-                              className="text-xs text-muted-foreground"
-                              data-testid="billing-change-plan-hint"
-                            >
-                              {action.disabledHint}
-                            </p>
-                          ) : null}
-                        </>
-                      ) : null}
+                      {action.kind === "change_plan"
+                        ? (() => {
+                            const hintId = `billing-change-plan-hint-${tier.id}`;
+                            return (
+                              <>
+                                <Button
+                                  data-testid={action.testId}
+                                  variant="outline"
+                                  onClick={() => openChangePlanDialogForTier(action.tier)}
+                                  disabled={
+                                    busyAction !== null ||
+                                    pendingSubscription?.cancel_at_period_end === true
+                                  }
+                                  aria-describedby={action.disabledHint ? hintId : undefined}
+                                  className="min-h-11 w-full"
+                                >
+                                  {action.label}
+                                </Button>
+                                {action.disabledHint ? (
+                                  <p
+                                    id={hintId}
+                                    className="text-xs text-muted-foreground"
+                                    data-testid="billing-change-plan-hint"
+                                  >
+                                    {action.disabledHint}
+                                  </p>
+                                ) : null}
+                              </>
+                            );
+                          })()
+                        : null}
                       {action.kind === "manage" ? (
                         <Button
                           data-testid={action.testId}
@@ -1309,13 +1322,13 @@ function BillingPage() {
                     </div>
                   ) : canManageBilling && tier.id === "free" ? (
                     <div className="rounded-lg border border-dashed border-border/70 px-3 py-3 text-sm text-muted-foreground">
-                      Free trial does not include a cancellation step.
+                      No subscription to manage on the free trial.
                     </div>
                   ) : (
                     <div className="rounded-lg border border-dashed border-border/70 px-3 py-3 text-sm text-muted-foreground">
                       {tier.isCurrentTier
                         ? "This is your current plan."
-                        : "No action is available for this plan right now."}
+                        : "Ask an owner or admin to change plans."}
                     </div>
                   )}
                 </div>

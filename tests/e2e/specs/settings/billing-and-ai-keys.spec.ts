@@ -223,7 +223,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByTestId("billing-upgrade-starter")).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-pro")).toBeVisible();
   await expect(page.getByTestId("billing-plan-card-free")).toContainText(
-    "Free trial does not include a cancellation step.",
+    "No subscription to manage on the free trial.",
   );
   await expect(page.getByTestId("billing-manage-subscription")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Buy 1,500 runs ($15)" })).toHaveCount(0);
