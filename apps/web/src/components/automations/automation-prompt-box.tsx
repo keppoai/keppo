@@ -42,10 +42,8 @@ import { cn } from "@/lib/utils";
 import { humanizeCron } from "@/lib/cron-humanizer";
 import {
   getAutomationPathSegment,
-  getAutomationExecutionModeMeta,
   getAutomationModelClassMeta,
   getNetworkAccessMeta,
-  resolveAutomationExecutionState,
 } from "@/lib/automations-view-model";
 import { getProviderMeta } from "@/components/integrations/provider-icons";
 import { Badge } from "@/components/ui/badge";
@@ -721,24 +719,6 @@ export function AutomationPromptBox({
   const generationRequestIdRef = useRef(0);
 
   const answerEntries = useMemo(() => answerMapToEntries(answers, questions), [answers, questions]);
-  const executionState = useMemo(() => {
-    if (!config) {
-      return null;
-    }
-    return resolveAutomationExecutionState({
-      provider: settings.ai_model_provider,
-      creditBalance: {
-        org_id: "",
-        period_start: "",
-        period_end: "",
-        allowance_total: 0,
-        allowance_reset_period: "monthly",
-        allowance_used: 0,
-        ...config.credit_balance,
-      },
-      orgAiKeys: [],
-    });
-  }, [config, settings.ai_model_provider]);
   const answeredClarifications = useMemo(
     () => summarizeAutomationClarifications(questions, answerEntries),
     [answerEntries, questions],
@@ -1866,23 +1846,6 @@ export function AutomationPromptBox({
                         <p className="mt-2 text-sm text-muted-foreground">
                           {getAutomationModelClassMeta(settings.model_class).description}
                         </p>
-                      </div>
-                      <div>
-                        <Label>Resolved runtime</Label>
-                        <div className="mt-2 rounded-2xl border p-4 text-sm text-muted-foreground">
-                          Default mapping: {settings.ai_model_provider} / {settings.ai_model_name}.
-                          Server-side automation runtime settings may override this at execution
-                          time.
-                        </div>
-                      </div>
-                      <div>
-                        <Label>Runtime mode</Label>
-                        <div className="mt-2 rounded-2xl border p-4 text-sm text-muted-foreground">
-                          {
-                            getAutomationExecutionModeMeta(executionState?.mode ?? "byok")
-                              .description
-                          }
-                        </div>
                       </div>
                       <div>
                         <div className="rounded-2xl border p-4">
