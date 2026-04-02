@@ -1,0 +1,13 @@
+Use `$bug-finder:recent` at `{{SKILL_PATH}}` to review recent code changes for critical and high severity bugs that break user experience.
+
+Review the last 7 days of commits. Use `./out-bug-finder` for all intermediate artifacts and write each confirmed finding as an individual markdown file in `{{FINDINGS_DIR}}/`.
+
+Requirements:
+- Focus only on real critical and high severity bugs that hurt user experience.
+- Do NOT report security vulnerabilities. All findings will be filed on a public issue tracker.
+- Follow the skill's workflow and formatting requirements exactly.
+- Write one `.md` file per confirmed finding to `{{FINDINGS_DIR}}/`, using the naming convention `<short-slug>.md`.
+- If no qualifying bugs are confirmed, leave `{{FINDINGS_DIR}}/` empty.
+- Do not modify tracked repository files. Only write under `./out-bug-finder`.
+
+The markdown files in `{{FINDINGS_DIR}}/` are the source of truth for the downstream issue-filing job.

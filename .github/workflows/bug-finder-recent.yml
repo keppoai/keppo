@@ -1,0 +1,163 @@
+name: Nightly Bug Finder Recent
+
+on:
+  schedule:
+    - cron: "0 3 * * *"
+      timezone: "America/Los_Angeles"
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: Agent to use for the bug finder
+        required: true
+        default: codex
+        type: choice
+        options:
+          - codex
+          - claude
+
+permissions: {}
+
+concurrency:
+  group: bug-finder-recent
+  cancel-in-progress: true
+
+jobs:
+  review:
+    environment: ai-bots
+    # This is an expensive long-running job and it's safer
+    # to run it on a larger runner to avoid OOM issues
+    runs-on: namespace-profile-linux-large
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      AGENT_KIND: ${{ inputs.agent || 'codex' }}
+      CLAUDE_CODE_VERSION: 2.1.89
+      CODEX_HOME: tmp/bug-finder-recent/codex-home
+      PROMPT_PATH: tmp/bug-finder-recent/run-prompt.txt
+      LOG_MARKER_PATH: tmp/bug-finder-recent/session-log-marker
+      SESSION_LOG_COMMENT_PATH: tmp/bug-finder-recent/session-log-comment.md
+      FINDINGS_DIR: out-bug-finder/findings
+      SKILL_PATH: .agents/skills/bug-finder-recent/SKILL.md
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout trusted workflow assets
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI
+        if: env.AGENT_KIND == 'codex'
+        run: npm install -g @openai/codex@latest
+
+      - name: Write Codex auth file
+        if: env.AGENT_KIND == 'codex'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/write-codex-auth.sh"
+
+      - name: Reset private output directory
+        run: |
+          set -euo pipefail
+          rm -rf out-bug-finder
+          mkdir -p out-bug-finder
+          mkdir -p "${FINDINGS_DIR}"
+
+      - name: Record session log marker
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${LOG_MARKER_PATH}")"
+          touch "${LOG_MARKER_PATH}"
+
+      - name: Render bug finder prompt
+        env:
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/bug-finder-recent/run.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          SKILL_PATH: ${{ env.SKILL_PATH }}
+          FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
+
+      - name: Run Codex bug finder
+        if: env.AGENT_KIND == 'codex'
+        timeout-minutes: 165
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/run-codex.sh"
+
+      - name: Run Claude bug finder
+        if: env.AGENT_KIND == 'claude'
+        timeout-minutes: 165
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+          CLAUDE_CODE_VERSION: ${{ env.CLAUDE_CODE_VERSION }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/bug-finder-recent/run-claude.sh"
+
+      - name: Refresh trusted workflow assets
+        if: always()
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Upload session logs and findings
+        if: always()
+        continue-on-error: true
+        env:
+          AGENT_KIND: ${{ env.AGENT_KIND }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          MAX_LOG_FILES: 100
+          LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODEX_HOME: ${{ env.CODEX_HOME }}
+          EXTRA_UPLOAD_ROOTS: bug-finder:${{ github.workspace }}/out-bug-finder
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
+
+      - name: Create GitHub App token for issues
+        if: success()
+        id: issue-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permissions: >-
+            {"issues": "write"}
+
+      - name: File issues and send notification
+        if: success()
+        env:
+          AGENT_KIND: ${{ env.AGENT_KIND }}
+          FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          BUG_FINDER_GITHUB_TOKEN: ${{ steps.issue-app-token.outputs.token }}
+          BUG_FINDER_ALERT_EMAILS: ${{ vars.BUG_FINDER_ALERT_EMAILS }}
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ vars.MAILGUN_DOMAIN }}
+          MAILGUN_FROM_EMAIL: ${{ vars.MAILGUN_FROM_EMAIL }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/bug-finder-recent/publish-issues.mjs"
