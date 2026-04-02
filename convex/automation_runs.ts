@@ -103,6 +103,13 @@ const automationRunLogLineValidator = v.object({
   event_data: v.optional(jsonRecordValidator),
 });
 
+const automationRunLogAppendInputValidator = v.object({
+  level: automationRunLogLevelValidator,
+  content: v.string(),
+  event_type: v.optional(automationRunEventTypeValidator),
+  event_data: v.optional(jsonRecordValidator),
+});
+
 const paginatedAutomationRunsValidator = v.object({
   page: v.array(automationRunViewValidator),
   isDone: v.boolean(),
@@ -644,14 +651,83 @@ const createAutomationRunInternal = async (
   return toAutomationRunView(requireAutomationRunShape(created));
 };
 
-const appendAutomationRunLogInternal = async (
+const sumLogBytes = (
+  rows: Array<{
+    content: string;
+  }>,
+): number => rows.reduce((sum, row) => sum + utf8Bytes(row.content), 0);
+
+const getCurrentAutomationRunLogBytes = async (
+  ctx: MutationCtx,
+  automationRunId: string,
+): Promise<number> => {
+  let currentBytes = 0;
+  let cursorSeq: number | null = null;
+
+  while (true) {
+    const rows = await ctx.db
+      .query("automation_run_logs")
+      .withIndex("by_run_seq", (q) => {
+        const base = q.eq("automation_run_id", automationRunId);
+        return cursorSeq === null ? base : base.gt("seq", cursorSeq);
+      })
+      .order("asc")
+      .take(128);
+
+    if (rows.length === 0) {
+      return currentBytes;
+    }
+
+    currentBytes += sumLogBytes(rows);
+    if (rows.length < 128) {
+      return currentBytes;
+    }
+    cursorSeq = rows[rows.length - 1]?.seq ?? null;
+  }
+};
+
+const evictAutomationRunLogBytes = async (
+  ctx: MutationCtx,
+  automationRunId: string,
+  currentBytes: number,
+  targetBytes: number,
+): Promise<number> => {
+  let remainingBytes = currentBytes;
+
+  while (remainingBytes > targetBytes) {
+    const oldestRows = await ctx.db
+      .query("automation_run_logs")
+      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", automationRunId))
+      .order("asc")
+      .take(32);
+
+    if (oldestRows.length === 0) {
+      return 0;
+    }
+
+    for (const row of oldestRows) {
+      if (remainingBytes <= targetBytes) {
+        break;
+      }
+      const rowBytes = utf8Bytes(row.content);
+      await ctx.db.delete(row._id);
+      remainingBytes -= rowBytes;
+    }
+  }
+
+  return remainingBytes;
+};
+
+const appendAutomationRunLogBatchInternal = async (
   ctx: MutationCtx,
   args: {
     automation_run_id: string;
-    level: "stdout" | "stderr" | "system";
-    content: string;
-    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
-    event_data?: Record<string, unknown>;
+    lines: Array<{
+      level: "stdout" | "stderr" | "system";
+      content: string;
+      event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+      event_data?: Record<string, unknown>;
+    }>;
   },
 ) => {
   const run = await getAutomationRunById(ctx, args.automation_run_id);
@@ -660,10 +736,19 @@ const appendAutomationRunLogInternal = async (
   });
   const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
   const maxLogBytes = getTierConfig(tier).automation_limits.max_log_bytes_per_run;
-
-  const timestamp = nowIso();
-  const content = truncateToUtf8Bytes(args.content, 4096);
-  const lineBytes = utf8Bytes(content);
+  const lines = args.lines.map((line) => {
+    const content = truncateToUtf8Bytes(line.content, 4096);
+    return {
+      level: line.level,
+      content,
+      lineBytes: utf8Bytes(content),
+      ...(line.event_type !== undefined ? { event_type: line.event_type } : {}),
+      ...(line.event_data !== undefined ? { event_data: line.event_data } : {}),
+    };
+  });
+  if (lines.length === 0) {
+    return [];
+  }
 
   const latest = await ctx.db
     .query("automation_run_logs")
@@ -676,43 +761,30 @@ const appendAutomationRunLogInternal = async (
     typeof run.metadata?.log_bytes === "number" ? run.metadata.log_bytes : null;
   let currentBytes = currentLogBytesFromMeta;
   if (currentBytes === null) {
-    const allRows = await ctx.db
-      .query("automation_run_logs")
-      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-      .collect();
-    currentBytes = allRows.reduce((sum, row) => sum + utf8Bytes(row.content), 0);
+    currentBytes = await getCurrentAutomationRunLogBytes(ctx, args.automation_run_id);
   }
 
   let logEvictionNoted = run.metadata?.log_eviction_noted === true;
   const evictionNotice = "Log ring buffer capacity reached; older lines were evicted.";
   const evictionNoticeBytes = utf8Bytes(evictionNotice);
   const reserveForNotice = logEvictionNoted ? 0 : evictionNoticeBytes;
-  const targetBeforeAppend = maxLogBytes - lineBytes - reserveForNotice;
+  const appendedBytes = lines.reduce((sum, line) => sum + line.lineBytes, 0);
+  const targetBeforeAppend = Math.max(0, maxLogBytes - appendedBytes - reserveForNotice);
 
   if (currentBytes > targetBeforeAppend) {
-    let bytesToFree = currentBytes - Math.max(0, targetBeforeAppend);
-    const oldestRows = await ctx.db
-      .query("automation_run_logs")
-      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-      .collect();
-
-    for (const row of oldestRows) {
-      if (bytesToFree <= 0) {
-        break;
-      }
-      const rowBytes = utf8Bytes(row.content);
-      await ctx.db.delete(row._id);
-      currentBytes -= rowBytes;
-      bytesToFree -= rowBytes;
-    }
-
+    currentBytes = await evictAutomationRunLogBytes(
+      ctx,
+      args.automation_run_id,
+      currentBytes,
+      targetBeforeAppend,
+    );
     if (!logEvictionNoted) {
       await ctx.db.insert("automation_run_logs", {
         automation_run_id: args.automation_run_id,
         seq: nextSeq,
         level: "system",
         content: evictionNotice,
-        timestamp,
+        timestamp: nowIso(),
       });
       nextSeq += 1;
       currentBytes += evictionNoticeBytes;
@@ -720,16 +792,32 @@ const appendAutomationRunLogInternal = async (
     }
   }
 
-  await ctx.db.insert("automation_run_logs", {
-    automation_run_id: args.automation_run_id,
-    seq: nextSeq,
-    level: args.level,
-    content,
-    timestamp,
-    ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
-    ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
-  });
-  currentBytes += lineBytes;
+  const inserted: Array<{
+    seq: number;
+    level: "stdout" | "stderr" | "system";
+    content: string;
+    timestamp: string;
+    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+    event_data?: Record<string, unknown>;
+  }> = [];
+  for (const line of lines) {
+    const timestamp = nowIso();
+    const entry = {
+      seq: nextSeq,
+      level: line.level,
+      content: line.content,
+      timestamp,
+      ...(line.event_type !== undefined ? { event_type: line.event_type } : {}),
+      ...(line.event_data !== undefined ? { event_data: line.event_data } : {}),
+    };
+    await ctx.db.insert("automation_run_logs", {
+      automation_run_id: args.automation_run_id,
+      ...entry,
+    });
+    inserted.push(entry);
+    nextSeq += 1;
+    currentBytes += line.lineBytes;
+  }
 
   await ctx.db.patch(run._id, {
     metadata: {
@@ -740,14 +828,34 @@ const appendAutomationRunLogInternal = async (
     },
   });
 
-  return {
-    seq: nextSeq,
-    level: args.level,
-    content,
-    timestamp,
-    ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
-    ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
-  };
+  return inserted;
+};
+
+const appendAutomationRunLogInternal = async (
+  ctx: MutationCtx,
+  args: {
+    automation_run_id: string;
+    level: "stdout" | "stderr" | "system";
+    content: string;
+    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+    event_data?: Record<string, unknown>;
+  },
+) => {
+  const [inserted] = await appendAutomationRunLogBatchInternal(ctx, {
+    automation_run_id: args.automation_run_id,
+    lines: [
+      {
+        level: args.level,
+        content: args.content,
+        ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
+        ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
+      },
+    ],
+  });
+  if (!inserted) {
+    throw new Error("AutomationRunLogInsertFailed");
+  }
+  return inserted;
 };
 
 const recordAutomationRunOutcomeInternal = async (
@@ -1126,6 +1234,17 @@ export const appendAutomationRunLog = internalMutation({
   returns: automationRunLogLineValidator,
   handler: async (ctx, args) => {
     return await appendAutomationRunLogInternal(ctx, args);
+  },
+});
+
+export const appendAutomationRunLogBatch = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    lines: v.array(automationRunLogAppendInputValidator),
+  },
+  returns: v.array(automationRunLogLineValidator),
+  handler: async (ctx, args) => {
+    return await appendAutomationRunLogBatchInternal(ctx, args);
   },
 });
 

@@ -186,6 +186,29 @@ export async function appendAutomationRunLog(
   });
 }
 
+export async function appendAutomationRunLogBatch(
+  client: ConvexHttpClient,
+  params: {
+    automationRunId: string;
+    lines: Array<{
+      level: AutomationRunLogLevel;
+      content: string;
+      eventType?: AutomationRunEventType;
+      eventData?: Record<string, unknown>;
+    }>;
+  },
+): Promise<void> {
+  await client.mutation(refs.appendAutomationRunLogBatch, {
+    automation_run_id: params.automationRunId,
+    lines: params.lines.map((line) => ({
+      level: line.level,
+      content: line.content,
+      ...(line.eventType !== undefined ? { event_type: line.eventType } : {}),
+      ...(line.eventData !== undefined ? { event_data: line.eventData } : {}),
+    })),
+  });
+}
+
 export type OrgAiKey = {
   id: string;
   org_id: string;

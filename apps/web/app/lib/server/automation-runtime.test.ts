@@ -37,6 +37,7 @@ const defaultTestEnv = {
 const createDeps = () => {
   const convex = {
     appendAutomationRunLog: vi.fn().mockResolvedValue(undefined),
+    appendAutomationRunLogBatch: vi.fn().mockResolvedValue(undefined),
     createRun: vi.fn().mockResolvedValue({ id: "run_test" }),
     deductAiCredit: vi.fn().mockResolvedValue({
       org_id: "org_test",
@@ -1110,15 +1111,36 @@ describe("start-owned automation runtime handlers", () => {
 
     expect(logResponse?.status).toBe(200);
     await expect(logResponse?.json()).resolves.toMatchObject({ ok: true, ingested: 3 });
-    expect(deps.convex.appendAutomationRunLog).toHaveBeenCalledWith(
-      expect.objectContaining({
-        automationRunId: "arun_dispatch_test",
-        level: AUTOMATION_RUN_LOG_LEVEL.stderr,
-        content: "model: gpt-5.2",
-        eventType: "automation_config",
-        eventData: { key: "model", value: "gpt-5.2" },
-      }),
-    );
+    expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledWith({
+      automationRunId: "arun_dispatch_test",
+      lines: [
+        {
+          level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+          content: "model: gpt-5.2",
+          eventType: "automation_config",
+          eventData: { key: "model", value: "gpt-5.2" },
+        },
+        {
+          level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+          content: 'tool keppo.search_tools({"q":"ux"})',
+          eventType: "tool_call",
+          eventData: {
+            tool_name: "keppo.search_tools",
+            args: { q: "ux" },
+          },
+        },
+        {
+          level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+          content: '{"items":[{"title":"Run logs UX"}]}',
+          eventType: "output",
+          eventData: {
+            format: "json",
+            parsed: { items: [{ title: "Run logs UX" }] },
+            text: '{"items":[{"title":"Run logs UX"}]}',
+          },
+        },
+      ],
+    });
 
     const completeResponse = await dispatchStartOwnedAutomationRuntimeRequest(
       withJson(callbacks.complete_url.replace("http://127.0.0.1", ""), {

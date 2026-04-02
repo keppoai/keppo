@@ -131,7 +131,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - the dashboard completes the exchange through `/api/automations/openai/complete`; only the API runtime exchanges the OAuth code or stores refreshable credentials.
 - Callback/log contract:
   - log/complete callback URLs are HMAC-signed and include run-scoped expiry metadata.
-  - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`.
+  - `/internal/automations/log` appends bounded log lines in batches through `automation_runs:appendAutomationRunLogBatch`, chunking callback payloads so a single callback request is persisted in a small number of mutations instead of one mutation per line.
   - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`.
   - automation-backed MCP sessions expose one additional internal tool, `record_outcome`, which is unavailable to normal MCP clients and records a single final outcome on the owning automation run.
   - `record_outcome` writes are exactly-once at the run level: the first valid call wins, duplicate calls fail, and terminal lifecycle updates synthesize a fallback outcome that matches the final terminal status when no valid outcome was recorded before the run ended. If a run later finishes in a failure state after an earlier success outcome was recorded, the terminal failure replaces that stale success with a fallback failure outcome.

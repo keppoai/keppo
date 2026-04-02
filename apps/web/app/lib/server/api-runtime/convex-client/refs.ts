@@ -85,6 +85,7 @@ export const refs = {
   ),
   updateAutomationRunStatus: adminRef(internal.automation_runs.updateAutomationRunStatus),
   appendAutomationRunLog: adminRef(internal.automation_runs.appendAutomationRunLog),
+  appendAutomationRunLogBatch: adminRef(internal.automation_runs.appendAutomationRunLogBatch),
   getOrgAiKey: adminRef(internal.org_ai_keys.getOrgAiKey),
   upsertOpenAiOauthKey: adminRef(internal.org_ai_keys.upsertOpenAiOauthKey),
   upsertBundledOrgAiKey: adminRef(internal.org_ai_keys.upsertBundledOrgAiKey),
