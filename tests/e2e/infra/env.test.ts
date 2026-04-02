@@ -53,7 +53,13 @@ describe("buildWorkerEnv", () => {
 
     expect(env.base.KEPPO_E2E_MODE).toBe("true");
     expect(env.base.KEPPO_URL).toBe("http://localhost:9903");
+    expect(env.base.KEPPO_API_INTERNAL_BASE_URL).toBe("http://127.0.0.1:9903/api");
+    expect(env.base.KEPPO_LOCAL_QUEUE_CONSUMER_URL).toBe(
+      "http://127.0.0.1:9903/internal/queue/approved-action",
+    );
     expect(env.base.VITE_KEPPO_URL).toBe("http://localhost:9903");
+    expect(env.dashboard.HOST).toBe("0.0.0.0");
+    expect(env.dashboard.NITRO_HOST).toBe("0.0.0.0");
     expect(env.dashboard.VITE_KEPPO_URL).toBe("http://localhost:9903");
   });
 
@@ -64,6 +70,6 @@ describe("buildWorkerEnv", () => {
 
     expect(env.base.KEPPO_E2E_MODE).toBe("true");
     expect(env.base.KEPPO_E2E_OPENAI_BASE_URL).toBe("http://127.0.0.1:9901");
-    expect(env.base.KEPPO_LLM_GATEWAY_URL).toBe("");
+    expect(env.base.KEPPO_LLM_GATEWAY_URL).toBe("http://127.0.0.1:9901");
   });
 });

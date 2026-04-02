@@ -48,6 +48,29 @@ use_local_test_env_fallback "REDDIT_CLIENT_SECRET" "fake-reddit-client-secret"
 setup_e2e_site_url_default
 export VITE_KEPPO_URL="${VITE_KEPPO_URL:-${KEPPO_URL}}"
 
+e2e_port_base="${KEPPO_E2E_PORT_BASE:-9900}"
+e2e_port_block_size="${KEPPO_E2E_PORT_BLOCK_SIZE:-20}"
+e2e_site_worker_index="${KEPPO_E2E_SITE_URL_WORKER_INDEX:-0}"
+if ! [[ "${e2e_port_base}" =~ ^[0-9]+$ ]]; then
+  e2e_port_base="9900"
+fi
+if ! [[ "${e2e_port_block_size}" =~ ^[0-9]+$ ]]; then
+  e2e_port_block_size="20"
+fi
+if ! [[ "${e2e_site_worker_index}" =~ ^[0-9]+$ ]]; then
+  e2e_site_worker_index="0"
+fi
+e2e_dashboard_port=$((e2e_port_base + e2e_port_block_size * e2e_site_worker_index + 3))
+
+# Local Convex env sync must target the actual E2E dashboard/runtime origin instead of the
+# generic dev fallback from .env files, or dispatch actions will keep calling localhost:3000.
+export KEPPO_URL="http://localhost:${e2e_dashboard_port}"
+export KEPPO_API_INTERNAL_BASE_URL="http://127.0.0.1:${e2e_dashboard_port}/api"
+export KEPPO_CRON_SECRET="e2e-cron-token-${e2e_site_worker_index}"
+export KEPPO_LOCAL_QUEUE_CONSUMER_URL="http://127.0.0.1:${e2e_dashboard_port}/internal/queue/approved-action"
+export KEPPO_LOCAL_QUEUE_CONSUMER_AUTH_HEADER="Bearer ${KEPPO_CRON_SECRET}"
+export VITE_KEPPO_URL="${KEPPO_URL}"
+
 cleanup_local_convex() {
   cleanup_local_convex_processes
 }

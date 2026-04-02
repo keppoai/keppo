@@ -1,28 +1,12 @@
-import type { APIRequestContext, Locator } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import type { APIRequestContext } from "@playwright/test";
 import { test, expect } from "../../fixtures/golden.fixture";
 import { createConvexAdmin } from "../../helpers/convex-admin";
-import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
+import { serviceLogFileForWorker } from "../../infra/stack-manager";
 
 type ProviderEvent = {
   body: unknown;
   path: string;
-};
-
-const clickElement = async (locator: Locator): Promise<void> => {
-  await locator.evaluate((element) => (element as HTMLElement).click());
-};
-
-const setControlValue = async (locator: Locator, value: string): Promise<void> => {
-  await locator.evaluate((element, nextValue) => {
-    const prototype =
-      element instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-    descriptor?.set?.call(element, nextValue);
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-  }, value);
 };
 
 const readProviderEvents = async (
@@ -87,7 +71,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   app,
   auth,
   pages,
-  page,
   request,
 }) => {
   test.skip(
@@ -122,43 +105,8 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     };
   };
 
-  const settingsUrl = new URL(
-    await resolveScopedDashboardPath(page, "/settings"),
-    app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
-  let aiConfigurationMode: "hosted" | "self-managed" | null = null;
-  await expect
-    .poll(
-      async () => {
-        if ((await page.getByText("Hosted mode keeps credentials managed").count()) > 0) {
-          aiConfigurationMode = "hosted";
-          return aiConfigurationMode;
-        }
-        if ((await page.getByLabel("Provider").count()) > 0) {
-          aiConfigurationMode = "self-managed";
-          return aiConfigurationMode;
-        }
-        return null;
-      },
-      { timeout: 30_000, intervals: [500, 1_000, 2_000] },
-    )
-    .not.toBeNull();
+  await admin.upsertBundledOrgAiKey(seeded.orgId, "openai", "sk-keppo-e2e-openai");
 
-  if (aiConfigurationMode === "hosted") {
-    await expect(page.getByText("Hosted mode keeps credentials managed")).toBeVisible();
-    await expect(page.getByLabel("API key")).toHaveCount(0);
-  } else {
-    await page.getByLabel("Provider").selectOption("openai");
-    await page.getByLabel("Mode").selectOption("byok");
-    await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-openai");
-    await clickElement(page.getByRole("button", { name: "Save Key" }));
-    await expect(
-      page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
-    ).toContainText("Active");
-  }
   const createdRun = (await admin.createAutomationRun(
     createdAutomation.created.automation.id,
     "manual",
@@ -172,21 +120,22 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     status: string;
     http_status: number | null;
   };
+  const dispatchRun = await admin.getAutomationRun(createdRun.id);
 
-  expect(dispatchResult).toMatchObject({
-    dispatched: true,
-    status: "dispatched",
-    http_status: 200,
+  expect(
+    {
+      dispatchResult,
+      dispatchError: dispatchRun?.error_message ?? null,
+    },
+    "automation dispatch failed before the run reached the owned runtime",
+  ).toMatchObject({
+    dispatchResult: {
+      dispatched: true,
+      status: "dispatched",
+      http_status: 200,
+    },
+    dispatchError: null,
   });
-
-  const runDetailUrl = new URL(
-    await resolveScopedDashboardPath(
-      page,
-      `/automations/${createdAutomation.created.automation.slug}/runs/${createdRun.id}`,
-    ),
-    app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(runDetailUrl, { waitUntil: "domcontentloaded" });
 
   await expect
     .poll(
@@ -203,12 +152,21 @@ test("codex automation run completes after search_tools when fake OpenAI respons
 
   await expect.poll(readLogText, { timeout: 20_000, intervals: [500, 1_000, 2_000] }).not.toBe("");
 
+  const readServiceLog = async (name: "dashboard" | "fake-gateway"): Promise<string> => {
+    try {
+      return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+
   let finalRunState: {
+    dashboardSawToolsListCompleted: boolean;
+    hasAgentRecordedOutcome: boolean;
     hasOpenAiResponsesSearchToolsRequest: boolean;
-    status: string | null;
-    outcomeSuccess: boolean | null;
     hasStreamDisconnectError: boolean;
     logText: string;
+    status: string | null;
   } | null = null;
 
   await expect
@@ -218,16 +176,20 @@ test("codex automation run completes after search_tools when fake OpenAI respons
         const logSummary = await summarizeRunLogs(request, admin, createdRun.id);
         const openAiEvents = await readProviderEvents(request, app.runtime.fakeGatewayBaseUrl);
         const newOpenAiEvents = openAiEvents.slice(openAiEventCountBeforeDispatch);
+        const dashboardLog = await readServiceLog("dashboard");
         finalRunState = {
+          dashboardSawToolsListCompleted: dashboardLog.includes('"msg":"mcp.tools_list.completed"'),
+          hasAgentRecordedOutcome: logSummary.text.includes(
+            "Automation outcome (agent recorded): Success.",
+          ),
           hasOpenAiResponsesSearchToolsRequest: newOpenAiEvents.some(
             (event) => event.path.includes("responses") && eventBodyHasSearchTools(event.body),
           ),
-          status: run?.status ?? null,
-          outcomeSuccess: run?.outcome_success ?? null,
           hasStreamDisconnectError: logSummary.text.includes(
             "stream disconnected before completion",
           ),
           logText: logSummary.text,
+          status: run?.status ?? null,
         };
         return finalRunState;
       },
@@ -237,10 +199,11 @@ test("codex automation run completes after search_tools when fake OpenAI respons
       },
     )
     .toMatchObject({
+      dashboardSawToolsListCompleted: true,
+      hasAgentRecordedOutcome: true,
       hasOpenAiResponsesSearchToolsRequest: true,
-      status: "succeeded",
-      outcomeSuccess: true,
       hasStreamDisconnectError: false,
+      status: "succeeded",
     });
 
   expect(

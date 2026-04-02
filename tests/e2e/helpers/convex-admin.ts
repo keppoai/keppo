@@ -18,6 +18,8 @@ const refs = {
   dispatchAutomationRun: makeFunctionReference<"action">(
     "automation_scheduler:dispatchAutomationRun",
   ),
+  upsertOrgAiKey: makeFunctionReference<"mutation">("org_ai_keys:upsertOrgAiKey"),
+  upsertBundledOrgAiKey: makeFunctionReference<"mutation">("org_ai_keys:upsertBundledOrgAiKey"),
   getAutomationRun: makeFunctionReference<"query">("e2e:getAutomationFixtureRun"),
   getAutomationRunLogs: makeFunctionReference<"query">("e2e:getAutomationFixtureRunLogs"),
   getInviteToken: makeFunctionReference<"query">("e2e:getInviteToken"),
@@ -157,6 +159,29 @@ export class ConvexAdminHelper {
         ...(namespace ? { namespace } : {}),
       }),
     );
+  }
+
+  async upsertBundledOrgAiKey(orgId: string, provider: "openai" | "anthropic", rawKey: string) {
+    return await this.retryMutation(refs.upsertBundledOrgAiKey, {
+      org_id: orgId,
+      provider,
+      raw_key: rawKey,
+      created_by: "e2e-admin",
+    });
+  }
+
+  async upsertOrgAiKey(
+    orgId: string,
+    provider: "openai" | "anthropic",
+    rawKey: string,
+    keyMode: "byok" | "subscription_token" = "byok",
+  ) {
+    return await this.retryMutation(refs.upsertOrgAiKey, {
+      org_id: orgId,
+      provider,
+      key_mode: keyMode,
+      raw_key: rawKey,
+    });
   }
 
   async getAutomationRun(automationRunId: string) {

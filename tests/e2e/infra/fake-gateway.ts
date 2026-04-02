@@ -684,6 +684,7 @@ const summarizeOpenAiRequestBody = (body: unknown): Record<string, unknown> => {
 const start = async (): Promise<void> => {
   const port = parsePort(process.env.PORT);
   const baseUrl = `http://127.0.0.1:${port}`;
+  const listenHost = "0.0.0.0";
   const registry = createProviderRegistry(baseUrl);
   const providers = mapProviderRegistry(registry);
   const requestLogger = new FakeGatewayRequestLogger();
@@ -5797,7 +5798,7 @@ const start = async (): Promise<void> => {
 
   // Dockerized automation runners reach the host via the gateway IP, not host loopback.
   // Binding all interfaces keeps local `127.0.0.1` callers working while allowing sandbox traffic.
-  server.listen(port, () => {
+  server.listen(port, listenHost, () => {
     process.stdout.write(`fake-gateway listening on ${baseUrl}\n`);
   });
 
