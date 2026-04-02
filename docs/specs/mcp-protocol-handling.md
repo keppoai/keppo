@@ -33,4 +33,5 @@
 
 - Request params, auth headers, and JSON-RPC envelopes are validated before execution.
 - Client-facing errors are sanitized and capped.
+- Tool-call branches that return MCP error results directly, including structured `execute_code` failures that do not escape as thrown exceptions, must emit a warning log before responding so request-scoped Vercel logs can still reconstruct the failure.
 - MCP auth failures, per-credential request rates, and body-size limits are enforced on the API boundary.

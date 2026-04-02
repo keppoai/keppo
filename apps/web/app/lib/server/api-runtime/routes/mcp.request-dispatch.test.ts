@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { createMcpRouteDispatcher } from "./mcp";
 
-const createWorkspaceAuth = (options?: { automationRunId?: string }) => ({
+const createWorkspaceAuth = (options?: {
+  automationRunId?: string;
+  codeModeEnabled?: boolean;
+}) => ({
   status: "ok" as const,
   credential_id: "cred_test",
   workspace: {
@@ -11,7 +14,7 @@ const createWorkspaceAuth = (options?: { automationRunId?: string }) => ({
     status: "active",
     policy_mode: "manual_only",
     default_action_behavior: "require_approval",
-    code_mode_enabled: true,
+    code_mode_enabled: options?.codeModeEnabled ?? true,
     created_at: "2026-03-01T00:00:00.000Z",
   },
   ...(options?.automationRunId ? { automation_run_id: options.automationRunId } : {}),
@@ -492,6 +495,55 @@ describe("createMcpRouteDispatcher", () => {
       "record_outcome is only available inside automation runs.",
     );
     expect(convex.executeToolCall).not.toHaveBeenCalled();
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "mcp.tool_call.failed",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "record_outcome",
+        client_message: "record_outcome is only available inside automation runs.",
+        message_redacted: false,
+      }),
+    );
+  });
+
+  it("logs direct execute_code error results when Code Mode is disabled", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(
+      createWorkspaceAuth({ codeModeEnabled: false }),
+    );
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "execute_code", { code: "console.log('hi')" }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).toBe(true);
+    expect(payload.result?.content?.[0]?.text).toBe("Code Mode is disabled for this workspace.");
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "mcp.execute_code.failed",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "execute_code",
+        client_message: "Code Mode is disabled for this workspace.",
+        message_redacted: false,
+      }),
+    );
   });
 
   it("passes the automation run id through record_outcome tool calls", async () => {
@@ -601,5 +653,53 @@ describe("createMcpRouteDispatcher", () => {
     )?.[1] as Record<string, unknown> | undefined;
     expect(redactedFailureMetadata).toBeDefined();
     expect(redactedFailureMetadata).not.toHaveProperty("raw_message");
+  });
+
+  it("logs structured execute_code validation failures returned to the client", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "execute_code", { code: "   " }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: {
+        structuredContent?: { status?: string; reason?: string; error_code?: string };
+        content?: Array<{ text?: string }>;
+        isError?: boolean;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).not.toBe(true);
+    expect(payload.result?.structuredContent).toMatchObject({
+      status: "execution_failed",
+      reason: "execute_code requires a non-empty code string.",
+      error_code: "validation_failed",
+    });
+    expect(payload.result?.content?.[0]?.text).toBe(
+      "execution_failed: execute_code requires a non-empty code string.",
+    );
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "mcp.execute_code.failed",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "execute_code",
+        error_code: "validation_failed",
+        client_message: "execution_failed: execute_code requires a non-empty code string.",
+        message_redacted: false,
+      }),
+    );
   });
 });
