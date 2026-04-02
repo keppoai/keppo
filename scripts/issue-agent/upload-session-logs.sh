@@ -43,7 +43,24 @@ write_summary_error() {
 }
 
 redact_upload_output() {
-  sed -E \
+  local output
+  output="$(cat)"
+
+  if jq -e . >/dev/null 2>&1 <<< "${output}"; then
+    output="$(
+      printf '%s' "${output}" | jq '
+        walk(
+          if type == "object" and has("client_token") then
+            .client_token = "[REDACTED_CLIENT_TOKEN]"
+          else
+            .
+          end
+        )
+      ' 2>/dev/null || printf '%s' "${output}"
+    )"
+  fi
+
+  printf '%s\n' "${output}" | sed -E \
     -e 's/(KEPPO_SESSION_LOG_UPLOAD_TOKEN=)[^[:space:]]+/\1[REDACTED]/g' \
     -e 's/(Authorization:[[:space:]]*Bearer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/Ig' \
     -e 's/vercel_blob_client_[A-Za-z0-9_=-]+/[REDACTED_CLIENT_TOKEN]/g'

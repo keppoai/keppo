@@ -11,6 +11,19 @@ function makeFakeCurlBin(
   capturedPreparePath: string,
   capturedCompletePath: string,
   capturedBlobUploadPath: string,
+  prepareResponseBody = `{
+  "status": "prepared",
+  "complete_url": "https://agent-logs.keppo.ai/upload/complete",
+  "files": [
+    {
+      "part_name": "file_0",
+      "relative_path": "sessions/session-2026-03-31T22-00-00.jsonl",
+      "status": "upload_required",
+      "upload_path": "system/pending-uploads/upload-test/file_0-sha-session.jsonl",
+      "client_token": "vercel_blob_client_test_token"
+    }
+  ]
+}`,
 ) {
   const dir = mkdtempSync(join(tmpdir(), "upload-session-logs-bin-"));
   const fakeCurlPath = join(dir, "curl");
@@ -54,19 +67,7 @@ if [[ "$method" == "POST" && "$url" == "https://agent-logs.keppo.ai/upload" ]]; 
   data_file="\${data_file#@}"
   cp "$data_file" "$captured_prepare_path"
   cat <<'JSON'
-{
-  "status": "prepared",
-  "complete_url": "https://agent-logs.keppo.ai/upload/complete",
-  "files": [
-    {
-      "part_name": "file_0",
-      "relative_path": "sessions/session-2026-03-31T22-00-00.jsonl",
-      "status": "upload_required",
-      "upload_path": "system/pending-uploads/upload-test/file_0-sha-session.jsonl",
-      "client_token": "vercel_blob_client_test_token"
-    }
-  ]
-}
+${prepareResponseBody}
 JSON
   exit 0
 fi
@@ -189,5 +190,60 @@ describe("scripts/issue-agent/upload-session-logs.sh", () => {
     const commentBody = readFileSync(commentPath, "utf8");
     expect(commentBody).toContain("`sessions/session-2026-03-31T22-00-00.jsonl`");
     expect(commentBody).not.toContain("plugin.json");
+  });
+
+  it("redacts client_token fields from prepare-response failures before printing logs", () => {
+    const workDir = mkdtempSync(join(tmpdir(), "upload-session-logs-redaction-work-"));
+    cleanupPaths.push(workDir);
+
+    const codexHome = join(workDir, "codex-home");
+    const sessionsDir = join(codexHome, "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+
+    const markerPath = join(workDir, "marker");
+    writeFileSync(markerPath, "marker");
+
+    const sessionLogPath = join(sessionsDir, "session-2026-03-31T22-00-00.jsonl");
+    writeFileSync(sessionLogPath, '{"event":"session"}\n');
+
+    const fakeCurlBin = makeFakeCurlBin(
+      join(workDir, "captured-prepare.json"),
+      join(workDir, "captured-complete.json"),
+      join(workDir, "captured-blob-upload.jsonl"),
+      `{
+  "status": "prepared",
+  "complete_url": "https://agent-logs.keppo.ai/upload/complete",
+  "files": [
+    {
+      "part_name": "file_0",
+      "relative_path": "sessions/session-2026-03-31T22-00-00.jsonl",
+      "status": "upload_required",
+      "client_token": "opaque-live-upload-token"
+    }
+  ]
+}`,
+    );
+
+    const result = spawnSync("bash", [scriptPath], {
+      cwd: workDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${fakeCurlBin}:${process.env.PATH ?? ""}`,
+        AGENT_KIND: "codex",
+        GITHUB_REPOSITORY: "keppoai/keppo",
+        GITHUB_RUN_ID: "12345",
+        GITHUB_RUN_ATTEMPT: "1",
+        LOG_MARKER_PATH: markerPath,
+        CODEX_HOME: codexHome,
+        KEPPO_SESSION_LOG_UPLOAD_URL: "https://agent-logs.keppo.ai/upload",
+        KEPPO_SESSION_LOG_UPLOAD_TOKEN: "test-token",
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("[REDACTED_CLIENT_TOKEN]");
+    expect(result.stderr).not.toContain("opaque-live-upload-token");
+    expect(result.stderr).toContain("Session log prepare response validation failed");
   });
 });
