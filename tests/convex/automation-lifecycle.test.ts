@@ -79,6 +79,40 @@ describe("convex automation lifecycle functions", () => {
     ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
   });
 
+  it("replaces a fallback outcome when the agent records the real final result later", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_outcome_fallback_upgrade";
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const createdRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.running,
+    });
+
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: createdRun.id,
+      status: AUTOMATION_RUN_STATUS.succeeded,
+    });
+
+    const recorded = await t.mutation(refs.recordAutomationRunOutcome, {
+      automation_run_id: createdRun.id,
+      workspace_id: fixture.workspaceId,
+      success: true,
+      summary: "Located the Gmail send-email tool and recorded the automation outcome.",
+    });
+
+    expect(recorded).toMatchObject({
+      success: true,
+      source: "agent_recorded",
+      summary: "Located the Gmail send-email tool and recorded the automation outcome.",
+    });
+  });
+
   it("replaces a stale success outcome when the run later fails", async () => {
     const t = createConvexTestHarness();
     const orgId = "org_convex_automation_outcome_override";
