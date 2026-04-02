@@ -26,7 +26,6 @@
 
 - Built-in tools execute through `executeToolCall`.
 - Custom MCP tools execute through `executeCustomToolCall`.
-- `search_tools` accepts both `query` and the Codex-compatible `q` alias for the search string.
 - Approval-required writes return structured pending results that reference the created action.
 - `execute_code` runs sandboxed JavaScript, generates a typed SDK from the tool registry, and reuses the same gating rules for any provider calls made inside the sandbox.
 

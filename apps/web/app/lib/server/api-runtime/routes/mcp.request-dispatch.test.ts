@@ -406,36 +406,6 @@ describe("createMcpRouteDispatcher", () => {
     await expect(parseStreamableHttpJson(secondResponse)).resolves.toBeTruthy();
   });
 
-  it("accepts the Codex q alias for search_tools", async () => {
-    const { convex, deps } = createDeps();
-    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
-    convex.createRun.mockResolvedValue({ id: "run_test" });
-    convex.seedToolIndex.mockResolvedValue({ inserted: 0, updated: 0, total: 0 });
-    convex.getWorkspaceCodeModeContext.mockResolvedValue({
-      available_providers: ["gmail", "google"],
-    });
-    convex.searchTools.mockResolvedValue([]);
-    const dispatch = createMcpRouteDispatcher(deps);
-
-    const initializeResponse = await dispatch({
-      request: createInitializeRequest(),
-      workspaceIdParam: "ws_test",
-    });
-    const sessionId = initializeResponse.headers.get("mcp-session-id");
-
-    const response = await dispatch({
-      request: createToolCallRequest(sessionId!, "search_tools", { q: "send email" }),
-      workspaceIdParam: "ws_test",
-    });
-    const payload = (await parseStreamableHttpJson(response)) as {
-      result?: { isError?: boolean };
-    };
-
-    expect(response.status).toBe(200);
-    expect(payload.result?.isError).not.toBe(true);
-    expect(convex.searchTools).toHaveBeenCalledWith({ query: "send email" });
-  });
-
   it("hides record_outcome from non-automation tool lists", async () => {
     const { convex, deps } = createDeps();
     convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
