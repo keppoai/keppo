@@ -31,7 +31,6 @@ import { MermaidDiagram } from "@/components/automations/automation-description-
 import { AutomationBuilderQuestionsStep } from "@/components/automations/automation-builder-questions-step";
 import { useIntegrations } from "@/hooks/use-integrations";
 import { useRouteParams } from "@/hooks/use-route-params";
-import { useDashboardRuntime } from "@/lib/dashboard-runtime";
 import {
   generateAutomationPrompt,
   generateAutomationQuestions,
@@ -42,10 +41,8 @@ import { cn } from "@/lib/utils";
 import { humanizeCron } from "@/lib/cron-humanizer";
 import {
   getAutomationPathSegment,
-  getAutomationExecutionModeMeta,
   getAutomationModelClassMeta,
   getNetworkAccessMeta,
-  resolveAutomationExecutionState,
 } from "@/lib/automations-view-model";
 import { getProviderMeta } from "@/components/integrations/provider-icons";
 import { Badge } from "@/components/ui/badge";
@@ -670,7 +667,6 @@ export function AutomationPromptBox({
   variant = "compact",
   collapseByDefault = false,
 }: AutomationPromptBoxProps) {
-  const runtime = useDashboardRuntime();
   const navigate = useNavigate();
   const { buildOrgPath, buildWorkspacePath } = useRouteParams();
   const reduceMotion = useReducedMotion();
@@ -721,24 +717,6 @@ export function AutomationPromptBox({
   const generationRequestIdRef = useRef(0);
 
   const answerEntries = useMemo(() => answerMapToEntries(answers, questions), [answers, questions]);
-  const executionState = useMemo(() => {
-    if (!config) {
-      return null;
-    }
-    return resolveAutomationExecutionState({
-      provider: settings.ai_model_provider,
-      creditBalance: {
-        org_id: "",
-        period_start: "",
-        period_end: "",
-        allowance_total: 0,
-        allowance_reset_period: "monthly",
-        allowance_used: 0,
-        ...config.credit_balance,
-      },
-      orgAiKeys: [],
-    });
-  }, [config, settings.ai_model_provider]);
   const answeredClarifications = useMemo(
     () => summarizeAutomationClarifications(questions, answerEntries),
     [answerEntries, questions],
@@ -934,7 +912,7 @@ export function AutomationPromptBox({
         }
       }
     },
-    [runtime.authClient, workspaceId],
+    [workspaceId],
   );
 
   const handleBriefSubmit = useCallback(async () => {
@@ -990,7 +968,7 @@ export function AutomationPromptBox({
       setGenerationPhase(null);
       setError(toBuilderGenerationError(caught));
     }
-  }, [inputValue, runDraftGeneration, runtime.authClient, workspaceId]);
+  }, [inputValue, runDraftGeneration, workspaceId]);
 
   const handleQuestionContinue = useCallback(() => {
     if (!currentQuestion) {
@@ -1233,7 +1211,7 @@ export function AutomationPromptBox({
               )}
             >
               {variant === "hero"
-                ? "Start with a short prompt. Keppo asks only the missing questions, drafts the workflow, then lets you review providers and runtime settings."
+                ? "Start with a short prompt. Keppo asks only the missing questions, drafts the workflow, then lets you review providers and final settings."
                 : "Begin with the outcome. Keppo will ask a few short clarifying questions before it drafts the automation for review."}
             </CardDescription>
           </div>
@@ -1835,7 +1813,10 @@ export function AutomationPromptBox({
 
                 {step === "settings" ? (
                   <div className="rounded-2xl border bg-background/70 p-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
+                    <div
+                      className="grid gap-4 sm:grid-cols-2"
+                      data-testid="automation-builder-settings-step"
+                    >
                       <div>
                         <Label htmlFor="builder-model-class">Model</Label>
                         <NativeSelect
@@ -1866,23 +1847,6 @@ export function AutomationPromptBox({
                         <p className="mt-2 text-sm text-muted-foreground">
                           {getAutomationModelClassMeta(settings.model_class).description}
                         </p>
-                      </div>
-                      <div>
-                        <Label>Resolved runtime</Label>
-                        <div className="mt-2 rounded-2xl border p-4 text-sm text-muted-foreground">
-                          Default mapping: {settings.ai_model_provider} / {settings.ai_model_name}.
-                          Server-side automation runtime settings may override this at execution
-                          time.
-                        </div>
-                      </div>
-                      <div>
-                        <Label>Runtime mode</Label>
-                        <div className="mt-2 rounded-2xl border p-4 text-sm text-muted-foreground">
-                          {
-                            getAutomationExecutionModeMeta(executionState?.mode ?? "byok")
-                              .description
-                          }
-                        </div>
                       </div>
                       <div>
                         <div className="rounded-2xl border p-4">
@@ -2067,7 +2031,7 @@ export function AutomationPromptBox({
                   <div className="rounded-2xl bg-muted/20 p-5">
                     <p className="text-sm font-medium">Automation summary</p>
                     <p className="mt-2 text-sm text-muted-foreground">
-                      The next step confirms runtime settings. You can create this automation
+                      The next step confirms the final settings. You can create this automation
                       without a provider connection, but it will not inspect live provider data
                       until you connect that integration.
                     </p>

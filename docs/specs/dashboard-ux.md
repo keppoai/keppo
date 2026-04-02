@@ -265,7 +265,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - The draft stage exposes `name`, plain-language `description`, separate `mermaid_content`, the executable prompt, and a compact answer summary so operators can see which clarifications shaped the generated workflow before creation.
   - Provider recommendations are advisory metadata, not hard blockers; each recommendation includes the provider id, reason, and confidence (`required` or `recommended`).
   - The provider stage shows inline `Connect`, `Open`, and `Skip` actions so users can satisfy likely dependencies without leaving the builder context permanently.
-  - The settings stage keeps model/key/network choices explicit before creation instead of burying them behind a single review card, warns clearly when no active AI key is configured, and expresses network access as a web-access toggle instead of MCP jargon.
+  - The settings stage keeps model and network choices explicit before creation instead of burying them behind a single review card, and expresses network access as a web-access toggle instead of MCP jargon.
   - Success routes to the slugged automation detail URL, while the underlying create mutation still returns the stable automation id for internal lookups.
 - **Operator Command Palette** (`operator-command-palette.tsx` + `automation-prompt-modal.tsx`): global `Cmd+K` / `Ctrl+K` opens a centered command palette that can jump to automations, run active automations, open approvals/integrations/admin, connect providers, and launch the same staged builder in a follow-up dialog. It is only active when authenticated and a workspace is selected.
 - `/:orgSlug/:workspaceSlug/automations` route:

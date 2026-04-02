@@ -169,6 +169,11 @@ test("automation builder asks clarifying questions before drafting and keeps pro
 
   await page.getByRole("button", { name: "Continue without these providers" }).click();
   await expect(page.getByLabel("Model")).toBeVisible();
+  await expect(page.getByText("Resolved runtime")).toHaveCount(0);
+  await expect(page.getByText("Runtime mode")).toHaveCount(0);
+  await page.getByTestId("automation-builder-settings-step").screenshot({
+    path: "ux-artifacts/automation-builder-settings-step.png",
+  });
 
   await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Ready to create")).toBeVisible();
