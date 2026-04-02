@@ -6,7 +6,7 @@ WORKDIR /sandbox
 # in deployment automation for reproducible images.
 RUN npm install -g @openai/codex @anthropic-ai/claude-code || true
 
-COPY <<'EOF' /usr/local/bin/automation-sandbox-entrypoint.sh
+RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh
 #!/usr/bin/env bash
 set -euo pipefail
 

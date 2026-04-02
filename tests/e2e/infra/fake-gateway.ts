@@ -583,10 +583,10 @@ const buildOpenAiSearchToolsResponse = (sessionKey: string, step: number): OpenA
     id: `resp_${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_")}_${step}`,
     output: [
       {
-        id: `mcp_${step}`,
-        type: "mcp_call",
-        server_label: "keppo",
-        name: "search_tools",
+        id: `fc_${step}`,
+        type: "function_call",
+        call_id: `call_search_tools_${step}`,
+        name: "mcp__keppo__search_tools",
         arguments: JSON.stringify({
           query: "gmail send email message",
           limit: 20,
@@ -596,8 +596,27 @@ const buildOpenAiSearchToolsResponse = (sessionKey: string, step: number): OpenA
     ],
   });
 
-const buildOpenAiFinalResponse = (sessionKey: string, step: number): OpenAiFakeResponse =>
+const buildOpenAiRecordOutcomeResponse = (sessionKey: string, step: number): OpenAiFakeResponse =>
   buildOpenAiResponse({
+    id: `resp_${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_")}_${step}`,
+    output: [
+      {
+        id: `fc_${step}`,
+        type: "function_call",
+        call_id: `call_record_outcome_${step}`,
+        name: "mcp__keppo__record_outcome",
+        arguments: JSON.stringify({
+          success: true,
+          summary: "Located the Gmail send-email tool and recorded the automation outcome.",
+        }),
+        status: "completed",
+      },
+    ],
+  });
+
+const buildOpenAiFinalMessageResponse = (sessionKey: string, step: number): OpenAiFakeResponse => {
+  const text = "Finished the automation run after recording the final outcome.";
+  return buildOpenAiResponse({
     id: `resp_${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_")}_${step}`,
     output: [
       {
@@ -608,22 +627,26 @@ const buildOpenAiFinalResponse = (sessionKey: string, step: number): OpenAiFakeR
         content: [
           {
             type: "output_text",
-            text: JSON.stringify({
-              status: "failed",
-              error:
-                "Tool discovery failed with transport error: Client error: error decoding response body",
-            }),
+            text,
             annotations: [],
           },
         ],
       },
     ],
-    outputText: JSON.stringify({
-      status: "failed",
-      error:
-        "Tool discovery failed with transport error: Client error: error decoding response body",
-    }),
+    outputText: text,
   });
+};
+
+const buildOpenAiScriptResponse = (sessionKey: string, step: number): OpenAiFakeResponse => {
+  switch (step) {
+    case 1:
+      return buildOpenAiSearchToolsResponse(sessionKey, step);
+    case 2:
+      return buildOpenAiRecordOutcomeResponse(sessionKey, step);
+    default:
+      return buildOpenAiFinalMessageResponse(sessionKey, step);
+  }
+};
 
 const summarizeOpenAiRequestBody = (body: unknown): Record<string, unknown> => {
   const payload = body && typeof body === "object" && !Array.isArray(body) ? body : {};
@@ -697,10 +720,7 @@ const start = async (): Promise<void> => {
       ) {
         const sessionKey = resolveOpenAiSessionKey(req);
         const step = nextOpenAiScriptStep(sessionKey);
-        const responsePayload =
-          step === 1
-            ? buildOpenAiSearchToolsResponse(sessionKey, step)
-            : buildOpenAiFinalResponse(sessionKey, step);
+        const responsePayload = buildOpenAiScriptResponse(sessionKey, step);
         requestLogger.capture({
           id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           at: new Date().toISOString(),

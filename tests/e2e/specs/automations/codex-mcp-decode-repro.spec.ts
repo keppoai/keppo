@@ -1,7 +1,9 @@
+import { readFile } from "node:fs/promises";
 import type { Locator } from "@playwright/test";
 import { test, expect } from "../../fixtures/golden.fixture";
 import { createConvexAdmin } from "../../helpers/convex-admin";
 import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
+import { serviceLogFileForWorker } from "../../infra/stack-manager";
 
 const clickElement = async (locator: Locator): Promise<void> => {
   await locator.evaluate((element) => (element as HTMLElement).click());
@@ -20,7 +22,7 @@ const setControlValue = async (locator: Locator, value: string): Promise<void> =
   }, value);
 };
 
-test("codex automation run reproduces MCP decode failure with fake OpenAI responses", async ({
+test("codex automation run completes after search_tools when fake OpenAI responses stream stays valid", async ({
   app,
   auth,
   pages,
@@ -39,10 +41,25 @@ test("codex automation run reproduces MCP decode failure with fake OpenAI respon
     "google",
     undefined,
     {
-      subscriptionTier: "starter",
+      subscriptionTier: "free",
     },
   );
   await pages.automations.setSelectedWorkspaceSlug(seeded.workspaceSlug);
+
+  const admin = createConvexAdmin(app);
+  const createdAutomation = (await admin.createAutomationForWorkspace({
+    orgId: seeded.orgId,
+    workspaceId: seeded.workspaceId,
+    name: `Codex MCP decode repro ${app.metadata.testId}`,
+    prompt: "Find the Gmail send-email tool with search_tools, then record the outcome.",
+  })) as {
+    created: {
+      automation: {
+        id: string;
+        slug: string;
+      };
+    };
+  };
 
   const settingsUrl = new URL(
     await resolveScopedDashboardPath(page, "/settings"),
@@ -59,21 +76,6 @@ test("codex automation run reproduces MCP decode failure with fake OpenAI respon
     page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
   ).toContainText("Active");
 
-  const admin = createConvexAdmin(app);
-  const createdAutomation = (await admin.createAutomationForWorkspace({
-    orgId: seeded.orgId,
-    workspaceId: seeded.workspaceId,
-    name: `Codex MCP decode repro ${app.metadata.testId}`,
-    prompt: "Use the available Gmail send-email tool to send a message.",
-  })) as {
-    created: {
-      automation: {
-        id: string;
-        slug: string;
-      };
-    };
-  };
-
   const createdRun = (await admin.createAutomationRun(
     createdAutomation.created.automation.id,
     "manual",
@@ -81,6 +83,7 @@ test("codex automation run reproduces MCP decode failure with fake OpenAI respon
 
   const dispatchResponse = await request.fetch(`${app.apiBaseUrl}/internal/automations/dispatch`, {
     method: "POST",
+    timeout: 120_000,
     headers: {
       ...(app.runtime.cronAuthorizationHeader
         ? { authorization: app.runtime.cronAuthorizationHeader }
@@ -93,7 +96,11 @@ test("codex automation run reproduces MCP decode failure with fake OpenAI respon
     }),
   });
 
-  expect(dispatchResponse.status()).toBe(200);
+  const dispatchResponseBody = await dispatchResponse.text();
+  expect(
+    dispatchResponse.status(),
+    `automation dispatch should succeed before the Codex/MCP repro. body=${dispatchResponseBody}`,
+  ).toBe(200);
 
   const runDetailUrl = new URL(
     await resolveScopedDashboardPath(
@@ -136,22 +143,74 @@ test("codex automation run reproduces MCP decode failure with fake OpenAI respon
 
   const run = await admin.getAutomationRun(createdRun.id);
   const logText = await readLogText();
-  const missingMarkers = [
-    "mcp startup: ready: keppo",
-    "tool keppo.search_tools",
-    "error decoding response body",
-  ].filter((marker) => !logText.includes(marker));
+
+  const readServiceLog = async (name: "dashboard" | "fake-gateway"): Promise<string> => {
+    try {
+      return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  let fakeGatewayLog = await readServiceLog("fake-gateway");
+  await expect
+    .poll(
+      async () => {
+        fakeGatewayLog = await readServiceLog("fake-gateway");
+        return fakeGatewayLog.includes("[fake-openai] path=/responses");
+      },
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe(true);
+
+  let dashboardLog = await readServiceLog("dashboard");
+  await expect
+    .poll(
+      async () => {
+        dashboardLog = await readServiceLog("dashboard");
+        return (
+          dashboardLog.includes('"msg":"mcp.tool_call.received"') &&
+          dashboardLog.includes('"msg":"mcp.search_tools.completed"')
+        );
+      },
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe(true);
 
   expect(
     {
       status: run?.status ?? null,
-      missingMarkers,
+      fakeGatewaySawResponses: fakeGatewayLog.includes("[fake-openai] path=/responses"),
+      fakeGatewaySawSearchToolsFunction: fakeGatewayLog.includes(
+        '"name":"mcp__keppo__search_tools"',
+      ),
+      fakeGatewaySawRecordOutcomeFunction: fakeGatewayLog.includes(
+        '"name":"mcp__keppo__record_outcome"',
+      ),
+      fakeGatewaySawFunctionOutputFollowUp: fakeGatewayLog.includes(
+        '"type":"function_call_output"',
+      ),
+      dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
+      dashboardSawSearchToolsCompleted: dashboardLog.includes('"msg":"mcp.search_tools.completed"'),
+      dashboardSawRecordOutcomeCall: dashboardLog.includes('"tool_name":"record_outcome"'),
+      hasStreamDisconnectError: logText.includes(
+        "stream disconnected before completion: stream closed before response.completed",
+      ),
+      hasAgentRecordedOutcome: logText.includes("Automation outcome (agent recorded): Success."),
       logText,
     },
-    "fake OpenAI repro did not hit the expected failing Codex/MCP path",
+    "fake OpenAI repro did not hit the expected successful Codex/MCP path",
   ).toEqual({
-    status: "failed",
-    missingMarkers: [],
+    status: "succeeded",
+    fakeGatewaySawResponses: true,
+    fakeGatewaySawSearchToolsFunction: true,
+    fakeGatewaySawRecordOutcomeFunction: true,
+    fakeGatewaySawFunctionOutputFollowUp: true,
+    dashboardSawToolCallReceived: true,
+    dashboardSawSearchToolsCompleted: true,
+    dashboardSawRecordOutcomeCall: true,
+    hasStreamDisconnectError: false,
+    hasAgentRecordedOutcome: true,
     logText,
   });
 });

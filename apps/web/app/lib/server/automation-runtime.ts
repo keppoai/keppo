@@ -641,6 +641,25 @@ export const handleInternalAutomationDispatchRequest = async (
       }
     }
 
+    deps.logger.info("automation.dispatch.runtime_configured", {
+      automation_id: context.automation.id,
+      automation_run_id: context.run.id,
+      workspace_id: context.automation.workspace_id,
+      runner_type: resolvedModel.runnerType,
+      ai_model_provider: resolvedModel.aiModelProvider,
+      ai_key_mode: authKeyMode,
+      network_access: context.config.network_access,
+      has_e2e_openai_base_url: Boolean(runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL),
+      has_openai_base_url: Boolean(runtimeEnv.OPENAI_BASE_URL),
+      has_openai_api_key: Boolean(runtimeEnv.OPENAI_API_KEY),
+      runner_uses_custom_openai_provider: runnerCommand.includes(
+        'model_provider="keppo_openai_api"',
+      ),
+      runner_bypasses_approvals: runnerCommand.includes(
+        "--dangerously-bypass-approvals-and-sandbox",
+      ),
+    });
+
     const dispatch = await sandbox.dispatch({
       bootstrap: {
         command: bootstrapCommand,

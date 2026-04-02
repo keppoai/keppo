@@ -31,6 +31,7 @@ This spec defines the canonical ownership of test layers. Operational commands, 
 - Provider work must keep the shared action catalog, registry snapshot, generated provider docs, and SDK compatibility checks aligned with the code.
 - Changes under `packages/shared/src/**` that feed subpath exports should rebuild `@keppo/shared` before dependent tests rely on `dist/`.
 - ARIA and backend goldens are the stable snapshot surfaces. Screenshots and traces are for debugging and visual review, not pass/fail assertions.
+- Fake OpenAI Responses transport regressions belong in targeted Playwright automation specs, and CI should run them from an existing shard with `KEPPO_E2E_OPENAI_RESPONSES_FAKE=1` unless isolation is genuinely required.
 
 ## Local browser policy
 
