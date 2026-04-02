@@ -55,6 +55,7 @@ import {
   addPurchasedCredits as addPurchasedCreditsImpl,
   addPurchasedAutomationRuns as addPurchasedAutomationRunsImpl,
   appendAutomationRunLog as appendAutomationRunLogImpl,
+  appendAutomationRunLogBatch as appendAutomationRunLogBatchImpl,
   deactivateBundledOrgAiKeys as deactivateBundledOrgAiKeysImpl,
   deductAiCredit as deductAiCreditImpl,
   getAutomationRunDispatchContext as getAutomationRunDispatchContextImpl,
@@ -1029,6 +1030,18 @@ export class ConvexInternalClient {
     eventData?: Record<string, unknown>;
   }): Promise<void> {
     return appendAutomationRunLogImpl(this.resilientClient, params);
+  }
+
+  async appendAutomationRunLogBatch(params: {
+    automationRunId: string;
+    lines: Array<{
+      level: AutomationRunLogLevel;
+      content: string;
+      eventType?: AutomationRunEventType;
+      eventData?: Record<string, unknown>;
+    }>;
+  }): Promise<void> {
+    return appendAutomationRunLogBatchImpl(this.resilientClient, params);
   }
 
   async getOrgAiKey(params: {

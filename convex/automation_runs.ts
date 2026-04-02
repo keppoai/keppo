@@ -644,16 +644,24 @@ const createAutomationRunInternal = async (
   return toAutomationRunView(requireAutomationRunShape(created));
 };
 
-const appendAutomationRunLogInternal = async (
+type LogLine = {
+  level: "stdout" | "stderr" | "system";
+  content: string;
+  event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+  event_data?: Record<string, unknown>;
+};
+
+const appendAutomationRunLogBatchInternal = async (
   ctx: MutationCtx,
   args: {
     automation_run_id: string;
-    level: "stdout" | "stderr" | "system";
-    content: string;
-    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
-    event_data?: Record<string, unknown>;
+    lines: LogLine[];
   },
 ) => {
+  if (args.lines.length === 0) {
+    return [];
+  }
+
   const run = await getAutomationRunById(ctx, args.automation_run_id);
   const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
     orgId: run.org_id,
@@ -662,8 +670,6 @@ const appendAutomationRunLogInternal = async (
   const maxLogBytes = getTierConfig(tier).automation_limits.max_log_bytes_per_run;
 
   const timestamp = nowIso();
-  const content = truncateToUtf8Bytes(args.content, 4096);
-  const lineBytes = utf8Bytes(content);
 
   const latest = await ctx.db
     .query("automation_run_logs")
@@ -686,15 +692,27 @@ const appendAutomationRunLogInternal = async (
   let logEvictionNoted = run.metadata?.log_eviction_noted === true;
   const evictionNotice = "Log ring buffer capacity reached; older lines were evicted.";
   const evictionNoticeBytes = utf8Bytes(evictionNotice);
+
+  // Pre-process all lines
+  const prepared = args.lines.map((line) => {
+    const content = truncateToUtf8Bytes(line.content, 4096);
+    return { ...line, content, bytes: utf8Bytes(content) };
+  });
+  const totalNewBytes = prepared.reduce((sum, p) => sum + p.bytes, 0);
+
+  // Evict once for the entire batch
   const reserveForNotice = logEvictionNoted ? 0 : evictionNoticeBytes;
-  const targetBeforeAppend = maxLogBytes - lineBytes - reserveForNotice;
+  const targetBeforeAppend = maxLogBytes - totalNewBytes - reserveForNotice;
 
   if (currentBytes > targetBeforeAppend) {
     let bytesToFree = currentBytes - Math.max(0, targetBeforeAppend);
+    // Estimate how many rows to fetch: assume average row ~128 bytes, fetch 2x
+    const estimatedRows = Math.max(50, Math.ceil((bytesToFree / 128) * 2));
     const oldestRows = await ctx.db
       .query("automation_run_logs")
       .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-      .collect();
+      .order("asc")
+      .take(estimatedRows);
 
     for (const row of oldestRows) {
       if (bytesToFree <= 0) {
@@ -720,17 +738,40 @@ const appendAutomationRunLogInternal = async (
     }
   }
 
-  await ctx.db.insert("automation_run_logs", {
-    automation_run_id: args.automation_run_id,
-    seq: nextSeq,
-    level: args.level,
-    content,
-    timestamp,
-    ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
-    ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
-  });
-  currentBytes += lineBytes;
+  // Insert all lines in one transaction
+  const results: Array<{
+    seq: number;
+    level: "stdout" | "stderr" | "system";
+    content: string;
+    timestamp: string;
+    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    event_data?: Record<string, any>;
+  }> = [];
 
+  for (const line of prepared) {
+    await ctx.db.insert("automation_run_logs", {
+      automation_run_id: args.automation_run_id,
+      seq: nextSeq,
+      level: line.level,
+      content: line.content,
+      timestamp,
+      ...(line.event_type !== undefined ? { event_type: line.event_type } : {}),
+      ...(line.event_data !== undefined ? { event_data: line.event_data } : {}),
+    });
+    results.push({
+      seq: nextSeq,
+      level: line.level,
+      content: line.content,
+      timestamp,
+      ...(line.event_type !== undefined ? { event_type: line.event_type } : {}),
+      ...(line.event_data !== undefined ? { event_data: line.event_data } : {}),
+    });
+    currentBytes += line.bytes;
+    nextSeq += 1;
+  }
+
+  // Patch automation_runs metadata once for the entire batch
   await ctx.db.patch(run._id, {
     metadata: {
       ...run.metadata,
@@ -740,14 +781,32 @@ const appendAutomationRunLogInternal = async (
     },
   });
 
-  return {
-    seq: nextSeq,
-    level: args.level,
-    content,
-    timestamp,
-    ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
-    ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
-  };
+  return results;
+};
+
+const appendAutomationRunLogInternal = async (
+  ctx: MutationCtx,
+  args: {
+    automation_run_id: string;
+    level: "stdout" | "stderr" | "system";
+    content: string;
+    event_type?: "system" | "automation_config" | "thinking" | "tool_call" | "output" | "error";
+    event_data?: Record<string, unknown>;
+  },
+) => {
+  const results = await appendAutomationRunLogBatchInternal(ctx, {
+    automation_run_id: args.automation_run_id,
+    lines: [
+      {
+        level: args.level,
+        content: args.content,
+        ...(args.event_type !== undefined ? { event_type: args.event_type } : {}),
+        ...(args.event_data !== undefined ? { event_data: args.event_data } : {}),
+      },
+    ],
+  });
+  // Single-element batch always produces exactly one result
+  return results[0]!;
 };
 
 const recordAutomationRunOutcomeInternal = async (
@@ -1126,6 +1185,24 @@ export const appendAutomationRunLog = internalMutation({
   returns: automationRunLogLineValidator,
   handler: async (ctx, args) => {
     return await appendAutomationRunLogInternal(ctx, args);
+  },
+});
+
+export const appendAutomationRunLogBatch = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    lines: v.array(
+      v.object({
+        level: automationRunLogLevelValidator,
+        content: v.string(),
+        event_type: v.optional(automationRunEventTypeValidator),
+        event_data: v.optional(jsonRecordValidator),
+      }),
+    ),
+  },
+  returns: v.array(automationRunLogLineValidator),
+  handler: async (ctx, args) => {
+    return await appendAutomationRunLogBatchInternal(ctx, args);
   },
 });
 

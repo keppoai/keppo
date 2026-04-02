@@ -60,6 +60,7 @@ const SECURITY_HEADER_VALUES = {
 type StartOwnedAutomationRuntimeConvex = Pick<
   ConvexInternalClient,
   | "appendAutomationRunLog"
+  | "appendAutomationRunLogBatch"
   | "createRun"
   | "deductAiCredit"
   | "getAiCreditBalance"
@@ -741,13 +742,17 @@ export const handleInternalAutomationLogRequest = async (
   }
 
   const limited = payload.lines.slice(0, 200);
-  for (const line of limited) {
-    await deps.convex.appendAutomationRunLog({
+  const BATCH_SIZE = 50;
+  for (let i = 0; i < limited.length; i += BATCH_SIZE) {
+    const chunk = limited.slice(i, i + BATCH_SIZE);
+    await deps.convex.appendAutomationRunLogBatch({
       automationRunId: payload.automation_run_id,
-      level: line.level,
-      content: line.content,
-      ...(line.event_type !== undefined ? { eventType: line.event_type } : {}),
-      ...(line.event_data !== undefined ? { eventData: line.event_data } : {}),
+      lines: chunk.map((line) => ({
+        level: line.level,
+        content: line.content,
+        ...(line.event_type !== undefined ? { eventType: line.event_type } : {}),
+        ...(line.event_data !== undefined ? { eventData: line.event_data } : {}),
+      })),
     });
   }
 
