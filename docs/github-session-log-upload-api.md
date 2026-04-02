@@ -16,35 +16,35 @@ This API is only for machine-to-machine uploads from trusted GitHub Actions work
 
 It is not a user-facing API and should fail closed for missing or malformed auth, metadata, or file content.
 
-## Recommended endpoint
+The deployed implementation uses a Vercel-compatible two-step flow:
+
+- `POST /upload` with JSON to validate the manifest and mint short-lived direct-upload tokens
+- Direct private Blob uploads from the workflow caller
+- `POST /upload/complete` with JSON to verify uploaded blobs and register artifact metadata
+
+## Recommended endpoints
 
 - Method: `POST`
 - URL: `https://agent-logs.keppo.ai/upload`
 - Auth header: `Authorization: Bearer <KEPPO_SESSION_LOG_UPLOAD_TOKEN>`
-- Content type: `multipart/form-data`
+- Content type: `application/json`
+
+- Method: `POST`
+- URL: `https://agent-logs.keppo.ai/upload/complete`
+- Auth header: `Authorization: Bearer <KEPPO_SESSION_LOG_UPLOAD_TOKEN>`
+- Content type: `application/json`
 
 `Authorization: Bearer` is preferable to a custom header because it is standard, easy to handle in curl, and matches existing internal-route conventions.
 
-## Why `multipart/form-data`
+## Why a two-step direct upload flow
 
-The current GitHub workflow uploads raw session-log `.json` and `.jsonl` files discovered after a marker file. For Codex, that means files under the `sessions/` subtree of `CODEX_HOME`; additional non-session uploads must come from explicit extra roots. A multipart request keeps file bytes raw instead of base64-encoding them into JSON, which avoids a 33% payload expansion and is simpler to stream and size-limit safely.
+The current GitHub workflow uploads raw session-log `.json` and `.jsonl` files discovered after a marker file. For Codex, that means files under the `sessions/` subtree of `CODEX_HOME`; additional non-session uploads must come from explicit extra roots. Because Vercel Functions cap inbound request bodies at `4.5 MB`, the service validates only the manifest in the function, then has the workflow upload file bytes directly to private Blob pathnames using short-lived client tokens.
 
-## Request contract
+## Prepare request contract
 
-The request contains:
+The prepare request contains one JSON body with `manifest`.
 
-- One `manifest` part with `Content-Type: application/json`
-- One file part per uploaded session log
-
-### Multipart parts
-
-- `manifest`
-- `file_0`
-- `file_1`
-- `file_2`
-- ...
-
-Each file entry in the manifest references its matching multipart part by name.
+The completion request uses the same JSON shape after any `upload_required` files have been uploaded directly to Blob.
 
 ## Manifest schema
 
@@ -173,7 +173,7 @@ The service should fail closed and reject the request if any of the following is
 Recommended initial limits:
 
 - Max files per request: `50`
-- Max total file bytes per request: `50 MiB`
+- Max total file bytes per request: `100 MiB`
 - Max single file size: `10 MiB`
 - Max manifest size: `256 KiB`
 
@@ -309,8 +309,10 @@ The GitHub-side uploader should:
 - Discover new session-log `.json` and `.jsonl` files after the marker file.
 - For Codex uploads, only include files under the `sessions/` subtree of `CODEX_HOME`.
 - Keep any intentionally uploaded non-session files on explicit extra roots rather than broadening the default agent-home scan.
-- Keep the existing caps of `50` files and `50 MiB` total.
-- Build one multipart request per workflow run instead of one PUT per file.
+- Keep the existing caps of `50` files and `100 MiB` total.
+- Call `POST /upload` with the manifest to get per-file direct-upload tokens.
+- Upload each `upload_required` file directly to Vercel Blob using the returned private pathname and client token.
+- Call `POST /upload/complete` with the same manifest after uploads finish.
 - Generate `upload_id` once per request.
 - Compute `sha256_hex` and `size_bytes` for every file before sending.
 - Emit the returned `viewer_url` into the GitHub step summary and use `artifact_id` or `storage_key` only as supporting metadata.

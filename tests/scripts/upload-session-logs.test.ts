@@ -7,31 +7,87 @@ import { afterEach, describe, expect, it } from "vitest";
 const scriptPath = join(process.cwd(), "scripts/issue-agent/upload-session-logs.sh");
 const cleanupPaths: string[] = [];
 
-function makeFakeCurlBin(capturedManifestPath: string) {
+function makeFakeCurlBin(
+  capturedPreparePath: string,
+  capturedCompletePath: string,
+  capturedBlobUploadPath: string,
+) {
   const dir = mkdtempSync(join(tmpdir(), "upload-session-logs-bin-"));
   const fakeCurlPath = join(dir, "curl");
   writeFileSync(
     fakeCurlPath,
     `#!/usr/bin/env bash
 set -euo pipefail
-captured_manifest_path="${capturedManifestPath}"
-manifest=""
-for arg in "$@"; do
+captured_prepare_path="${capturedPreparePath}"
+captured_complete_path="${capturedCompletePath}"
+captured_blob_upload_path="${capturedBlobUploadPath}"
+method="GET"
+url=""
+data_file=""
+auth_header=""
+for ((i=1; i <= $#; i++)); do
+  arg="\${!i}"
   case "$arg" in
-    --form)
+    --request)
+      j=$((i + 1))
+      method="\${!j}"
       ;;
-    manifest=@*)
-      manifest="\${arg#manifest=@}"
-      manifest="\${manifest%%;type=*}"
+    --url)
+      j=$((i + 1))
+      url="\${!j}"
+      ;;
+    --data-binary)
+      j=$((i + 1))
+      data_file="\${!j}"
+      ;;
+    --header)
+      j=$((i + 1))
+      header_value="\${!j}"
+      if [[ "$header_value" == Authorization:* ]]; then
+        auth_header="$header_value"
+      fi
       ;;
   esac
 done
-if [[ -z "$manifest" ]]; then
-  echo "manifest form part not found" >&2
-  exit 88
+
+if [[ "$method" == "POST" && "$url" == "https://agent-logs.keppo.ai/upload" ]]; then
+  data_file="\${data_file#@}"
+  cp "$data_file" "$captured_prepare_path"
+  cat <<'JSON'
+{
+  "status": "prepared",
+  "complete_url": "https://agent-logs.keppo.ai/upload/complete",
+  "files": [
+    {
+      "part_name": "file_0",
+      "relative_path": "sessions/session-2026-03-31T22-00-00.jsonl",
+      "status": "upload_required",
+      "upload_path": "system/pending-uploads/upload-test/file_0-sha-session.jsonl",
+      "client_token": "vercel_blob_client_test_token"
+    }
+  ]
+}
+JSON
+  exit 0
 fi
-cp "$manifest" "$captured_manifest_path"
-cat <<'JSON'
+
+if [[ "$method" == "PUT" && "$url" == "https://vercel.com/api/blob?pathname=system%2Fpending-uploads%2Fupload-test%2Ffile_0-sha-session.jsonl" ]]; then
+  data_file="\${data_file#@}"
+  cp "$data_file" "$captured_blob_upload_path"
+  if [[ "$auth_header" != "Authorization: Bearer vercel_blob_client_test_token" ]]; then
+    echo "unexpected blob auth header: $auth_header" >&2
+    exit 89
+  fi
+  cat <<'JSON'
+{"url":"https://blob.example.test/private","pathname":"system/pending-uploads/upload-test/file_0-sha-session.jsonl"}
+JSON
+  exit 0
+fi
+
+if [[ "$method" == "POST" && "$url" == "https://agent-logs.keppo.ai/upload/complete" ]]; then
+  data_file="\${data_file#@}"
+  cp "$data_file" "$captured_complete_path"
+  cat <<'JSON'
 {
   "status": "accepted",
   "files": [
@@ -44,6 +100,11 @@ cat <<'JSON'
   ]
 }
 JSON
+  exit 0
+fi
+
+echo "unexpected curl invocation: method=$method url=$url" >&2
+exit 90
 `,
   );
   chmodSync(fakeCurlPath, 0o755);
@@ -77,8 +138,14 @@ describe("scripts/issue-agent/upload-session-logs.sh", () => {
     writeFileSync(pluginJsonPath, '{"junk":"plugin metadata"}\n');
 
     const commentPath = join(workDir, "session-log-comment.md");
-    const capturedManifestPath = join(workDir, "captured-manifest.json");
-    const fakeCurlBin = makeFakeCurlBin(capturedManifestPath);
+    const capturedPreparePath = join(workDir, "captured-prepare.json");
+    const capturedCompletePath = join(workDir, "captured-complete.json");
+    const capturedBlobUploadPath = join(workDir, "captured-blob-upload.jsonl");
+    const fakeCurlBin = makeFakeCurlBin(
+      capturedPreparePath,
+      capturedCompletePath,
+      capturedBlobUploadPath,
+    );
 
     const result = spawnSync("bash", [scriptPath], {
       cwd: workDir,
@@ -100,11 +167,24 @@ describe("scripts/issue-agent/upload-session-logs.sh", () => {
 
     expect(result.status).toBe(0);
 
-    const manifest = JSON.parse(readFileSync(capturedManifestPath, "utf8")) as {
-      files: Array<{ relative_path: string }>;
+    const prepareRequest = JSON.parse(readFileSync(capturedPreparePath, "utf8")) as {
+      manifest: { files: Array<{ relative_path: string }> };
     };
-    expect(manifest.files).toHaveLength(1);
-    expect(manifest.files[0]?.relative_path).toBe("sessions/session-2026-03-31T22-00-00.jsonl");
+    expect(prepareRequest.manifest.files).toHaveLength(1);
+    expect(prepareRequest.manifest.files[0]?.relative_path).toBe(
+      "sessions/session-2026-03-31T22-00-00.jsonl",
+    );
+
+    const completeRequest = JSON.parse(readFileSync(capturedCompletePath, "utf8")) as {
+      manifest: { files: Array<{ relative_path: string }> };
+    };
+    expect(completeRequest.manifest.files).toHaveLength(1);
+    expect(completeRequest.manifest.files[0]?.relative_path).toBe(
+      "sessions/session-2026-03-31T22-00-00.jsonl",
+    );
+
+    const blobUploadBody = readFileSync(capturedBlobUploadPath, "utf8");
+    expect(blobUploadBody).toContain('{"event":"session"}');
 
     const commentBody = readFileSync(commentPath, "utf8");
     expect(commentBody).toContain("`sessions/session-2026-03-31T22-00-00.jsonl`");

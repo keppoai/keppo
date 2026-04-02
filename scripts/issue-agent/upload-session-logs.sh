@@ -23,7 +23,7 @@ if [[ -z "${KEPPO_SESSION_LOG_UPLOAD_URL:-}" || -z "${KEPPO_SESSION_LOG_UPLOAD_T
 fi
 
 MAX_LOG_FILES="${MAX_LOG_FILES:-50}"
-MAX_LOG_BYTES="${MAX_LOG_BYTES:-52428800}"
+MAX_LOG_BYTES="${MAX_LOG_BYTES:-104857600}"
 MAX_MANIFEST_BYTES="${MAX_MANIFEST_BYTES:-262144}"
 UPLOAD_TIMEOUT_SECONDS="${UPLOAD_TIMEOUT_SECONDS:-120}"
 
@@ -45,7 +45,8 @@ write_summary_error() {
 redact_upload_output() {
   sed -E \
     -e 's/(KEPPO_SESSION_LOG_UPLOAD_TOKEN=)[^[:space:]]+/\1[REDACTED]/g' \
-    -e 's/(Authorization:[[:space:]]*Bearer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/Ig'
+    -e 's/(Authorization:[[:space:]]*Bearer[[:space:]]+)[^[:space:]]+/\1[REDACTED]/Ig' \
+    -e 's/vercel_blob_client_[A-Za-z0-9_=-]+/[REDACTED_CLIENT_TOKEN]/g'
 }
 
 emit_upload_output() {
@@ -122,6 +123,10 @@ cleanup_paths+=("${tmp_dir}")
 manifest_entries_path="${tmp_dir}/manifest-files.jsonl"
 manifest_path="${tmp_dir}/manifest.json"
 response_path="${tmp_dir}/response.json"
+prepare_response_path="${tmp_dir}/prepare-response.json"
+complete_response_path="${tmp_dir}/complete-response.json"
+prepare_curl_log_path="${tmp_dir}/prepare-curl.log"
+complete_curl_log_path="${tmp_dir}/complete-curl.log"
 curl_log_path="${tmp_dir}/curl.log"
 session_log_comment_path="${SESSION_LOG_COMMENT_PATH:-}"
 
@@ -192,16 +197,6 @@ github_run_number_value="${GITHUB_RUN_NUMBER:-0}"
 issue_number_value="${ISSUE_NUMBER:-}"
 pull_request_number_value="${PULL_REQUEST_NUMBER:-}"
 
-declare -a curl_args=(
-  --silent
-  --show-error
-  --fail-with-body
-  --max-time "${UPLOAD_TIMEOUT_SECONDS}"
-  --request POST
-  --url "${KEPPO_SESSION_LOG_UPLOAD_URL}"
-  --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}"
-)
-
 for index in "${!files[@]}"; do
   file_entry="${files[$index]}"
   root_label="${file_entry%%:*}"
@@ -246,7 +241,6 @@ for index in "${!files[@]}"; do
       sha256_hex: $sha256_hex
     }' >> "${manifest_entries_path}"
 
-  curl_args+=(--form "${part_name}=@${file};type=${content_type};filename=${filename}")
 done
 
 jq -n \
@@ -320,34 +314,244 @@ if (( manifest_bytes > MAX_MANIFEST_BYTES )); then
   exit 1
 fi
 
-curl_args+=(--form "manifest=@${manifest_path};type=application/json")
+prepare_request_path="${tmp_dir}/prepare-request.json"
+jq -n \
+  --slurpfile manifest "${manifest_path}" \
+  '{ manifest: $manifest[0] }' > "${prepare_request_path}"
 
 set +e
-curl "${curl_args[@]}" > "${response_path}" 2> "${curl_log_path}"
-status=$?
+curl \
+  --silent \
+  --show-error \
+  --fail-with-body \
+  --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
+  --request POST \
+  --url "${KEPPO_SESSION_LOG_UPLOAD_URL}" \
+  --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
+  --header "Content-Type: application/json" \
+  --data-binary "@${prepare_request_path}" \
+  > "${prepare_response_path}" 2> "${prepare_curl_log_path}"
+prepare_status=$?
 set -e
 
-raw_output="$(cat "${response_path}" 2>/dev/null)"
-curl_stderr="$(cat "${curl_log_path}" 2>/dev/null)"
-emit_upload_output "${curl_stderr}" "${status}"
+prepare_raw_output="$(cat "${prepare_response_path}" 2>/dev/null)"
+prepare_curl_stderr="$(cat "${prepare_curl_log_path}" 2>/dev/null)"
+emit_upload_output "${prepare_curl_stderr}" "${prepare_status}"
 
-if [[ ${status} -ne 0 ]]; then
-  error_message="Session log upload request failed."
+if [[ ${prepare_status} -ne 0 ]]; then
+  error_message="Session log prepare request failed."
   echo "${error_message}" >&2
   write_summary_error "${error_message}"
-  if [[ -n "${raw_output}" ]]; then
-    emit_upload_output "${raw_output}" "${status}"
+  if [[ -n "${prepare_raw_output}" ]]; then
+    emit_upload_output "${prepare_raw_output}" "${prepare_status}"
   fi
   exit 1
 fi
 
-if ! jq -e . >/dev/null 2>&1 < "${response_path}"; then
-  error_message="Session log upload returned non-JSON output."
+if ! jq -e . >/dev/null 2>&1 < "${prepare_response_path}"; then
+  error_message="Session log prepare returned non-JSON output."
   echo "${error_message}" >&2
   write_summary_error "${error_message}"
-  emit_upload_output "${raw_output}" 1
+  emit_upload_output "${prepare_raw_output}" 1
   exit 1
 fi
+
+prepare_validation_error="$(
+  jq -r '
+    if (.status // "") == "accepted" then
+      (
+        if (.files | type) != "array" or (.files | length) == 0 then
+          "missing files array"
+        else
+          (
+            .files
+            | map(
+                if (.status != "stored" and .status != "duplicate") then
+                  "unexpected file status " + (.status // "null") + " for " + (.part_name // .relative_path // "unknown part")
+                elif ((.viewer_url // "") == "") then
+                  "missing viewer_url for " + (.part_name // .relative_path // "unknown part")
+                else
+                  empty
+                end
+              )
+            | first
+          ) // ""
+        end
+      )
+    elif (.status // "") != "prepared" then
+      "missing prepared status"
+    elif ((.complete_url // "") == "") then
+      "missing complete_url"
+    elif (.files | type) != "array" or (.files | length) == 0 then
+      "missing files array"
+    else
+      (
+        .files
+        | map(
+            if (.status != "upload_required" and .status != "duplicate") then
+              "unexpected file status " + (.status // "null") + " for " + (.part_name // .relative_path // "unknown part")
+            elif (.status == "upload_required" and ((.upload_path // "") == "" or (.client_token // "") == "")) then
+              "missing upload details for " + (.part_name // .relative_path // "unknown part")
+            elif (.status == "duplicate" and ((.viewer_url // "") == "")) then
+              "missing viewer_url for " + (.part_name // .relative_path // "unknown part")
+            else
+              empty
+            end
+          )
+        | first
+      ) // ""
+    end
+  ' "${prepare_response_path}"
+)"
+if [[ -n "${prepare_validation_error}" ]]; then
+  error_message="Session log prepare response validation failed: ${prepare_validation_error}"
+  echo "${error_message}" >&2
+  write_summary_error "${error_message}"
+  emit_upload_output "${prepare_raw_output}" 1
+  exit 1
+fi
+
+prepare_status_value="$(jq -r '.status // ""' "${prepare_response_path}")"
+
+if [[ "${prepare_status_value}" == "accepted" ]]; then
+  cp "${prepare_response_path}" "${response_path}"
+else
+  while IFS=$'\t' read -r part_name upload_path upload_token; do
+    local_file=""
+    entry_relative_path="$(
+      jq -r --arg part_name "${part_name}" '
+        .files[]
+        | select(.part_name == $part_name)
+        | .relative_path
+      ' "${manifest_path}"
+    )"
+    upload_content_type="$(
+      jq -r --arg part_name "${part_name}" '
+        .files[]
+        | select(.part_name == $part_name)
+        | .content_type
+      ' "${manifest_path}"
+    )"
+
+    if [[ -z "${entry_relative_path}" || "${entry_relative_path}" == "null" ]]; then
+      error_message="Unable to resolve manifest metadata for ${part_name}."
+      echo "${error_message}" >&2
+      write_summary_error "${error_message}"
+      emit_upload_output "${prepare_raw_output}" 1
+      exit 1
+    fi
+
+    for file_entry in "${files[@]}"; do
+      entry_remainder="${file_entry#*:}"
+      entry_remainder="${entry_remainder#*:}"
+      entry_file="${entry_remainder%:*}"
+      file_root="${file_entry#*:}"
+      file_root="${file_root%%:*}"
+      if [[ "${entry_file#${file_root}/}" == "${entry_relative_path}" ]]; then
+        local_file="${entry_file}"
+        break
+      fi
+    done
+
+    if [[ -z "${local_file}" ]]; then
+      error_message="Unable to map upload response part ${part_name} to a local file."
+      echo "${error_message}" >&2
+      write_summary_error "${error_message}"
+      emit_upload_output "${prepare_raw_output}" 1
+      exit 1
+    fi
+
+    set +e
+    curl \
+      --silent \
+      --show-error \
+      --fail-with-body \
+      --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
+      --request PUT \
+      --url "https://vercel.com/api/blob?pathname=$(printf '%s' "${upload_path}" | jq -sRr @uri)" \
+      --header "Authorization: Bearer ${upload_token}" \
+      --header "x-vercel-blob-access: private" \
+      --header "x-content-type: ${upload_content_type}" \
+      --data-binary "@${local_file}" \
+      > /dev/null 2> "${curl_log_path}"
+    upload_status=$?
+    set -e
+
+    curl_stderr="$(cat "${curl_log_path}" 2>/dev/null)"
+    emit_upload_output "${curl_stderr}" "${upload_status}"
+    if [[ ${upload_status} -ne 0 ]]; then
+      error_message="Direct Blob upload failed for ${part_name}."
+      echo "${error_message}" >&2
+      write_summary_error "${error_message}"
+      exit 1
+    fi
+  done < <(
+    jq -r '
+      .files[]
+      | select(.status == "upload_required")
+      | [
+          (.part_name // ""),
+          (.upload_path // ""),
+          (.client_token // "")
+        ]
+      | @tsv
+    ' "${prepare_response_path}"
+  )
+
+  complete_url="$(
+    jq -r '
+      if (.complete_url // "") != "" then
+        .complete_url
+      else
+        empty
+      end
+    ' "${prepare_response_path}"
+  )"
+  if [[ -z "${complete_url}" ]]; then
+    complete_url="${KEPPO_SESSION_LOG_UPLOAD_URL%/}/complete"
+  fi
+
+  set +e
+  curl \
+    --silent \
+    --show-error \
+    --fail-with-body \
+    --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
+    --request POST \
+    --url "${complete_url}" \
+    --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
+    --header "Content-Type: application/json" \
+    --data-binary "@${prepare_request_path}" \
+    > "${complete_response_path}" 2> "${complete_curl_log_path}"
+  complete_status=$?
+  set -e
+
+  complete_raw_output="$(cat "${complete_response_path}" 2>/dev/null)"
+  complete_curl_stderr="$(cat "${complete_curl_log_path}" 2>/dev/null)"
+  emit_upload_output "${complete_curl_stderr}" "${complete_status}"
+
+  if [[ ${complete_status} -ne 0 ]]; then
+    error_message="Session log completion request failed."
+    echo "${error_message}" >&2
+    write_summary_error "${error_message}"
+    if [[ -n "${complete_raw_output}" ]]; then
+      emit_upload_output "${complete_raw_output}" "${complete_status}"
+    fi
+    exit 1
+  fi
+
+  if ! jq -e . >/dev/null 2>&1 < "${complete_response_path}"; then
+    error_message="Session log completion returned non-JSON output."
+    echo "${error_message}" >&2
+    write_summary_error "${error_message}"
+    emit_upload_output "${complete_raw_output}" 1
+    exit 1
+  fi
+
+  cp "${complete_response_path}" "${response_path}"
+fi
+
+raw_output="$(cat "${response_path}" 2>/dev/null)"
 
 response_validation_error="$(
   jq -r '
