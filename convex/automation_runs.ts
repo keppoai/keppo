@@ -311,6 +311,20 @@ const getAutomationRunById = async (
   return requireAutomationRunShape(run);
 };
 
+const getAutomationRunDispatchTokenHash = (run: AutomationRunRow): string | null => {
+  const value = run.metadata.dispatch_token_hash;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const clearAutomationRunDispatchTokenMetadata = (
+  metadata: Record<string, unknown>,
+): Record<string, unknown> => {
+  const nextMetadata = { ...metadata };
+  delete nextMetadata.dispatch_token_hash;
+  delete nextMetadata.dispatch_token_issued_at;
+  return nextMetadata;
+};
+
 const runPeriod = (
   subscription:
     | {
@@ -1107,6 +1121,106 @@ export const getAutomationRunDispatchContext = internalQuery({
     if (!config) {
       return null;
     }
+    const configView = toAutomationConfigVersionView(config);
+
+    return {
+      run: toAutomationRunView(run),
+      automation: {
+        id: automation.id,
+        org_id: automation.org_id,
+        workspace_id: automation.workspace_id,
+        name: automation.name,
+        status: automation.status,
+      },
+      config: {
+        id: configView.id,
+        automation_id: configView.automation_id,
+        trigger_type: configView.trigger_type,
+        schedule_cron: configView.schedule_cron,
+        provider_trigger: configView.provider_trigger,
+        provider_trigger_migration_state: configView.provider_trigger_migration_state,
+        event_provider: configView.event_provider,
+        event_type: configView.event_type,
+        event_predicate: configView.event_predicate,
+        model_class: configView.model_class,
+        runner_type: configView.runner_type,
+        ai_model_provider: configView.ai_model_provider,
+        ai_model_name: configView.ai_model_name,
+        prompt: configView.prompt,
+        network_access: configView.network_access,
+      },
+    };
+  },
+});
+
+export const issueAutomationRunDispatchToken = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    dispatch_token_hash: v.string(),
+  },
+  returns: v.null(),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("automation_runs")
+      .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+      .unique();
+    if (!row) {
+      throw new Error("AutomationRunNotFound");
+    }
+    const run = requireAutomationRunShape(row);
+
+    await ctx.db.patch(row._id, {
+      metadata: {
+        ...clearAutomationRunDispatchTokenMetadata(run.metadata),
+        dispatch_token_hash: args.dispatch_token_hash,
+        dispatch_token_issued_at: nowIso(),
+      },
+    });
+
+    return null;
+  },
+});
+
+export const claimAutomationRunDispatchContext = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    dispatch_token_hash: v.string(),
+  },
+  returns: v.union(automationRunDispatchContextValidator, v.null()),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("automation_runs")
+      .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+      .unique();
+    if (!row) {
+      return null;
+    }
+    const run = requireAutomationRunShape(row);
+    const expectedDispatchTokenHash = getAutomationRunDispatchTokenHash(run);
+    if (!expectedDispatchTokenHash || expectedDispatchTokenHash !== args.dispatch_token_hash) {
+      return null;
+    }
+
+    const automation = await ctx.db
+      .query("automations")
+      .withIndex("by_custom_id", (q) => q.eq("id", run.automation_id))
+      .unique();
+    if (!automation) {
+      return null;
+    }
+
+    const config = await ctx.db
+      .query("automation_config_versions")
+      .withIndex("by_custom_id", (q) => q.eq("id", run.config_version_id))
+      .unique();
+    if (!config) {
+      return null;
+    }
+
+    await ctx.db.patch(row._id, {
+      metadata: clearAutomationRunDispatchTokenMetadata(run.metadata),
+    });
+
     const configView = toAutomationConfigVersionView(config);
 
     return {

@@ -38,6 +38,7 @@ const createDeps = () => {
   const convex = {
     appendAutomationRunLog: vi.fn().mockResolvedValue(undefined),
     appendAutomationRunLogBatch: vi.fn().mockResolvedValue(undefined),
+    claimAutomationRunDispatchContext: vi.fn().mockResolvedValue(null),
     createRun: vi.fn().mockResolvedValue({ id: "run_test" }),
     deductAiCredit: vi.fn().mockResolvedValue({
       org_id: "org_test",
@@ -201,7 +202,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_dispatch_test",
         automation_id: "automation_dispatch_test",
@@ -247,13 +248,17 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_dispatch_test" },
+        { automation_run_id: "arun_dispatch_test", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
     );
 
     expect(response.status).toBe(200);
+    expect(deps.convex.claimAutomationRunDispatchContext).toHaveBeenCalledWith({
+      automationRunId: "arun_dispatch_test",
+      dispatchToken: "dispatch_token_test",
+    });
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg).toMatchObject({
       bootstrap: {
@@ -308,7 +313,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_legacy_oauth_test",
         automation_id: "automation_legacy_oauth_test",
@@ -359,7 +364,7 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_legacy_oauth_test" },
+        { automation_run_id: "arun_legacy_oauth_test", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -384,7 +389,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_web_access_test",
         automation_id: "automation_web_access_test",
@@ -431,7 +436,7 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_web_access_test" },
+        { automation_run_id: "arun_web_access_test", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -474,7 +479,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_test",
         automation_id: "automation_bundled_test",
@@ -520,7 +525,7 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_bundled_test" },
+        { automation_run_id: "arun_bundled_test", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -564,7 +569,7 @@ describe("start-owned automation runtime handlers", () => {
       total_available: 100,
       bundled_runtime_enabled: true,
     });
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_missing_key",
         automation_id: "automation_bundled_missing_key",
@@ -594,7 +599,10 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_bundled_missing_key" },
+        {
+          automation_run_id: "arun_bundled_missing_key",
+          dispatch_token: "dispatch_token_test",
+        },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -640,7 +648,7 @@ describe("start-owned automation runtime handlers", () => {
       total_available: 0,
       bundled_runtime_enabled: false,
     });
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_free_bundled",
         automation_id: "automation_free_bundled",
@@ -669,7 +677,7 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_free_bundled" },
+        { automation_run_id: "arun_free_bundled", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -720,7 +728,7 @@ describe("start-owned automation runtime handlers", () => {
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
     deps.convex.deductAiCredit.mockRejectedValueOnce(new Error(AI_CREDIT_ERROR_CODE.limitReached));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_fallback",
         automation_id: "automation_bundled_fallback",
@@ -766,7 +774,7 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_bundled_fallback" },
+        { automation_run_id: "arun_bundled_fallback", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -798,7 +806,7 @@ describe("start-owned automation runtime handlers", () => {
       bundled_runtime_enabled: true,
     });
     vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("MCP preflight failed"));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_preflight_failure",
         automation_id: "automation_bundled_preflight_failure",
@@ -844,7 +852,10 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_bundled_preflight_failure" },
+        {
+          automation_run_id: "arun_bundled_preflight_failure",
+          dispatch_token: "dispatch_token_test",
+        },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -1036,7 +1047,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_dispatch_test",
         automation_id: "automation_dispatch_test",
@@ -1082,7 +1093,7 @@ describe("start-owned automation runtime handlers", () => {
     await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_dispatch_test" },
+        { automation_run_id: "arun_dispatch_test", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -1150,7 +1161,7 @@ describe("start-owned automation runtime handlers", () => {
     const handled = await dispatchStartOwnedAutomationRuntimeRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_test" },
+        { automation_run_id: "arun_test", dispatch_token: "dispatch_token_test" },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -1162,5 +1173,29 @@ describe("start-owned automation runtime handlers", () => {
 
     expect(handled?.status).toBe(404);
     expect(forwarded).toBeNull();
+  });
+
+  it("rejects dispatches without a valid per-run dispatch token", async () => {
+    const deps = createDeps();
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_dispatch_test", dispatch_token: "wrong_token" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(404);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "run_not_found",
+    });
+    expect(deps.convex.claimAutomationRunDispatchContext).toHaveBeenCalledWith({
+      automationRunId: "arun_dispatch_test",
+      dispatchToken: "wrong_token",
+    });
+    expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
   });
 });

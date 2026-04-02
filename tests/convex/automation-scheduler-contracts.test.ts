@@ -115,9 +115,13 @@ describe("automation scheduler contract boundaries", () => {
       "http://scheduler.test/internal/automations/dispatch",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ automation_run_id: run.id }),
+        body: expect.any(String),
       }),
     );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      automation_run_id: run.id,
+      dispatch_token: expect.any(String),
+    });
     const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(dispatchHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
   });
@@ -194,9 +198,13 @@ describe("automation scheduler contract boundaries", () => {
       "https://keppo.ai/internal/automations/dispatch",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ automation_run_id: run.id }),
+        body: expect.any(String),
       }),
     );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      automation_run_id: run.id,
+      dispatch_token: expect.any(String),
+    });
     const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(dispatchHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
   });

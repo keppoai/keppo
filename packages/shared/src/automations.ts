@@ -524,6 +524,7 @@ export const AUTOMATION_ROUTE_ERROR_CODES = [
   "invalid_hex",
   "invalid_ciphertext",
   "missing_automation_run_id",
+  "missing_dispatch_token",
   "invalid_automation_run_terminal_status",
   "missing_workspace_id",
   "missing_user_description",

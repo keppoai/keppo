@@ -11,7 +11,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 | Invites and notifications  | `POST /api/invites/create`, `POST /api/invites/accept`, `POST /api/notifications/push/subscribe`                                                                                                                                                   |
 | Provider auth and webhooks | `POST /api/oauth/integrations/:provider/connect`, `GET /oauth/integrations/:provider/callback`, `POST /webhooks/:provider`                                                                                                                         |
 | MCP                        | `GET                                                                                                                                                                                                                                               | POST | DELETE /mcp/:workspaceId` |
-| Automations                | `POST /api/automations/generate-questions`, `POST /api/automations/generate-prompt`, `GET /api/automations/openai/connect`, `GET /api/automations/openai/callback`, `POST /api/automations/openai/complete`                                         |
+| Automations                | `POST /api/automations/generate-questions`, `POST /api/automations/generate-prompt`, `GET /api/automations/openai/connect`, `GET /api/automations/openai/callback`, `POST /api/automations/openai/complete`                                        |
 
 ## Internal and operator routes
 
@@ -72,6 +72,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 - Boundary parse failures for OAuth/webhook/internal queue ingress use the shared boundary envelope contract (`boundaryErrorEnvelopeSchema`) so responses include deterministic `error.code`, `error.message`, `error.source`, `error.issues[]`, and optional `error.provider`.
 - Route-local JSON decoding should go through the shared JSON helpers before schema validation; API handlers should not rely on `JSON.parse(...) as ...` at the route edge.
 - High-risk ingress routes (`/oauth/integrations/*`, `/webhooks/*`, `/mcp/*`, `/internal/*`) enforce request-body caps on actual bytes read, not just declared `Content-Length`, and return `413 payload_too_large` envelopes when limits are exceeded.
+- `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the requested `automation_run_id`; requests that cannot claim that token fail closed before any org AI keys are loaded.
 - OAuth connect/callback routes run through one canonical provider resolution path (`/oauth/integrations/:provider/*`).
 - OAuth connect/callback provider behavior is dispatched through shared provider-module hooks (`buildAuthRequest`, `exchangeCredentials`) in `packages/shared/src/providers.ts`, not API-local provider maps.
 - MCP route payloads parse JSON-RPC request envelopes and `tools/call` parameter envelopes through shared contracts before any tool dispatch.

@@ -747,14 +747,32 @@ export const preflightMcpServer = async (
   }).catch(() => undefined);
 };
 
-export const parseDispatchPayload = (value: unknown): { automation_run_id: string } => {
+const parseAutomationRunId = (value: unknown): string => {
   const body = value as Record<string, unknown>;
   const automationRunId =
     typeof body.automation_run_id === "string" ? body.automation_run_id.trim() : "";
   if (automationRunId.length === 0) {
     throw createAutomationRouteError("missing_automation_run_id", "automation_run_id is required");
   }
-  return { automation_run_id: automationRunId };
+  return automationRunId;
+};
+
+export const parseTerminatePayload = (value: unknown): { automation_run_id: string } => {
+  return {
+    automation_run_id: parseAutomationRunId(value),
+  };
+};
+
+export const parseDispatchPayload = (
+  value: unknown,
+): { automation_run_id: string; dispatch_token: string } => {
+  const body = value as Record<string, unknown>;
+  const automationRunId = parseAutomationRunId(value);
+  const dispatchToken = typeof body.dispatch_token === "string" ? body.dispatch_token.trim() : "";
+  if (dispatchToken.length === 0) {
+    throw createAutomationRouteError("missing_dispatch_token", "dispatch_token is required");
+  }
+  return { automation_run_id: automationRunId, dispatch_token: dispatchToken };
 };
 
 const parseJsonLikeContent = (content: string): unknown | undefined => {

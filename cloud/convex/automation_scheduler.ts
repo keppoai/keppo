@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
+import { createHash, randomUUID } from "node:crypto";
 
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
@@ -48,6 +49,9 @@ import { automationDispatchMissingAiKeyResponseSchema } from "@keppo/shared/prov
 const refs = {
   getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  issueAutomationRunDispatchToken: makeFunctionReference<"mutation">(
+    "automation_runs:issueAutomationRunDispatchToken",
+  ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
   ),
@@ -171,6 +175,14 @@ const applyVercelProtectionBypassHeader = (headers: Headers): Headers => {
     headers.set("x-vercel-protection-bypass", secret);
   }
   return headers;
+};
+
+const createAutomationDispatchToken = (): { raw: string; hash: string } => {
+  const raw = `dispatch_${randomUUID().replace(/-/g, "")}`;
+  return {
+    raw,
+    hash: createHash("sha256").update(raw, "utf8").digest("hex"),
+  };
 };
 
 const getAutomationDispatchHttpErrorMessage = (response: {
@@ -500,11 +512,17 @@ export const dispatchAutomationRun = internalAction({
     applyVercelProtectionBypassHeader(headers);
 
     try {
+      const dispatchToken = createAutomationDispatchToken();
+      await ctx.runMutation(refs.issueAutomationRunDispatchToken, {
+        automation_run_id: args.runId,
+        dispatch_token_hash: dispatchToken.hash,
+      });
       const response = await fetch(dispatchUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({
           automation_run_id: args.runId,
+          dispatch_token: dispatchToken.raw,
         }),
       });
       if (!response.ok) {

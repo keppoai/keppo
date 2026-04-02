@@ -86,6 +86,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - `POST /internal/automations/terminate`
   - `POST /internal/automations/log`
   - `POST /internal/automations/complete`
+- `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the targeted `automation_run_id`; the runtime must reject requests that cannot claim that per-run token before decrypting org-scoped AI credentials.
 - Sandbox provider interface is environment-switched (`docker` for local, `vercel` or `unikraft` for production-tier deployments) with contract:
   - `dispatch({ bootstrap: { command, env, network_access }, runtime: { command, env, network_access, callbacks }, timeout_ms })`
   - `terminate(sandbox_id)`
