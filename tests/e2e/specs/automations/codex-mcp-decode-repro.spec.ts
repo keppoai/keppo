@@ -27,6 +27,8 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   auth,
   pages,
   page,
+  provider,
+  request,
 }) => {
   test.skip(
     process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE !== "1",
@@ -133,7 +135,7 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   const run = await admin.getAutomationRun(createdRun.id);
   const logText = await readLogText();
 
-  const readServiceLog = async (name: "dashboard" | "fake-gateway"): Promise<string> => {
+  const readServiceLog = async (name: "dashboard"): Promise<string> => {
     try {
       return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
     } catch {
@@ -141,17 +143,23 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     }
   };
 
-  let fakeGatewayLog = await readServiceLog("fake-gateway");
+  let openAiEvents = await provider.events();
   await expect
     .poll(
       async () => {
-        fakeGatewayLog = await readServiceLog("fake-gateway");
-        return fakeGatewayLog.includes("[fake-openai] path=/responses");
+        openAiEvents = await provider.events();
+        return openAiEvents.some(
+          (event) =>
+            event.provider === "openai" &&
+            typeof event.path === "string" &&
+            event.path.endsWith("/responses"),
+        );
       },
       { timeout: 20_000, intervals: [500, 1_000, 2_000] },
     )
     .toBe(true);
 
+  const stringifyOpenAiEvents = (): string => JSON.stringify(openAiEvents);
   let dashboardLog = await readServiceLog("dashboard");
   await expect
     .poll(
@@ -169,14 +177,19 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   expect(
     {
       status: run?.status ?? null,
-      fakeGatewaySawResponses: fakeGatewayLog.includes("[fake-openai] path=/responses"),
-      fakeGatewaySawSearchToolsFunction: fakeGatewayLog.includes(
+      fakeGatewaySawResponses: openAiEvents.some(
+        (event) =>
+          event.provider === "openai" &&
+          typeof event.path === "string" &&
+          event.path.endsWith("/responses"),
+      ),
+      fakeGatewaySawSearchToolsFunction: stringifyOpenAiEvents().includes(
         '"name":"mcp__keppo__search_tools"',
       ),
-      fakeGatewaySawRecordOutcomeFunction: fakeGatewayLog.includes(
+      fakeGatewaySawRecordOutcomeFunction: stringifyOpenAiEvents().includes(
         '"name":"mcp__keppo__record_outcome"',
       ),
-      fakeGatewaySawFunctionOutputFollowUp: fakeGatewayLog.includes(
+      fakeGatewaySawFunctionOutputFollowUp: stringifyOpenAiEvents().includes(
         '"type":"function_call_output"',
       ),
       dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
