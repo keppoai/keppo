@@ -881,7 +881,7 @@ describe("start-owned automation runtime handlers", () => {
         },
       }),
     );
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_missing_callback_secret",
         automation_id: "automation_missing_callback_secret",
@@ -927,7 +927,10 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_missing_callback_secret" },
+        {
+          automation_run_id: "arun_missing_callback_secret",
+          dispatch_token: "dispatch_token_test",
+        },
         { authorization: "Bearer secret_token" },
       ),
       deps,
@@ -963,7 +966,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_relaxed_callback_secret",
         automation_id: "automation_relaxed_callback_secret",
@@ -1009,7 +1012,10 @@ describe("start-owned automation runtime handlers", () => {
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
         "/internal/automations/dispatch",
-        { automation_run_id: "arun_relaxed_callback_secret" },
+        {
+          automation_run_id: "arun_relaxed_callback_secret",
+          dispatch_token: "dispatch_token_test",
+        },
         { authorization: "Bearer secret_token" },
       ),
       deps,

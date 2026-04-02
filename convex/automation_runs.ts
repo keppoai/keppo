@@ -354,6 +354,36 @@ const clearAutomationRunDispatchTokenMetadata = (
   return nextMetadata;
 };
 
+type DispatchClaimFailureReason =
+  | "dispatch_token_mismatch"
+  | "dispatch_token_expired"
+  | "dispatch_token_missing"
+  | "automation_missing"
+  | "config_missing";
+
+const appendDispatchClaimFailureLog = async (
+  ctx: MutationCtx,
+  run: AutomationRunRow,
+  reason: DispatchClaimFailureReason,
+) => {
+  const reasonLabels: Record<DispatchClaimFailureReason, string> = {
+    dispatch_token_mismatch: "token did not match the stored dispatch claim",
+    dispatch_token_expired: "token expired before the Start route claimed it",
+    dispatch_token_missing: "no active dispatch claim was stored on the run",
+    automation_missing: "automation metadata was missing while loading the dispatch context",
+    config_missing: "automation config metadata was missing while loading the dispatch context",
+  };
+  await appendAutomationRunLogInternal(ctx, {
+    automation_run_id: run.id,
+    level: "system",
+    event_type: "error",
+    event_data: {
+      reason,
+    },
+    content: `Dispatch claim rejected: ${reasonLabels[reason]}.`,
+  });
+};
+
 const runPeriod = (
   subscription:
     | {
@@ -1247,9 +1277,15 @@ export const claimAutomationRunDispatchContext = internalMutation({
       !expectedDispatchTokenHash ||
       !constantTimeEqual(expectedDispatchTokenHash, args.dispatch_token_hash)
     ) {
+      await appendDispatchClaimFailureLog(
+        ctx,
+        run,
+        expectedDispatchTokenHash ? "dispatch_token_mismatch" : "dispatch_token_missing",
+      );
       return null;
     }
     if (!isDispatchTokenReusable(dispatchTokenIssuedAt)) {
+      await appendDispatchClaimFailureLog(ctx, run, "dispatch_token_expired");
       await ctx.db.patch(row._id, {
         metadata: clearAutomationRunDispatchTokenMetadata(run.metadata),
       });
@@ -1261,6 +1297,7 @@ export const claimAutomationRunDispatchContext = internalMutation({
       .withIndex("by_custom_id", (q) => q.eq("id", run.automation_id))
       .unique();
     if (!automation) {
+      await appendDispatchClaimFailureLog(ctx, run, "automation_missing");
       return null;
     }
 
@@ -1269,6 +1306,7 @@ export const claimAutomationRunDispatchContext = internalMutation({
       .withIndex("by_custom_id", (q) => q.eq("id", run.config_version_id))
       .unique();
     if (!config) {
+      await appendDispatchClaimFailureLog(ctx, run, "config_missing");
       return null;
     }
 

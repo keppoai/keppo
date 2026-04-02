@@ -16,6 +16,9 @@ const refs = {
   triggerAutomationRunManual: makeFunctionReference<"mutation">(
     "automation_runs:triggerAutomationRunManual",
   ),
+  getAutomationRunDispatchContext: makeFunctionReference<"query">(
+    "automation_runs:getAutomationRunDispatchContext",
+  ),
   dispatchAutomationRun: makeFunctionReference<"action">(
     "automation_scheduler:dispatchAutomationRun",
   ),
@@ -233,6 +236,62 @@ describe("automation scheduler contract boundaries", () => {
       http_status: null,
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not cancel a pending run when a duplicate dispatch gets a retry-safe 404", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv(
+      "KEPPO_AUTOMATION_DISPATCH_URL",
+      "http://scheduler.test/internal/automations/dispatch",
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: false, status: "run_not_found" }), {
+          status: 404,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_duplicate_404",
+      email: "convex-scheduler-duplicate-404@example.com",
+      name: "Convex Scheduler Duplicate 404",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-duplicate-404@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-duplicate-404@example.com",
+      name: "Convex Scheduler Duplicate 404",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    const result = await t.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+    });
+    const latestContext = await t.query(refs.getAutomationRunDispatchContext, {
+      automation_run_id: run.id,
+    });
+
+    expect(result).toMatchObject({
+      dispatched: false,
+      status: "dispatch_http_error",
+      http_status: 404,
+    });
+    expect(latestContext?.run.status).toBe(AUTOMATION_RUN_STATUS.pending);
   });
 
   it("rejects manual runs server-side when automation execution is not ready", async () => {

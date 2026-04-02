@@ -50,6 +50,9 @@ import { automationDispatchMissingAiKeyResponseSchema } from "@keppo/shared/prov
 const refs = {
   getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  getAutomationRunDispatchContext: makeFunctionReference<"query">(
+    "automation_runs:getAutomationRunDispatchContext",
+  ),
   issueAutomationRunDispatchToken: makeFunctionReference<"mutation">(
     "automation_runs:issueAutomationRunDispatchToken",
   ),
@@ -80,6 +83,7 @@ const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
 const DEFAULT_COLD_LOG_SCAN_LIMIT = 500;
 const textEncoder = new TextEncoder();
+const DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO = "keppo:dispatch-token:v1";
 
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes)
@@ -193,15 +197,33 @@ const computeAutomationDispatchToken = async (
   runId: string,
   issuedAt: string,
 ): Promise<{ raw: string; hash: string }> => {
-  const secret =
-    process.env.KEPPO_AUTOMATION_DISPATCH_TOKEN_SECRET?.trim() ||
-    process.env.KEPPO_MASTER_KEY?.trim();
+  const explicitSecret = process.env.KEPPO_AUTOMATION_DISPATCH_TOKEN_SECRET?.trim();
+  const masterKey = process.env.KEPPO_MASTER_KEY?.trim();
+  const secret = explicitSecret || masterKey;
   if (!secret) {
-    throw new Error("Missing KEPPO_MASTER_KEY for automation dispatch token derivation.");
+    throw new Error(
+      "Missing KEPPO_AUTOMATION_DISPATCH_TOKEN_SECRET or KEPPO_MASTER_KEY for automation dispatch token derivation.",
+    );
   }
+  const keyMaterial =
+    explicitSecret || !masterKey
+      ? textEncoder.encode(secret)
+      : new Uint8Array(
+          await crypto.subtle.sign(
+            "HMAC",
+            await crypto.subtle.importKey(
+              "raw",
+              textEncoder.encode(masterKey),
+              { name: "HMAC", hash: "SHA-256" },
+              false,
+              ["sign"],
+            ),
+            textEncoder.encode(DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO),
+          ),
+        );
   const key = await crypto.subtle.importKey(
     "raw",
-    textEncoder.encode(secret),
+    keyMaterial,
     { name: "HMAC", hash: "SHA-256" },
     false,
     ["sign"],
@@ -570,6 +592,32 @@ export const dispatchAutomationRun = internalAction({
           status: response.status,
           bodyText,
         });
+        const responseStatus = (() => {
+          try {
+            const parsed = JSON.parse(bodyText) as { status?: unknown };
+            return typeof parsed.status === "string" ? parsed.status : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (response.status === 404 && responseStatus === "run_not_found") {
+          const latestContext = await ctx.runQuery(refs.getAutomationRunDispatchContext, {
+            automation_run_id: args.runId,
+          });
+          if (!latestContext || latestContext.run.status !== AUTOMATION_RUN_STATUS.pending) {
+            return {
+              dispatched: false,
+              status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchRunNotPending,
+              http_status: response.status,
+            };
+          }
+          await emitDispatchFailureAudit(errorMessage, "dispatch_action_http");
+          return {
+            dispatched: false,
+            status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchHttpError,
+            http_status: response.status,
+          };
+        }
         await emitDispatchFailureAudit(errorMessage, "dispatch_action_http");
         await ctx
           .runMutation(refs.updateAutomationRunStatus, {
