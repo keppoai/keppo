@@ -52,7 +52,6 @@ export type ProviderAuthExchangeRequest = {
   code: string;
   redirectUri: string;
   scopes?: Array<string>;
-  externalAccountFallback?: string;
   namespace?: string;
   /** PKCE code_verifier for token exchange (must match authorize-step challenge). */
   pkceCodeVerifier?: string;

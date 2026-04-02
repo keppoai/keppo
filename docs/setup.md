@@ -71,6 +71,7 @@ Local browser policy:
 
 - The default hosted shape is one Vercel web project rooted at `apps/web`, backed by a hosted Convex deployment.
 - The unified web deployment owns same-origin `/api/*` plus the root-path MCP, webhook, OAuth callback, helper-download, and `/internal/*` ingress surfaces directly.
+- Managed provider OAuth callbacks fail closed if the provider profile API cannot produce a provider-issued external account identifier; Keppo will not persist an org-derived fallback account id for connected integrations.
 - Preview, staging, and production use the same project boundary. Preview relies on deployment-provided env, while staging and production bundle the selected environment-specific runtime env file into the Nitro server output.
 - Hosted builds sync Convex env and run `convex deploy --cmd '<build command>'` so schema/function changes ship with the matching web artifact.
 - Preview builds must also export the derived preview origin (`KEPPO_URL` and same-origin Better Auth companions such as `KEPPO_API_INTERNAL_BASE_URL`) into the shell before `convex deploy` begins, because Convex analyzes auth modules before the later hosted env sync step.

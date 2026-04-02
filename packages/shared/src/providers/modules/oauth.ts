@@ -7,6 +7,8 @@ import type {
 import type { ProviderAuthFacet, ProviderRefreshFacet } from "../registry/types.js";
 
 const DEFAULT_FAKE_EXTERNAL_BASE_URL = "http://127.0.0.1:9901";
+const MISSING_EXTERNAL_ACCOUNT_ID_ERROR =
+  "OAuth profile lookup did not return a provider account identifier.";
 
 type OAuthResponse = {
   access_token?: string;
@@ -109,9 +111,8 @@ const loadExternalAccountId = async (
   providerId: CanonicalProviderId,
   config: ResolvedManagedOAuthConfig,
   accessToken: string,
-  fallback: string | null,
   runtime: ProviderRuntimeContext,
-): Promise<string | null> => {
+): Promise<string> => {
   for (const path of config.profilePaths) {
     try {
       const response = await runtime.httpClient(`${config.apiBaseUrl}${path}`, {
@@ -135,7 +136,7 @@ const loadExternalAccountId = async (
       });
     }
   }
-  return fallback;
+  throw new Error(MISSING_EXTERNAL_ACCOUNT_ID_ERROR);
 };
 
 const exchangeOAuthCredentials = async (
@@ -183,7 +184,6 @@ const exchangeOAuthCredentials = async (
     providerId,
     resolvedConfig,
     payload.access_token,
-    request.externalAccountFallback ?? null,
     runtime,
   );
 

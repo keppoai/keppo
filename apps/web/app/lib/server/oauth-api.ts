@@ -1011,7 +1011,6 @@ export const handleOAuthProviderCallbackRequest = async (
               code,
               redirectUri,
               scopes: state.scopes,
-              externalAccountFallback: orgId,
               ...(managedOAuthConnectState?.pkceCodeVerifier
                 ? { pkceCodeVerifier: managedOAuthConnectState.pkceCodeVerifier }
                 : {}),
@@ -1020,12 +1019,16 @@ export const handleOAuthProviderCallbackRequest = async (
             runtimeContext,
           );
 
+          if (credentials.externalAccountId === null) {
+            throw new Error("OAuth provider did not return an external account identifier.");
+          }
+
           await deps.convex.upsertOAuthProviderForOrg({
             orgId,
             provider,
             displayName: state.display_name,
             scopes: credentials.scopes,
-            externalAccountId: credentials.externalAccountId ?? orgId,
+            externalAccountId: credentials.externalAccountId,
             accessToken: credentials.accessToken,
             refreshToken: credentials.refreshToken,
             expiresAt: credentials.expiresAt,
