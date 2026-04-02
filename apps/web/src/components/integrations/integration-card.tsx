@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import {
   formatIntegrationErrorDiagnostic,
+  isIntegrationCredentialExpired,
   getIntegrationUnhealthyReason,
   isIntegrationReconnectRequired,
 } from "@/lib/integration-health";
@@ -52,13 +53,15 @@ export function IntegrationCard({
   const [disconnectDialogOpen, setDisconnectDialogOpen] = useState(false);
   const meta = getProviderMeta(provider);
   const connected = integration?.connected === true;
-  const expiresAtRaw = integration?.credential_expires_at;
-  const expiresAt = expiresAtRaw ? Date.parse(expiresAtRaw) : Number.NaN;
-  const isExpired = Number.isFinite(expiresAt) && expiresAt <= Date.now();
+  const isExpired = isIntegrationCredentialExpired({
+    credentialExpiresAt: integration?.credential_expires_at,
+    hasRefreshToken: integration?.has_refresh_token,
+  });
   const status = integration?.status ?? "disconnected";
   const needsReconnect = isIntegrationReconnectRequired({
     status,
-    isExpired,
+    credentialExpiresAt: integration?.credential_expires_at,
+    hasRefreshToken: integration?.has_refresh_token,
     lastErrorCategory: integration?.last_error_category,
   });
   const hasIntegrationRecord = integration !== null && status !== "disconnected";

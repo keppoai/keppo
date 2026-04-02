@@ -22,6 +22,7 @@ const hasEnvValue = (value: string | undefined): boolean =>
 type IntegrationWithCredential<T extends { id: string; provider: string }> = {
   integration: T;
   credentialExpiresAt: string | null | undefined;
+  hasRefreshToken: boolean;
 };
 
 const selectPreferredIntegrationsByProvider = <
@@ -51,11 +52,13 @@ const selectPreferredIntegrationsByProvider = <
       status: existing.integration.status,
       lastErrorCategory: existing.integration.last_error_category,
       credentialExpiresAt: existing.credentialExpiresAt,
+      hasRefreshToken: existing.hasRefreshToken,
     });
     const candidateConnected = isIntegrationConnected({
       status: integration.status,
       lastErrorCategory: integration.last_error_category,
       credentialExpiresAt: candidate.credentialExpiresAt,
+      hasRefreshToken: candidate.hasRefreshToken,
     });
     if (!existingConnected && candidateConnected) {
       dedupedByProvider.set(canonical, candidate);
@@ -84,7 +87,7 @@ const selectPreferredIntegrationsByProvider = <
   return dedupedByProvider;
 };
 
-const loadCredentialExpiryByIntegrationId = async (
+const loadCredentialStateByIntegrationId = async (
   ctx: QueryCtx,
   integrations: Array<{ id: string }>,
 ) => {
@@ -111,7 +114,13 @@ const loadCredentialExpiryByIntegrationId = async (
   );
 
   return new Map(
-    credentialRows.map(({ integrationId, credential }) => [integrationId, credential?.expires_at]),
+    credentialRows.map(({ integrationId, credential }) => [
+      integrationId,
+      {
+        credentialExpiresAt: credential?.expires_at,
+        hasRefreshToken: Boolean(credential?.refresh_token_enc),
+      },
+    ]),
   );
 };
 
@@ -123,7 +132,7 @@ export const listConnectedProviderIdsForOrg = async (
     .query("integrations")
     .withIndex("by_org", (q) => q.eq("org_id", orgId))
     .collect();
-  const credentialExpiryByIntegrationId = await loadCredentialExpiryByIntegrationId(
+  const credentialStateByIntegrationId = await loadCredentialStateByIntegrationId(
     ctx,
     integrations,
   );
@@ -132,7 +141,10 @@ export const listConnectedProviderIdsForOrg = async (
     ...selectPreferredIntegrationsByProvider(
       integrations.map((integration) => ({
         integration,
-        credentialExpiresAt: credentialExpiryByIntegrationId.get(integration.id),
+        credentialExpiresAt: credentialStateByIntegrationId.get(integration.id)
+          ?.credentialExpiresAt,
+        hasRefreshToken:
+          credentialStateByIntegrationId.get(integration.id)?.hasRefreshToken ?? false,
       })),
     ).entries(),
   ]
@@ -140,7 +152,10 @@ export const listConnectedProviderIdsForOrg = async (
       isIntegrationConnected({
         status: integration.status,
         lastErrorCategory: integration.last_error_category,
-        credentialExpiresAt: credentialExpiryByIntegrationId.get(integration.id),
+        credentialExpiresAt: credentialStateByIntegrationId.get(integration.id)
+          ?.credentialExpiresAt,
+        hasRefreshToken:
+          credentialStateByIntegrationId.get(integration.id)?.hasRefreshToken ?? false,
       }),
     )
     .map(([provider]) => provider);
@@ -213,7 +228,7 @@ export const listForCurrentOrg = query({
       .query("integrations")
       .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
       .collect();
-    const credentialExpiryByIntegrationId = await loadCredentialExpiryByIntegrationId(
+    const credentialStateByIntegrationId = await loadCredentialStateByIntegrationId(
       ctx,
       integrations,
     );
@@ -222,7 +237,10 @@ export const listForCurrentOrg = query({
       ...selectPreferredIntegrationsByProvider(
         integrations.map((integration) => ({
           integration,
-          credentialExpiresAt: credentialExpiryByIntegrationId.get(integration.id),
+          credentialExpiresAt: credentialStateByIntegrationId.get(integration.id)
+            ?.credentialExpiresAt,
+          hasRefreshToken:
+            credentialStateByIntegrationId.get(integration.id)?.hasRefreshToken ?? false,
         })),
       ).values(),
     ].map(({ integration }) => integration);

@@ -57,15 +57,31 @@ const isCredentialExpired = (expiresAt: string | null | undefined): boolean => {
   return Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now();
 };
 
+const isReconnectRequiredForCredentialExpiry = (params: {
+  credentialExpiresAt: string | null | undefined;
+  hasRefreshToken: boolean;
+}): boolean => {
+  if (params.hasRefreshToken) {
+    return false;
+  }
+  return isCredentialExpired(params.credentialExpiresAt);
+};
+
 export const isIntegrationReconnectRequired = (params: {
   status: IntegrationStatus;
   lastErrorCategory: IntegrationErrorCategory | null | undefined;
   credentialExpiresAt: string | null | undefined;
+  hasRefreshToken: boolean;
 }): boolean => {
   if (params.status === INTEGRATION_STATUS.disconnected) {
     return false;
   }
-  if (isCredentialExpired(params.credentialExpiresAt)) {
+  if (
+    isReconnectRequiredForCredentialExpiry({
+      credentialExpiresAt: params.credentialExpiresAt,
+      hasRefreshToken: params.hasRefreshToken,
+    })
+  ) {
     return true;
   }
   return params.status === INTEGRATION_STATUS.degraded && params.lastErrorCategory === "auth";
@@ -75,6 +91,7 @@ export const isIntegrationConnected = (params: {
   status: IntegrationStatus;
   lastErrorCategory: IntegrationErrorCategory | null | undefined;
   credentialExpiresAt: string | null | undefined;
+  hasRefreshToken: boolean;
 }): boolean => {
   if (params.status === INTEGRATION_STATUS.disconnected) {
     return false;
@@ -107,34 +124,39 @@ export const toIntegrationResponse = (params: {
     expires_at: string | null;
     refresh_token_enc?: string | null;
   } | null;
-}) => ({
-  id: params.integration.id,
-  org_id: params.integration.org_id,
-  provider: assertCanonicalStoredProvider(
-    params.integration.provider,
-    `integrations:${params.integration.id}`,
-  ),
-  display_name: params.integration.display_name,
-  status: params.integration.status,
-  connected: isIntegrationConnected({
+}) => {
+  const hasRefreshToken = Boolean(params.credential?.refresh_token_enc);
+
+  return {
+    id: params.integration.id,
+    org_id: params.integration.org_id,
+    provider: assertCanonicalStoredProvider(
+      params.integration.provider,
+      `integrations:${params.integration.id}`,
+    ),
+    display_name: params.integration.display_name,
     status: params.integration.status,
-    lastErrorCategory: params.integration.last_error_category,
-    credentialExpiresAt: params.credential?.expires_at,
-  }),
-  created_at: params.integration.created_at,
-  scopes: params.account?.scopes ?? [],
-  external_account_id: params.account?.external_account_id ?? null,
-  credential_expires_at: params.credential?.expires_at ?? null,
-  has_refresh_token: Boolean(params.credential?.refresh_token_enc),
-  last_health_check_at: params.integration.last_health_check_at ?? null,
-  last_successful_health_check_at: params.integration.last_successful_health_check_at ?? null,
-  last_error_code: params.integration.last_error_code ?? null,
-  last_error_category: params.integration.last_error_category ?? null,
-  last_webhook_at: params.integration.last_webhook_at ?? null,
-  degraded_reason: params.integration.degraded_reason ?? null,
-  provider_module_version: params.integration.provider_module_version ?? null,
-  metadata: normalizeJsonRecord(params.account?.metadata),
-});
+    connected: isIntegrationConnected({
+      status: params.integration.status,
+      lastErrorCategory: params.integration.last_error_category,
+      credentialExpiresAt: params.credential?.expires_at,
+      hasRefreshToken,
+    }),
+    created_at: params.integration.created_at,
+    scopes: params.account?.scopes ?? [],
+    external_account_id: params.account?.external_account_id ?? null,
+    credential_expires_at: params.credential?.expires_at ?? null,
+    has_refresh_token: hasRefreshToken,
+    last_health_check_at: params.integration.last_health_check_at ?? null,
+    last_successful_health_check_at: params.integration.last_successful_health_check_at ?? null,
+    last_error_code: params.integration.last_error_code ?? null,
+    last_error_category: params.integration.last_error_category ?? null,
+    last_webhook_at: params.integration.last_webhook_at ?? null,
+    degraded_reason: params.integration.degraded_reason ?? null,
+    provider_module_version: params.integration.provider_module_version ?? null,
+    metadata: normalizeJsonRecord(params.account?.metadata),
+  };
+};
 
 export const providerCatalogValidator = v.array(
   v.object({

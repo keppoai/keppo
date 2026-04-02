@@ -11,6 +11,7 @@ Use these rules when a provider connector depends on the SDK boundary in `packag
 - Real SDK adapters must normalize provider failures into the shared SDK error shape used by runtime policy and metrics logic.
 - OAuth exchange and refresh flows must normalize provider-returned scopes into the same canonical app scope strings before connector/runtime checks.
 - When a provider returns its durable external account identifier in the OAuth token response, persist that provider-issued identifier directly instead of inventing a follow-up profile endpoint; only use profile lookup when the provider contract requires it.
+- Refreshable OAuth integrations must stay execution-eligible after an access-token expiry timestamp passes; only missing or failed refresh paths should make them reconnect-required.
 - Fakes must preserve the same method names, request shapes, and response envelopes as the real adapters for covered operations.
 - If a write method accepts idempotency keys, connectors must pass deterministic keys into that call.
 - E2E and conformance coverage should assert SDK call logs for migrated providers, not just final business outcomes.
