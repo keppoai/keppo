@@ -82,6 +82,7 @@ const DEFAULT_SCHEDULE_SCAN_LIMIT = 200;
 const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
 const DEFAULT_COLD_LOG_SCAN_LIMIT = 500;
+const DISPATCH_RETRY_DELAY_MS = 1_000;
 const textEncoder = new TextEncoder();
 const DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO = "keppo:dispatch-token:v1";
 
@@ -571,19 +572,16 @@ export const dispatchAutomationRun = internalAction({
       const dispatchToken = await computeAutomationDispatchToken(args.runId, nextIssuedAt);
       const issued = await ctx.runMutation(refs.issueAutomationRunDispatchToken, {
         automation_run_id: args.runId,
+        dispatch_token: dispatchToken.raw,
         dispatch_token_hash: dispatchToken.hash,
         dispatch_token_issued_at: nextIssuedAt,
       });
-      const activeDispatchToken =
-        issued.dispatch_token_issued_at === nextIssuedAt
-          ? dispatchToken
-          : await computeAutomationDispatchToken(args.runId, issued.dispatch_token_issued_at);
       const response = await fetch(dispatchUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({
           automation_run_id: args.runId,
-          dispatch_token: activeDispatchToken.raw,
+          dispatch_token: issued.dispatch_token,
         }),
       });
       if (!response.ok) {
@@ -612,6 +610,25 @@ export const dispatchAutomationRun = internalAction({
             };
           }
           await emitDispatchFailureAudit(errorMessage, "dispatch_action_http");
+          if (issued.reused_existing_token) {
+            await ctx.scheduler.runAfter(
+              DISPATCH_RETRY_DELAY_MS,
+              refs.dispatchAutomationRun,
+              buildDispatchAutomationRunArgs(args.runId, args.namespace),
+            );
+            return {
+              dispatched: false,
+              status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchHttpError,
+              http_status: response.status,
+            };
+          }
+          await ctx
+            .runMutation(refs.updateAutomationRunStatus, {
+              automation_run_id: args.runId,
+              status: AUTOMATION_RUN_STATUS.cancelled,
+              error_message: `Dispatch failed: ${errorMessage}`,
+            })
+            .catch(() => undefined);
           return {
             dispatched: false,
             status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchHttpError,

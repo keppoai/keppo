@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { components } from "../../convex/_generated/api";
-import { AUTOMATION_RUN_STATUS, RUN_STATUS } from "../../convex/domain_constants";
+import { AUTOMATION_RUN_STATUS, RUN_STATUS, RUN_TRIGGER_TYPE } from "../../convex/domain_constants";
 import { AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS } from "../../packages/shared/src/automations";
 import { listPollingAutomationTriggers } from "../../packages/shared/src/providers/automation-trigger-registry";
 import {
@@ -15,6 +16,16 @@ const refs = {
   seedUserOrg: makeFunctionReference<"mutation">("mcp:seedUserOrg"),
   triggerAutomationRunManual: makeFunctionReference<"mutation">(
     "automation_runs:triggerAutomationRunManual",
+  ),
+  createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  issueAutomationRunDispatchToken: makeFunctionReference<"mutation">(
+    "automation_runs:issueAutomationRunDispatchToken",
+  ),
+  claimAutomationRunDispatchContext: makeFunctionReference<"mutation">(
+    "automation_runs:claimAutomationRunDispatchContext",
+  ),
+  updateAutomationRunStatus: makeFunctionReference<"mutation">(
+    "automation_runs:updateAutomationRunStatus",
   ),
   getAutomationRunDispatchContext: makeFunctionReference<"query">(
     "automation_runs:getAutomationRunDispatchContext",
@@ -185,6 +196,64 @@ describe("automation scheduler contract boundaries", () => {
     expect(secondBody.dispatch_token).toBe(firstBody.dispatch_token);
   });
 
+  it("rejects claim attempts after a run leaves pending and clears the stored dispatch claim", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-02T05:00:00.000Z"));
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_claim_guard",
+      email: "convex-scheduler-claim-guard@example.com",
+      name: "Convex Scheduler Claim Guard",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-claim-guard@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-claim-guard@example.com",
+      name: "Convex Scheduler Claim Guard",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+    const dispatchToken = "dispatch_token_claim_guard";
+    const dispatchTokenHash = createHash("sha256").update(dispatchToken, "utf8").digest("hex");
+
+    await t.mutation(refs.issueAutomationRunDispatchToken, {
+      automation_run_id: run.id,
+      dispatch_token: dispatchToken,
+      dispatch_token_hash: dispatchTokenHash,
+      dispatch_token_issued_at: new Date().toISOString(),
+    });
+    await t.mutation(refs.updateAutomationRunStatus, {
+      automation_run_id: run.id,
+      status: AUTOMATION_RUN_STATUS.running,
+    });
+
+    const claimed = await t.mutation(refs.claimAutomationRunDispatchContext, {
+      automation_run_id: run.id,
+      dispatch_token_hash: dispatchTokenHash,
+    });
+    const storedRun = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("automation_runs")
+        .withIndex("by_custom_id", (q) => q.eq("id", run.id))
+        .unique();
+    });
+
+    expect(claimed).toBeNull();
+    expect(storedRun?.metadata.dispatch_token).toBeUndefined();
+    expect(storedRun?.metadata.dispatch_token_hash).toBeUndefined();
+    expect(storedRun?.metadata.dispatch_token_issued_at).toBeUndefined();
+  });
+
   it("does not redispatch or cancel runs that are no longer pending", async () => {
     vi.useFakeTimers();
     vi.stubEnv(
@@ -238,21 +307,23 @@ describe("automation scheduler contract boundaries", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("does not cancel a pending run when a duplicate dispatch gets a retry-safe 404", async () => {
+  it("retries a pending run after a reused dispatch token gets a retry-safe 404", async () => {
     vi.useFakeTimers();
     vi.stubEnv(
       "KEPPO_AUTOMATION_DISPATCH_URL",
       "http://scheduler.test/internal/automations/dispatch",
     );
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ ok: false, status: "run_not_found" }), {
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Response(JSON.stringify({ ok: false, status: "run_not_found" }), {
           status: 404,
           headers: {
             "content-type": "application/json",
           },
-        }),
-    );
+        });
+      }
+      return new Response(null, { status: 200 });
+    });
     vi.stubGlobal("fetch", fetchMock);
 
     const t = createConvexTestHarness();
@@ -275,6 +346,76 @@ describe("automation scheduler contract boundaries", () => {
       activeOrganizationId: orgId,
     });
     const fixture = await seedAutomationFixture(t, orgId);
+    const run = await authT.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: RUN_TRIGGER_TYPE.manual,
+    });
+    const dispatchToken = "dispatch_token_retry_safe_404";
+    const dispatchTokenHash = createHash("sha256").update(dispatchToken, "utf8").digest("hex");
+
+    await t.mutation(refs.issueAutomationRunDispatchToken, {
+      automation_run_id: run.id,
+      dispatch_token: dispatchToken,
+      dispatch_token_hash: dispatchTokenHash,
+      dispatch_token_issued_at: new Date().toISOString(),
+    });
+
+    const result = await t.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+    });
+    await t.finishAllScheduledFunctions(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    const latestContext = await t.query(refs.getAutomationRunDispatchContext, {
+      automation_run_id: run.id,
+    });
+
+    expect(result).toMatchObject({
+      dispatched: false,
+      status: "dispatch_http_error",
+      http_status: 404,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(latestContext?.run.status).toBe(AUTOMATION_RUN_STATUS.pending);
+  });
+
+  it("cancels a pending run when a fresh dispatch token gets a 404 run_not_found response", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv(
+      "KEPPO_AUTOMATION_DISPATCH_URL",
+      "http://scheduler.test/internal/automations/dispatch",
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: false, status: "run_not_found" }), {
+          status: 404,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_fresh_404",
+      email: "convex-scheduler-fresh-404@example.com",
+      name: "Convex Scheduler Fresh 404",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-fresh-404@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-fresh-404@example.com",
+      name: "Convex Scheduler Fresh 404",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
     const run = await authT.mutation(refs.triggerAutomationRunManual, {
       automation_id: fixture.automationId,
     });
@@ -291,7 +432,7 @@ describe("automation scheduler contract boundaries", () => {
       status: "dispatch_http_error",
       http_status: 404,
     });
-    expect(latestContext?.run.status).toBe(AUTOMATION_RUN_STATUS.pending);
+    expect(latestContext?.run.status).toBe(AUTOMATION_RUN_STATUS.cancelled);
   });
 
   it("rejects manual runs server-side when automation execution is not ready", async () => {

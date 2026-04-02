@@ -86,7 +86,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - `POST /internal/automations/terminate`
   - `POST /internal/automations/log`
   - `POST /internal/automations/complete`
-- `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the targeted `automation_run_id`; the runtime must reject requests that cannot claim that short-lived per-run token before decrypting org-scoped AI credentials, and scheduler retries must reuse any recent in-flight token for a pending run rather than replacing it.
+- `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the targeted `automation_run_id`; the runtime must reject requests that cannot claim that short-lived per-run token before decrypting org-scoped AI credentials, claims become invalid once the run leaves `pending`, and scheduler retries must reuse the exact recent in-flight token for a pending run rather than replacing or recomputing it. If a reused claim later returns `404 run_not_found`, the scheduler must retry with a fresh claim instead of leaving the run pending indefinitely.
 - Sandbox provider interface is environment-switched (`docker` for local, `vercel` or `unikraft` for production-tier deployments) with contract:
   - `dispatch({ bootstrap: { command, env, network_access }, runtime: { command, env, network_access, callbacks }, timeout_ms })`
   - `terminate(sandbox_id)`

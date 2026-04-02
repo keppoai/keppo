@@ -24,6 +24,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 - Internal routes must require cryptographic proof such as the internal bearer secret or callback HMAC.
 - Internal routes that can unlock tenant-scoped credentials or execution context must not trust caller-supplied resource ids on the strength of a shared platform bearer alone; require a server-minted run-scoped or resource-scoped claim and verify it before loading secrets.
 - Run-scoped internal dispatch claims must be short-lived, single-use, and retry-safe: reuse an in-flight claim instead of silently overwriting it while the owning run is still pending.
+- Retry-safe dispatch claim reuse must preserve the exact accepted raw claim for later attempts; do not recompute a reused claim from rotatable key material after it has been issued.
 - Security-sensitive token, credential, and secret generation must use a CSPRNG (`crypto.getRandomValues`, `randomUUID`, or Node crypto), never `Math.random()`.
 - Run-scoped credentials must be enforced at both ends: revoke them when the owning run becomes terminal, and reject them at auth time if the referenced run is missing, mismatched, or no longer active.
 - PKCE `code_verifier` values are secrets. Do not place them in readable front-channel state, query strings, or other browser-visible payloads; store them server-side or in an encrypted backend-owned channel and retrieve them for token exchange on the callback.
