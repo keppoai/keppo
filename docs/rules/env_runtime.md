@@ -82,6 +82,7 @@
 - Never rely on in-memory maps, module-level caches, or singleton state to persist across HTTP requests in Vercel serverless functions. Each request may hit a different function instance with cold state. Treat every request as potentially the first one the instance has seen.
 - If state must survive across requests (e.g., MCP session → run mapping), store the authoritative record in Convex and recover it per-request when the in-memory cache misses. In-memory maps are an optional warm-instance optimization, never the source of truth.
 - MCP transports using the `@modelcontextprotocol/sdk` `WebStandardStreamableHTTPServerTransport` in stateless mode (no `sessionIdGenerator`) cannot be reused across requests. Create a fresh transport per request for recovered/stateless sessions.
+- MCP tool-call branches that return an error payload directly must log a warning before responding, even when the failure was downgraded into a structured result instead of being re-thrown. Otherwise Vercel request logs lose the only durable trace of the failure.
 
 ## Runtime boundaries
 
