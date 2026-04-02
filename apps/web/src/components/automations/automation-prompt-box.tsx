@@ -872,6 +872,11 @@ export function AutomationPromptBox({
   const hasActiveProviderNeeds = recommendedProviders.some(
     (entry) => !skippedProviders.includes(entry.provider),
   );
+  const hasConnectedRecommendedProvider = recommendedProviders.some(
+    (entry) =>
+      providerStates.integrationByProvider.get(entry.provider as CanonicalProviderId)?.connected ===
+      true,
+  );
 
   const resetBuilder = useCallback(() => {
     generationRequestIdRef.current += 1;
@@ -1979,7 +1984,9 @@ export function AutomationPromptBox({
                         onClick={nextReviewStep}
                         disabled={step === "providers" && !canContinueFromProviders}
                       >
-                        {step === "providers" ? "Continue without these providers" : "Continue"}
+                        {step === "providers" && !hasConnectedRecommendedProvider
+                          ? "Continue without these providers"
+                          : "Continue"}
                         <ArrowRightIcon className="ml-2 size-4" />
                       </Button>
                     )}
