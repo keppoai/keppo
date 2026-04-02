@@ -48,7 +48,7 @@
 ## Provider registry guardrails
 
 - Canonical provider IDs only. Do not reintroduce runtime aliases in control-plane code paths.
-- Keep `providers-core` Convex-safe and `providers-ui` browser-safe.
+- Keep `providers` Convex-safe and `providers-ui` browser-safe.
 - Do not eagerly read the provider registry at module top level in shared boundary code.
 - When provider metadata changes, run `pnpm run check:provider-guardrails` and `pnpm run check:provider-registry-snapshot`.
 
