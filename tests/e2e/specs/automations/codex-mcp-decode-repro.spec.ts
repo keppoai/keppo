@@ -4,6 +4,7 @@ import { test, expect } from "../../fixtures/golden.fixture";
 import { createConvexAdmin } from "../../helpers/convex-admin";
 import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
 import { serviceLogFileForWorker } from "../../infra/stack-manager";
+import type { ProviderEventRecord } from "../../providers/contract/provider-events";
 
 const clickElement = async (locator: Locator): Promise<void> => {
   await locator.evaluate((element) => (element as HTMLElement).click());
@@ -21,6 +22,11 @@ const setControlValue = async (locator: Locator, value: string): Promise<void> =
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }, value);
 };
+
+const OPENAI_RESPONSES_PATHS = new Set(["/responses", "/openai/v1/responses"]);
+
+const isOpenAiResponsesEvent = (event: ProviderEventRecord): boolean =>
+  event.provider === "openai" && event.method === "POST" && OPENAI_RESPONSES_PATHS.has(event.path);
 
 test("codex automation run completes after search_tools when fake OpenAI responses stream stays valid", async ({
   app,
@@ -133,7 +139,7 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   const run = await admin.getAutomationRun(createdRun.id);
   const logText = await readLogText();
 
-  const readServiceLog = async (name: "dashboard" | "fake-gateway"): Promise<string> => {
+  const readServiceLog = async (name: "dashboard"): Promise<string> => {
     try {
       return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
     } catch {
@@ -141,16 +147,27 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     }
   };
 
-  let fakeGatewayLog = await readServiceLog("fake-gateway");
+  const readGatewayEvents = async (): Promise<ProviderEventRecord[]> => {
+    const response = await request.get(`${app.runtime.fakeGatewayBaseUrl}/__provider-events`);
+    if (!response.ok()) {
+      return [];
+    }
+    const payload = (await response.json()) as { events?: ProviderEventRecord[] };
+    return Array.isArray(payload.events) ? payload.events : [];
+  };
+
+  let openAiEvents: ProviderEventRecord[] = [];
   await expect
     .poll(
       async () => {
-        fakeGatewayLog = await readServiceLog("fake-gateway");
-        return fakeGatewayLog.includes("[fake-openai] path=/responses");
+        openAiEvents = (await readGatewayEvents()).filter(isOpenAiResponsesEvent);
+        return openAiEvents.length > 0;
       },
       { timeout: 20_000, intervals: [500, 1_000, 2_000] },
     )
     .toBe(true);
+
+  const openAiRequestBodies = JSON.stringify(openAiEvents.map((event) => event.body));
 
   let dashboardLog = await readServiceLog("dashboard");
   await expect
@@ -169,14 +186,14 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   expect(
     {
       status: run?.status ?? null,
-      fakeGatewaySawResponses: fakeGatewayLog.includes("[fake-openai] path=/responses"),
-      fakeGatewaySawSearchToolsFunction: fakeGatewayLog.includes(
+      openAiPostedResponses: openAiEvents.length > 0,
+      openAiAdvertisedSearchToolsTool: openAiRequestBodies.includes(
         '"name":"mcp__keppo__search_tools"',
       ),
-      fakeGatewaySawRecordOutcomeFunction: fakeGatewayLog.includes(
+      openAiAdvertisedRecordOutcomeTool: openAiRequestBodies.includes(
         '"name":"mcp__keppo__record_outcome"',
       ),
-      fakeGatewaySawFunctionOutputFollowUp: fakeGatewayLog.includes(
+      openAiSentFunctionOutputFollowUp: openAiRequestBodies.includes(
         '"type":"function_call_output"',
       ),
       dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
@@ -191,10 +208,10 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     "fake OpenAI repro did not hit the expected successful Codex/MCP path",
   ).toEqual({
     status: "succeeded",
-    fakeGatewaySawResponses: true,
-    fakeGatewaySawSearchToolsFunction: true,
-    fakeGatewaySawRecordOutcomeFunction: true,
-    fakeGatewaySawFunctionOutputFollowUp: true,
+    openAiPostedResponses: true,
+    openAiAdvertisedSearchToolsTool: true,
+    openAiAdvertisedRecordOutcomeTool: true,
+    openAiSentFunctionOutputFollowUp: true,
     dashboardSawToolCallReceived: true,
     dashboardSawSearchToolsCompleted: true,
     dashboardSawRecordOutcomeCall: true,
