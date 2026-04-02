@@ -113,8 +113,7 @@ export const extractAutomationRouteError = (
   };
 };
 
-const isRelaxedEnv = (): boolean => {
-  const env = getEnv();
+const isRelaxedEnv = (env = getEnv()): boolean => {
   const mode = env.NODE_ENV?.trim().toLowerCase();
   return mode === "development" || mode === "test" || env.KEPPO_E2E_MODE;
 };
@@ -127,13 +126,12 @@ const requireNonEmptyEnv = (name: string): string => {
   return value;
 };
 
-const resolveCallbackSecret = (): string => {
-  const env = getEnv();
+export const resolveAutomationCallbackSecret = (env = getEnv()): string => {
   const explicit = env.KEPPO_CALLBACK_HMAC_SECRET;
   if (explicit) {
     return explicit;
   }
-  if (isRelaxedEnv()) {
+  if (isRelaxedEnv(env)) {
     const relaxedFallback = env.BETTER_AUTH_SECRET;
     if (relaxedFallback) {
       return relaxedFallback;
@@ -152,7 +150,7 @@ const resolveEncryptionSecret = (): string => {
   if (fallback) {
     return fallback;
   }
-  if (isRelaxedEnv()) {
+  if (isRelaxedEnv(env)) {
     const relaxedFallback = env.BETTER_AUTH_SECRET;
     if (relaxedFallback) {
       return relaxedFallback;
@@ -408,8 +406,13 @@ export const maybeRefreshOpenAiOauthCredentials = async (params: {
   return refreshed;
 };
 
-const createSignature = (path: string, automationRunId: string, expiresMs: number): string => {
-  return createHmac("sha256", resolveCallbackSecret())
+export const createAutomationCallbackSignature = (
+  path: string,
+  automationRunId: string,
+  expiresMs: number,
+  env = getEnv(),
+): string => {
+  return createHmac("sha256", resolveAutomationCallbackSecret(env))
     .update(`${path}:${automationRunId}:${expiresMs}`)
     .digest("hex");
 };
@@ -507,7 +510,7 @@ export const hasValidAutomationCallbackSignature = (
   if (!Number.isFinite(expiresMs) || Date.now() > expiresMs) {
     return false;
   }
-  const expected = createSignature(url.pathname, automationRunId, expiresMs);
+  const expected = createAutomationCallbackSignature(url.pathname, automationRunId, expiresMs);
   const actualBytes = Buffer.from(signature, "utf8");
   const expectedBytes = Buffer.from(expected, "utf8");
   if (actualBytes.length !== expectedBytes.length) {

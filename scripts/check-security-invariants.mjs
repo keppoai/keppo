@@ -60,6 +60,13 @@ if (/parsedHeader\s*===\s*`Bearer \$\{secret\}`/u.test(internalAuthSource)) {
   );
 }
 
+const automationRuntimeSource = read("apps/web/app/lib/server/automation-runtime.ts");
+if (/KEPPO_CALLBACK_HMAC_SECRET|BETTER_AUTH_SECRET/u.test(automationRuntimeSource)) {
+  failures.push(
+    "apps/web/app/lib/server/automation-runtime.ts must use the shared callback secret resolver instead of reading callback or auth secrets directly.",
+  );
+}
+
 const e2eSharedSource = read("convex/e2e_shared.ts");
 if (!/CONVEX_DEPLOYMENT/u.test(e2eSharedSource) || !/NODE_ENV/u.test(e2eSharedSource)) {
   failures.push(

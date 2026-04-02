@@ -7,6 +7,7 @@ import {
   handleInternalAutomationDispatchRequest,
   handleInternalAutomationTerminateRequest,
 } from "./automation-runtime";
+import { hasValidAutomationCallbackSignature } from "./api-runtime/routes/automations.ts";
 
 const encryptStoredKeyForTest = async (secret: string, rawValue: string): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
@@ -109,6 +110,7 @@ describe("start-owned automation runtime handlers", () => {
     KEPPO_API_INTERNAL_BASE_URL: process.env.KEPPO_API_INTERNAL_BASE_URL,
     KEPPO_CALLBACK_HMAC_SECRET: process.env.KEPPO_CALLBACK_HMAC_SECRET,
     KEPPO_MASTER_KEY: process.env.KEPPO_MASTER_KEY,
+    NODE_ENV: process.env.NODE_ENV,
     KEPPO_SANDBOX_PROVIDER: process.env.KEPPO_SANDBOX_PROVIDER,
     VERCEL_AUTOMATION_BYPASS_SECRET: process.env.VERCEL_AUTOMATION_BYPASS_SECRET,
   };
@@ -117,6 +119,7 @@ describe("start-owned automation runtime handlers", () => {
     process.env.BETTER_AUTH_SECRET = "keppo-better-auth-fallback-secret";
     process.env.KEPPO_CALLBACK_HMAC_SECRET = "keppo-callback-secret-for-start-runtime-tests";
     process.env.KEPPO_MASTER_KEY = "keppo-master-key-for-start-runtime-tests";
+    process.env.NODE_ENV = "test";
     process.env.KEPPO_SANDBOX_PROVIDER = "docker";
     process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "bypass_secret_test";
     delete process.env.KEPPO_API_INTERNAL_BASE_URL;
@@ -848,6 +851,175 @@ describe("start-owned automation runtime handlers", () => {
 
     expect(response.status).toBe(500);
     expect(deps.convex.deductAiCredit).not.toHaveBeenCalled();
+  });
+
+  it("fails closed in strict environments when the callback HMAC secret is unset", async () => {
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_CALLBACK_HMAC_SECRET: undefined,
+      NODE_ENV: "production",
+    } as never);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("event: message\ndata: {}\n\n", {
+        status: 200,
+        headers: {
+          "content-type": "text/event-stream",
+          "mcp-session-id": "mcp_test_session",
+        },
+      }),
+    );
+    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_missing_callback_secret",
+        automation_id: "automation_missing_callback_secret",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_missing_callback_secret",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Strict env triage",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_missing_callback_secret" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "dispatch_failed",
+      error_code: "missing_env",
+      error: "Missing KEPPO_CALLBACK_HMAC_SECRET.",
+    });
+    expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
+  });
+
+  it("uses the Better Auth fallback only in relaxed environments for callback signatures", async () => {
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_CALLBACK_HMAC_SECRET: undefined,
+      NODE_ENV: "test",
+    } as never);
+    delete process.env.KEPPO_CALLBACK_HMAC_SECRET;
+    process.env.NODE_ENV = "test";
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_relaxed_callback_secret",
+        automation_id: "automation_relaxed_callback_secret",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_relaxed_callback_secret",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Relaxed env triage",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_relaxed_callback_secret" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    const completeUrl = deps.sandboxProvider.dispatch.mock.calls[0]?.[0]?.runtime.callbacks
+      .complete_url as string;
+    expect(
+      hasValidAutomationCallbackSignature(
+        new Request(completeUrl, { method: "POST" }),
+        "arun_relaxed_callback_secret",
+      ),
+    ).toBe(true);
+    const completeCallback = new URL(completeUrl);
+    expect(completeCallback.searchParams.get("signature")).toBe(
+      createHmac("sha256", process.env.BETTER_AUTH_SECRET!)
+        .update(
+          `${completeCallback.pathname}:arun_relaxed_callback_secret:${completeCallback.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
   });
 
   it("ingests callback logs and completion updates from Start-owned callback routes", async () => {

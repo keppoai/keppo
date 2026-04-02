@@ -1,4 +1,3 @@
-import { createHmac } from "node:crypto";
 import { AI_CREDIT_ERROR_CODE, parseAiCreditErrorCode } from "@keppo/shared/ai-credit-errors";
 import { CLIENT_TYPE } from "@keppo/shared/domain";
 import {
@@ -34,6 +33,7 @@ import {
   buildRunnerAuthBootstrapCommand,
   buildRunnerBootstrapCommand,
   buildRunnerCommand,
+  createAutomationCallbackSignature,
   decryptStoredKey,
   extractAutomationRouteError,
   hasValidAutomationCallbackSignature,
@@ -516,16 +516,7 @@ export const handleInternalAutomationDispatchRequest = async (
         if (!probe) {
           throw createAutomationRouteError("automation_route_failed", "Missing callback run id.");
         }
-        const secret = deps.getEnv().KEPPO_CALLBACK_HMAC_SECRET ?? deps.getEnv().BETTER_AUTH_SECRET;
-        if (!secret) {
-          throw createAutomationRouteError(
-            "automation_route_failed",
-            "Missing KEPPO_CALLBACK_HMAC_SECRET.",
-          );
-        }
-        return createHmac("sha256", secret)
-          .update(`${signed.pathname}:${probe}:${expiresMs}`)
-          .digest("hex");
+        return createAutomationCallbackSignature(signed.pathname, probe, expiresMs, deps.getEnv());
       })();
       url.searchParams.set("signature", signature);
       return url.toString();
