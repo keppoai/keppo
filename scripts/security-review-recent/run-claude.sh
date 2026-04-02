@@ -38,6 +38,7 @@ if npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   "Bash(tail:*)" \
   "Bash(wc:*)" \
   --model claude-opus-4-6 \
+  --effort max \
   -p "$prompt" >"${log_file}" 2>&1; then
   echo "Claude completed successfully."
   echo "Claude session log saved to ${log_file}."
