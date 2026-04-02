@@ -222,7 +222,10 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByText("Automation Runs", { exact: true })).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-starter")).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-pro")).toBeVisible();
-  await expect(page.getByTestId("billing-manage-subscription")).toBeDisabled();
+  await expect(page.getByTestId("billing-plan-card-free")).toContainText(
+    "No subscription to manage on the free trial.",
+  );
+  await expect(page.getByTestId("billing-manage-subscription")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Buy 1,500 runs ($15)" })).toHaveCount(0);
 
   const starterCheckout = await waitForBillingActionOutcomeAfterClick(
@@ -255,6 +258,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByTestId("billing-upgrade-starter")).toHaveCount(0);
   await expect(page.getByTestId("billing-upgrade-pro")).toHaveCount(0);
   await expect(page.getByTestId("billing-change-plan")).toBeVisible();
+  await expect(page.getByTestId("billing-change-plan")).toHaveText("Upgrade to Pro");
   await expect(page.getByTestId("billing-manage-subscription")).toBeEnabled();
   await expect(page.getByRole("button", { name: "Buy 1,500 runs ($15)" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Buy 3,000 runs ($25)" })).toBeVisible();
@@ -268,6 +272,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByTestId("billing-upgrade-starter")).toHaveCount(0);
   await expect(page.getByTestId("billing-upgrade-pro")).toHaveCount(0);
   await expect(page.getByTestId("billing-change-plan")).toBeVisible();
+  await expect(page.getByTestId("billing-change-plan")).toHaveText("Downgrade to Starter");
   await expect(page.getByRole("button", { name: "Buy 15,000 runs ($45)" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Buy 30,000 runs ($75)" })).toBeVisible();
   await expect(

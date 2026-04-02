@@ -29,6 +29,7 @@
 - When the shared web runtime imports Vite env at module load, seed required `VITE_*` values in `apps/web/src/test/setup.ts` so jsdom helpers can import the default runtime without silently depending on developer-local env files.
 - Prefer faking the unified web runtime boundary over mocking `react`, `convex/react`, router internals, or global browser primitives directly.
 - Keep assertions on observable state, rendered copy, navigation intent, and mutation payloads that matter to the operator experience.
+- Route components with async query-backed loading states must keep hook order stable across loading-to-data transitions; declare derived hooks before early loading returns, and add a rendered test that starts with `undefined` query data before rerendering with the loaded state when that transition is part of the bug surface.
 
 ## Authoring guardrails
 
