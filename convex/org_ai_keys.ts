@@ -27,7 +27,7 @@ import {
   aiModelProviderValidator,
   requireBoundedString,
 } from "./validators";
-import { getAiCreditBalanceForOrg } from "./ai_credits";
+import { isBundledRuntimeEnabledForOrg } from "./ai_credits";
 
 const ORG_AI_KEY_SCAN_BUDGET = 32;
 const TEST_ONLY_DECRYPT_FLAG = "KEPPO_ENABLE_TEST_ONLY_DECRYPT";
@@ -61,8 +61,7 @@ const ensureSelfManagedAiKeysAllowed = async (
   ctx: QueryCtx | MutationCtx,
   orgId: string,
 ): Promise<void> => {
-  const balance = await getAiCreditBalanceForOrg(ctx, orgId);
-  if (balance.bundled_runtime_enabled) {
+  if (await isBundledRuntimeEnabledForOrg(ctx, orgId)) {
     throw new Error(
       "Hosted bundled runtime manages AI credentials automatically. Open Billing to add credits instead of saving a self-managed key.",
     );
@@ -626,6 +625,7 @@ export const upsertOpenAiOauthKey = internalMutation({
   returns: orgAiKeyPublicValidator,
   handler: async (ctx, args) => {
     await ensureAutomationSubscriptionAuthEnabled(ctx, "subscription_token");
+    await ensureSelfManagedAiKeysAllowed(ctx, args.org_id);
     const rawKey = JSON.stringify({
       version: 1,
       provider: "openai",

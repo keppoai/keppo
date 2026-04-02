@@ -83,6 +83,7 @@ type StartOwnedAutomationApiConvex = Pick<
   | "checkRateLimit"
   | "claimApiDedupeKey"
   | "completeApiDedupeKey"
+  | "getAiCreditBalance"
   | "getApiDedupeKey"
   | "getWorkspaceCodeModeContext"
   | "listToolCatalogForWorkspace"
@@ -1272,6 +1273,20 @@ export const handleOpenAiConnectRequest = async (
     );
   }
   if (!canManageOpenAiOauthKey(sessionIdentity)) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
+      },
+      403,
+    );
+  }
+
+  const creditBalance = await deps.convex.getAiCreditBalance({
+    orgId: sessionIdentity.orgId,
+  });
+  if (creditBalance.bundled_runtime_enabled) {
     return jsonResponse(
       request,
       {

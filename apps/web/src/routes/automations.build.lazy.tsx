@@ -35,6 +35,8 @@ function BuildAutomationPage() {
   );
   const showSelfManagedAiAccessWarning =
     creditBalance?.bundled_runtime_enabled === false && !orgAiKeys.some((key) => key.is_active);
+  const showBundledCreditsWarning =
+    creditBalance?.bundled_runtime_enabled === true && (creditBalance.total_available ?? 0) <= 0;
 
   if (!canManage()) {
     return (
@@ -90,6 +92,28 @@ function BuildAutomationPage() {
               }}
             >
               Open AI Configuration
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {showBundledCreditsWarning ? (
+        <Alert variant="warning">
+          <AlertTitle>Bundled AI credits are exhausted for this hosted workspace</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              Prompt generation can continue here, but automation runs will stay blocked until this
+              org purchases more bundled credits in Billing.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void navigate({
+                  to: buildWorkspacePath("/billing"),
+                });
+              }}
+            >
+              Open Billing
             </Button>
           </AlertDescription>
         </Alert>

@@ -68,7 +68,7 @@ export const getReadiness = query({
         (integration) => integration.enabled,
       ),
       has_ai_key: aiCreditBalance.bundled_runtime_enabled
-        ? aiCreditBalance.bundled_runtime_enabled
+        ? aiCreditBalance.total_available > 0
         : aiKeys.some((key) => key.is_active),
       ai_access_mode: aiCreditBalance.bundled_runtime_enabled
         ? ("bundled" as const)

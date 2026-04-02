@@ -634,6 +634,7 @@ export const AI_CREDIT_USAGE_SOURCE = {
 
 export type IncludedAiCredits = {
   total: number;
+  // Tier-level eligibility only. Actual bundled runtime also requires the hosted gateway.
   bundled_runtime_enabled: boolean;
   reset_period: "monthly" | "one_time";
 };

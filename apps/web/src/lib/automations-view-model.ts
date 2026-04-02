@@ -3,6 +3,7 @@ import { parseJsonRecord, parseJsonValue } from "@keppo/shared/providers/boundar
 import {
   getAutomationModelClassDescription,
   getAutomationModelClassLabel,
+  resolveAutomationExecutionReadiness,
 } from "@keppo/shared/automations";
 import { fullTimestamp } from "@/lib/format";
 import { toUserFacingErrorMessage } from "./user-facing-errors";
@@ -182,22 +183,16 @@ export const resolveAutomationExecutionState = (params: {
       (key.key_mode === "byok" ||
         (params.provider === "openai" && key.key_mode === "subscription_token")),
   );
-  const bundledRuntimeEnabled = params.creditBalance?.bundled_runtime_enabled === true;
-  const bundledCreditsAvailable =
-    bundledRuntimeEnabled && (params.creditBalance?.total_available ?? 0) > 0;
-  if (bundledRuntimeEnabled) {
-    return {
-      mode: "bundled",
-      requires_active_byok_key: false,
-      has_active_byok_key: hasActiveByokKey,
-      can_run: bundledCreditsAvailable,
-    };
-  }
+  const readiness = resolveAutomationExecutionReadiness({
+    bundledRuntimeEnabled: params.creditBalance?.bundled_runtime_enabled === true,
+    totalCreditsAvailable: params.creditBalance?.total_available ?? 0,
+    hasActiveByokKey,
+  });
   return {
-    mode: "byok",
-    requires_active_byok_key: true,
-    has_active_byok_key: hasActiveByokKey,
-    can_run: hasActiveByokKey,
+    mode: readiness.mode,
+    requires_active_byok_key: readiness.requires_byok,
+    has_active_byok_key: readiness.has_active_byok_key,
+    can_run: readiness.can_run,
   };
 };
 
