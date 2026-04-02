@@ -34,6 +34,14 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
   const automationName = `Lifecycle Automation ${app.metadata.testId}`;
   const expectedSlug = slugify(automationName);
   const description = "Daily inbox review workflow";
+  const executeCodeDescription = "Summarize the inbox findings and print a structured report.";
+  const executeCodeSource = [
+    "const report = {",
+    '  summary: "Inbox delta",',
+    '  blockers: ["Blocked thread"],',
+    "};",
+    "console.log(JSON.stringify(report));",
+  ].join("\n");
 
   await pages.login.login();
   mkdirSync("ux-artifacts", { recursive: true });
@@ -135,6 +143,49 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
       },
     },
   );
+  await admin.appendRunLog(
+    runId,
+    `tool execute_code(${JSON.stringify({
+      description: executeCodeDescription,
+      code: executeCodeSource,
+    })})`,
+    "stderr",
+    {
+      eventType: "tool_call",
+      eventData: {
+        tool_name: "execute_code",
+        args: {
+          description: executeCodeDescription,
+          code: executeCodeSource,
+        },
+      },
+    },
+  );
+  await admin.appendRunLog(runId, "execute_code(...) success in 120ms:", "stderr", {
+    eventType: "tool_call",
+    eventData: {
+      tool_name: "execute_code",
+      status: "success",
+      duration_ms: 120,
+      is_result: true,
+    },
+  });
+  await admin.appendRunLog(
+    runId,
+    '{"summary":"Inbox delta","blockers":["Blocked thread"]}',
+    "stdout",
+    {
+      eventType: "output",
+      eventData: {
+        text: '{"summary":"Inbox delta","blockers":["Blocked thread"]}',
+        format: "json",
+        parsed: {
+          summary: "Inbox delta",
+          blockers: ["Blocked thread"],
+        },
+      },
+    },
+  );
   await admin.finishRun(runId, "running");
   await admin.finishRun(runId, "failed");
 
@@ -145,6 +196,11 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
   await expect(page.getByText("Thinking", { exact: true })).toHaveCount(1);
   await expect(page.getByText("2 blocks")).toBeVisible();
   await expect(page.getByText("keppo.search_tools")).toBeVisible();
+  await expect(page.getByText("Execute code", { exact: true })).toBeVisible();
+  await expect(page.getByText(executeCodeDescription)).toBeVisible();
+  await page.getByRole("button", { name: "Show code" }).click();
+  await expect(page.getByText("const report = {")).toBeVisible();
+  await expect(page.getByText('blockers: ["Blocked thread"],')).toBeVisible();
   await expect(page.getByText("items")).toBeVisible();
   await page.screenshot({
     path: "ux-artifacts/automation-run-chat-grouped.png",

@@ -3,12 +3,13 @@ import {
   BrainIcon,
   CheckCircle2Icon,
   ChevronRightIcon,
+  Code2Icon,
   InfoIcon,
   Settings2Icon,
   TerminalIcon,
   WrenchIcon,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,74 @@ const formatTimestamp = (ts: string): string => {
   } catch {
     return ts;
   }
+};
+
+const EXECUTE_CODE_SUMMARY_FALLBACK = "Executed code";
+const EXECUTE_CODE_TOKEN_PATTERN =
+  /\/\*[\s\S]*?\*\/|\/\/[^\n\r]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[\s\S])*?`|\b(?:async|await|break|case|catch|class|const|continue|default|else|export|extends|false|finally|for|from|function|if|import|let|new|null|return|switch|this|throw|true|try|undefined|var|while)\b|\b\d+(?:\.\d+)?\b/gs;
+
+type CodeTokenKind = "plain" | "comment" | "string" | "keyword" | "number";
+
+type CodeToken = {
+  kind: CodeTokenKind;
+  text: string;
+};
+
+const classifyCodeToken = (value: string): CodeTokenKind => {
+  if (value.startsWith("//") || value.startsWith("/*")) {
+    return "comment";
+  }
+  if (value.startsWith('"') || value.startsWith("'") || value.startsWith("`")) {
+    return "string";
+  }
+  if (/^\d/u.test(value)) {
+    return "number";
+  }
+  return "keyword";
+};
+
+const tokenizeJavaScriptCode = (code: string): CodeToken[] => {
+  const tokens: CodeToken[] = [];
+  let cursor = 0;
+
+  for (const match of code.matchAll(EXECUTE_CODE_TOKEN_PATTERN)) {
+    const value = match[0];
+    if (typeof value !== "string") {
+      continue;
+    }
+    const start = match.index ?? cursor;
+    if (start > cursor) {
+      tokens.push({ kind: "plain", text: code.slice(cursor, start) });
+    }
+    tokens.push({
+      kind: classifyCodeToken(value),
+      text: value,
+    });
+    cursor = start + value.length;
+  }
+
+  if (cursor < code.length) {
+    tokens.push({ kind: "plain", text: code.slice(cursor) });
+  }
+
+  return tokens;
+};
+
+const countCodeLines = (code: string): number => code.split(/\r?\n/u).length;
+
+const getExecuteCodePayload = (
+  event: Extract<RunEvent, { type: "tool_call" }>,
+): { summary: string; code: string | null } | null => {
+  if (event.toolName !== "execute_code") {
+    return null;
+  }
+  const description =
+    typeof event.args?.description === "string" ? event.args.description.trim() : "";
+  const code = typeof event.args?.code === "string" ? event.args.code : "";
+  return {
+    summary: description || EXECUTE_CODE_SUMMARY_FALLBACK,
+    code: code.length > 0 ? code : null,
+  };
 };
 
 const summarizeJsonNode = (value: unknown): string => {
@@ -117,6 +186,48 @@ const SectionLabel = ({ children }: { children: string }) => (
     {children}
   </div>
 );
+
+const HighlightedCodeBlock = ({ code }: { code: string }) => {
+  const tokens = tokenizeJavaScriptCode(code);
+
+  return (
+    <pre className="run-code-block mt-3 overflow-auto rounded-xl px-3 py-3 text-xs">
+      <code>
+        {tokens.map((token, index) => (
+          <span
+            key={`${index}-${token.kind}-${token.text.length}`}
+            className={token.kind === "plain" ? undefined : `run-code-token--${token.kind}`}
+          >
+            {token.text}
+          </span>
+        ))}
+      </code>
+    </pre>
+  );
+};
+
+const ToolCallResultSection = ({ event }: { event: Extract<RunEvent, { type: "tool_call" }> }) => {
+  if (event.result !== undefined) {
+    return (
+      <div>
+        <SectionLabel>Result</SectionLabel>
+        {event.resultFormat === "json" || typeof event.result !== "string" ? (
+          <JsonTree data={event.result} />
+        ) : (
+          <pre className="bg-muted/35 mt-2 overflow-auto rounded-lg px-2.5 py-2 font-mono text-xs whitespace-pre-wrap">
+            {event.resultText ?? String(event.result)}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  if (event.awaitingResult) {
+    return <p className="text-muted-foreground text-sm">Waiting for structured tool result…</p>;
+  }
+
+  return null;
+};
 
 const DebugDetails = ({ event }: { event: RunEvent }) => {
   return (
@@ -394,20 +505,88 @@ const ToolCallBubble = ({
             <JsonTree data={event.args} />
           </div>
         ) : null}
-        {event.result !== undefined ? (
-          <div>
-            <SectionLabel>Result</SectionLabel>
-            {event.resultFormat === "json" || typeof event.result !== "string" ? (
-              <JsonTree data={event.result} />
-            ) : (
-              <pre className="bg-muted/35 mt-2 overflow-auto rounded-lg px-2.5 py-2 font-mono text-xs whitespace-pre-wrap">
-                {event.resultText ?? String(event.result)}
-              </pre>
-            )}
+        <ToolCallResultSection event={event} />
+      </div>
+    </BubbleFrame>
+  );
+};
+
+const ExecuteCodeBubble = ({
+  event,
+  isLatest,
+}: {
+  event: Extract<RunEvent, { type: "tool_call" }>;
+  isLatest?: boolean;
+}) => {
+  const payload = getExecuteCodePayload(event);
+  if (!payload) {
+    return null;
+  }
+
+  const isError = event.status === "error";
+  const codeLineCount = payload.code ? countCodeLines(payload.code) : 0;
+  const [isCodeOpen, setIsCodeOpen] = useState(false);
+
+  return (
+    <BubbleFrame
+      event={event}
+      isLatest={isLatest}
+      icon={<Code2Icon className="size-4 text-primary" />}
+      title="Execute code"
+      className={isError ? "border-l-4 border-l-destructive/80" : "border-l-4 border-l-primary/75"}
+      titleClassName={isError ? "text-destructive" : "text-foreground"}
+      meta={
+        <>
+          {event.durationMs !== undefined ? (
+            <Badge variant="outline" className="text-[10px]">
+              {event.durationMs}ms
+            </Badge>
+          ) : null}
+          {event.status ? (
+            <Badge variant={isError ? "destructive" : "default"} className="text-[10px] capitalize">
+              {event.status}
+            </Badge>
+          ) : null}
+        </>
+      }
+    >
+      <div className="space-y-3">
+        <div className="bg-muted/28 rounded-xl px-3 py-2.5">
+          <SectionLabel>Summary</SectionLabel>
+          <p className="mt-1 text-sm leading-6">{payload.summary}</p>
+        </div>
+
+        <Collapsible
+          open={isCodeOpen}
+          onOpenChange={setIsCodeOpen}
+          className="rounded-xl border border-black/8 bg-muted/18 px-3 py-2.5 dark:border-white/8"
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <SectionLabel>Code</SectionLabel>
+              <p className="text-muted-foreground mt-1 text-xs">
+                {payload.code
+                  ? `${codeLineCount} line${codeLineCount === 1 ? "" : "s"} of JavaScript`
+                  : "Code was not captured for this run."}
+              </p>
+            </div>
+
+            {payload.code ? (
+              <CollapsibleTrigger className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs font-medium">
+                <ChevronRightIcon className="run-collapsible-chevron size-3" />
+                {isCodeOpen ? "Hide code" : "Show code"}
+              </CollapsibleTrigger>
+            ) : null}
           </div>
-        ) : event.awaitingResult ? (
-          <p className="text-muted-foreground text-sm">Waiting for structured tool result…</p>
-        ) : null}
+
+          {payload.code ? (
+            <CollapsibleContent className="data-[state=closed]:hidden data-[state=open]:block">
+              <HighlightedCodeBlock code={payload.code} />
+            </CollapsibleContent>
+          ) : null}
+        </Collapsible>
+
+        <ToolCallResultSection event={event} />
       </div>
     </BubbleFrame>
   );
@@ -486,6 +665,9 @@ export function RunChatBubble({ event, isLatest = false }: RunChatBubbleProps) {
     case "thinking":
       return <ThinkingBubble event={event} isLatest={isLatest} />;
     case "tool_call":
+      if (event.toolName === "execute_code") {
+        return <ExecuteCodeBubble event={event} isLatest={isLatest} />;
+      }
       return <ToolCallBubble event={event} isLatest={isLatest} />;
     case "output":
       return <OutputBubble event={event} isLatest={isLatest} />;

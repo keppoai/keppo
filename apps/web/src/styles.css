@@ -159,6 +159,29 @@ body {
   font-family: var(--font-mono);
 }
 
+.run-code-block {
+  background: color-mix(in srgb, var(--muted) 82%, transparent);
+  color: color-mix(in srgb, var(--foreground) 94%, transparent);
+  font-family: var(--font-mono);
+  line-height: 1.6;
+}
+
+.run-code-token--comment {
+  color: color-mix(in srgb, var(--muted-foreground) 94%, transparent);
+}
+
+.run-code-token--keyword {
+  color: color-mix(in srgb, var(--primary) 78%, var(--foreground) 22%);
+}
+
+.run-code-token--string {
+  color: color-mix(in srgb, var(--secondary) 82%, var(--foreground) 18%);
+}
+
+.run-code-token--number {
+  color: color-mix(in srgb, var(--chart-4) 78%, var(--foreground) 22%);
+}
+
 .run-json-tree__row {
   min-height: 1.35rem;
 }
@@ -298,4 +321,3 @@ body {
 .dark .landing-green-bg {
   background-color: oklch(0.28 0.06 145);
 }
-
