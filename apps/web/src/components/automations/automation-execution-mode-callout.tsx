@@ -46,7 +46,7 @@ export function AutomationExecutionModeCallout({
       <AlertDescription className="space-y-2">
         <p>
           {state.mode === "bundled"
-            ? "This automation cannot run yet. Add more AI credits or change the plan in Billing to restore bundled runtime."
+            ? "This automation cannot run yet. Purchase more AI credits in Billing or upgrade to a higher plan to restore bundled runtime."
             : `This automation cannot run yet. Add a ${providerLabel} API key to enable execution.`}
         </p>
         <div className="flex flex-wrap gap-3">

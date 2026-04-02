@@ -554,7 +554,7 @@ export const handleInternalAutomationDispatchRequest = async (
               automationRunId: context.run.id,
               status: AUTOMATION_RUN_STATUS.cancelled,
               errorMessage:
-                "Bundled AI credits are exhausted. Add credits or change the plan and retry.",
+                "Bundled AI credits are exhausted. Purchase more credits in Billing or upgrade to a higher plan and retry.",
             })
             .catch(() => undefined);
           return jsonResponse(

@@ -614,6 +614,8 @@ function BillingPage() {
     }
     return getBillingUsageView(displayBilling);
   }, [displayBilling]);
+  const bundledRuntimeAvailableForDeployment =
+    displayBilling?.limits.included_ai_credits.bundled_runtime_enabled ?? false;
   const tierComparison = useMemo<TierComparisonCard[]>(
     () =>
       (["free", "starter", "pro"] as const).map((tierId) => {
@@ -624,14 +626,14 @@ function BillingPage() {
           priceCentsMonthly: tier.price_cents_monthly,
           workspaces: tier.max_workspaces,
           aiCredits: tier.included_ai_credits.total,
-          aiCreditsLabel: tier.included_ai_credits.bundled_runtime_enabled
+          aiCreditsLabel: bundledRuntimeAvailableForDeployment
             ? tier.included_ai_credits.reset_period === "one_time"
               ? "Bundled trial credits"
               : "Bundled AI credits / mo"
             : tier.included_ai_credits.reset_period === "one_time"
               ? "Included trial credits"
               : "Included AI credits / mo",
-          aiCreditsDescription: tier.included_ai_credits.bundled_runtime_enabled
+          aiCreditsDescription: bundledRuntimeAvailableForDeployment
             ? tier.included_ai_credits.reset_period === "one_time"
               ? "One-time trial credits cover prompt generation and bundled runtime."
               : "Includes Keppo-managed runtime credits."
@@ -639,7 +641,7 @@ function BillingPage() {
           toolCalls: tier.max_tool_calls_per_month,
         } satisfies TierComparisonCard;
       }),
-    [],
+    [bundledRuntimeAvailableForDeployment],
   );
   const promoExpiryLabel = invitePromo
     ? new Date(invitePromo.expires_at).toLocaleDateString(undefined, {

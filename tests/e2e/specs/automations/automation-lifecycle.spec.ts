@@ -2,7 +2,6 @@ import { mkdirSync } from "node:fs";
 import type { Locator } from "@playwright/test";
 import { test, expect } from "../../fixtures/golden.fixture";
 import { createConvexAdmin } from "../../helpers/convex-admin";
-import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
 
 const slugify = (value: string): string =>
   value
@@ -42,23 +41,6 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
     subscriptionTier: "starter",
   });
   await pages.automations.setSelectedWorkspaceSlug(seeded.workspaceSlug);
-  await pages.automations.open();
-  await pages.automations.expectListLoaded();
-
-  const settingsUrl = new URL(
-    await resolveScopedDashboardPath(page, "/settings"),
-    app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
-  await page.getByLabel("Provider").selectOption("openai");
-  await page.getByLabel("Mode").selectOption("byok");
-  await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-1234");
-  await clickElement(page.getByRole("button", { name: "Save Key" }));
-  await expect(
-    page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
-  ).toContainText("Active");
   await pages.automations.open();
   await pages.automations.expectListLoaded();
 

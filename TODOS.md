@@ -1,0 +1,22 @@
+- [x] Re-read PR context in `tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md` as the authoritative workflow state.
+- [x] Rebase the current branch onto `upstream/main`, resolve every merge conflict carefully, and finish the rebase.
+- [x] Investigate failing CI check `e2e / Local Convex 1/2` with concrete evidence from workflow logs and local diagnostics if needed.
+- [x] Investigate failing CI check `e2e / Test 1/4` with concrete evidence from workflow logs and local diagnostics if needed.
+- [x] Investigate failing aggregate check `CI Result` and confirm it is explained by the underlying failures.
+- [x] Review trusted review feedback from cubic in `docs/specs/core-domain-model.md` and decide whether to fix or explain it.
+- [x] Review trusted review feedback from cubic for the hosted readiness copy snapshot and decide whether to fix or explain it.
+- [x] Review trusted thread feedback for `apps/web/src/routes/automations.build.lazy.tsx` and address the self-managed build-page guidance gap.
+- [x] Review trusted thread feedback for `apps/web/app/lib/server/automation-runtime.ts` and address the vague bundled-credit error message.
+- [x] Review trusted thread feedback for `apps/web/src/components/automations/ai-key-manager.tsx` and address hosted visibility of legacy BYOK keys.
+- [x] Review trusted thread feedback for `convex/onboarding.ts` and address the onboarding readiness query pattern concern.
+- [x] Review trusted issue comment feedback from Codex about readiness behavior at zero credits and fix or explain it.
+- [x] Review trusted issue comment feedback from Codex about billing copy in self-managed deployments and fix or explain it.
+- [x] Read any additional rules required by the touched areas before editing code or docs.
+- [x] Implement all required code, test, snapshot, spec, and doc updates that follow from the validated feedback and CI failures.
+- [x] Run targeted local E2E verification for the failing specs if E2E-related fixes are made, and keep investigating if the stack or runner becomes unstable.
+- [x] Run `pnpm check`, fix every failure, and re-run until it passes.
+- [x] Self-review the final diff against the PR context, trusted feedback, specs, and CI root causes.
+- [ ] Create a local git commit with a Conventional Commit message for the completed fixes.
+- [ ] Re-read `TODOS.md` and confirm every item is marked done before writing the workflow output.
+- [ ] Write `tmp/pr-review-responder/actions.json` with the required summary comment and thread actions.
+- [ ] Delete `TODOS.md`.

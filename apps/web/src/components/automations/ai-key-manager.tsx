@@ -229,6 +229,7 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
   );
   const bundledRuntimeAvailable = balance?.bundled_runtime_enabled ?? false;
   const hostedBundledRuntime = bundledRuntimeAvailable;
+  const legacyHostedKeys = useMemo(() => keys.filter((key) => key.key_mode !== "bundled"), [keys]);
   const visibleKeys = useMemo(
     () => (hostedBundledRuntime ? keys.filter((key) => key.key_mode === "bundled") : keys),
     [hostedBundledRuntime, keys],
@@ -886,6 +887,56 @@ export function AiKeyManager({ orgId, userEmail }: AiKeyManagerProps) {
               ))
             )}
           </div>
+
+          {hostedBundledRuntime && legacyHostedKeys.length > 0 ? (
+            <div className="space-y-3 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4">
+              <div className="space-y-1">
+                <p className="font-medium text-foreground">Legacy self-managed keys</p>
+                <p className="text-sm leading-6 text-foreground/75">
+                  Hosted Keppo no longer uses these credentials for runtime, but they remain visible
+                  here so operators can review and remove previously stored keys.
+                </p>
+              </div>
+              <div className="space-y-2">
+                {legacyHostedKeys.map((key) => (
+                  <div
+                    key={key.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded border bg-background/80 p-3"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <Badge variant={key.is_active ? "default" : "outline"}>
+                          {key.is_active ? "Active" : "Inactive"}
+                        </Badge>
+                        <span className="font-medium capitalize">{key.provider}</span>
+                        <span className="text-muted-foreground text-sm">
+                          {formatKeyModeLabel(key.key_mode)}
+                        </span>
+                      </div>
+                      <div className="text-muted-foreground text-xs">
+                        {key.key_hint}
+                        {key.last_validated_at
+                          ? ` · Validated ${fullTimestamp(key.last_validated_at)}`
+                          : ""}
+                        {key.token_expires_at
+                          ? ` · Expires ${fullTimestamp(key.token_expires_at)}`
+                          : ""}
+                      </div>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        void handleDelete(key.id);
+                      }}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {!hostedBundledRuntime && usage.length > 0 ? (
             <div className="rounded-md border p-3 text-sm">

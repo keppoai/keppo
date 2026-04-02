@@ -25,7 +25,7 @@
 - progressbar
 - paragraph: Next step
 - paragraph: Confirm AI access
-- paragraph: Generated automations stay blocked until the organization has bundled runtime access or an active self-managed AI key.
+- paragraph: Generated automations stay blocked until the organization has bundled runtime access.
 - link "Continue":
   - /settings
 - list:
@@ -34,9 +34,9 @@
   - listitem:
     - button "Enable it in this workspace Choose which connected providers this workspace can actually use."
   - listitem:
-    - link "Confirm AI access Generated automations stay blocked until the organization has bundled runtime access or an active self-managed AI key.":
+    - link "Confirm AI access Generated automations stay blocked until the organization has bundled runtime access.":
       - /settings
-      - button "Confirm AI access Generated automations stay blocked until the organization has bundled runtime access or an active self-managed AI key."
+      - button "Confirm AI access Generated automations stay blocked until the organization has bundled runtime access."
   - listitem:
     - link "Create the first automation Draft one focused automation target so the workspace can do useful work.":
       - /url: /automations

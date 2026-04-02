@@ -1,7 +1,6 @@
 import { mkdirSync } from "node:fs";
 import type { Locator } from "@playwright/test";
 import { test, expect } from "../../fixtures/golden.fixture";
-import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
 
 const clickElement = async (locator: Locator): Promise<void> => {
   await locator.evaluate((element) => (element as HTMLElement).click());
@@ -56,21 +55,6 @@ test("gmail provider trigger authoring surfaces structured filters and health", 
     },
   );
   await pages.automations.setSelectedWorkspaceSlug(seeded.workspaceSlug);
-
-  const settingsUrl = new URL(
-    await resolveScopedDashboardPath(page, "/settings"),
-    app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
-  await page.getByLabel("Provider").selectOption("openai");
-  await page.getByLabel("Mode").selectOption("byok");
-  await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-1234");
-  await clickElement(page.getByRole("button", { name: "Save Key" }));
-  await expect(
-    page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
-  ).toContainText("Active");
 
   await pages.automations.open();
   await pages.automations.expectListLoaded();
@@ -140,17 +124,6 @@ test("multi-provider trigger authoring surfaces Reddit and X polling filters fro
   await auth.connectProviderForOrg(seeded.orgId, "reddit", undefined, seeded.workspaceId, true);
   await auth.connectProviderForOrg(seeded.orgId, "x", undefined, seeded.workspaceId, true);
   await pages.automations.setSelectedWorkspaceSlug(seeded.workspaceSlug);
-
-  const settingsUrl = new URL(
-    await resolveScopedDashboardPath(page, "/settings"),
-    app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
-  await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
-  await page.getByLabel("Provider").selectOption("openai");
-  await page.getByLabel("Mode").selectOption("byok");
-  await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-1234");
-  await clickElement(page.getByRole("button", { name: "Save Key" }));
 
   await pages.automations.open();
   await pages.automations.expectListLoaded();

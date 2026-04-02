@@ -566,7 +566,7 @@ export const assertAutomationExecutionReady = async (
   }
   if (readiness.mode === "bundled") {
     throw new Error(
-      "automation.ai_credits_required: No bundled AI credits are available for this org. Add credits or change the plan in Settings -> Billing.",
+      "automation.ai_credits_required: No bundled AI credits are available for this org. Purchase more credits in Billing or upgrade to a higher plan.",
     );
   }
   throw new Error(

@@ -1,8 +1,12 @@
 import { createLazyRoute, useNavigate } from "@tanstack/react-router";
+import { useQuery } from "convex/react";
+import { makeFunctionReference } from "convex/server";
 import { automationBuildRoute } from "./automations.build";
 import { AutomationPromptBox } from "@/components/automations/automation-prompt-box";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { parseAiCreditBalance, parseOrgAiKeys } from "@/lib/automations-view-model";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useWorkspace } from "@/hooks/use-workspace-context";
@@ -13,9 +17,24 @@ export const automationBuildRouteLazy = createLazyRoute(automationBuildRoute.id)
 
 function BuildAutomationPage() {
   const navigate = useNavigate();
-  const { canManage } = useAuth();
+  const { canManage, getOrgId } = useAuth();
   const { buildWorkspacePath } = useRouteParams();
   const { selectedWorkspaceId } = useWorkspace();
+  const orgId = getOrgId();
+  const creditBalance = parseAiCreditBalance(
+    useQuery(
+      makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
+      orgId ? { org_id: orgId } : "skip",
+    ),
+  );
+  const orgAiKeys = parseOrgAiKeys(
+    useQuery(
+      makeFunctionReference<"query">("org_ai_keys:listOrgAiKeys"),
+      orgId ? { org_id: orgId } : "skip",
+    ),
+  );
+  const showSelfManagedAiAccessWarning =
+    creditBalance?.bundled_runtime_enabled === false && !orgAiKeys.some((key) => key.is_active);
 
   if (!canManage()) {
     return (
@@ -52,6 +71,29 @@ function BuildAutomationPage() {
           in one dedicated builder page.
         </p>
       </div>
+
+      {showSelfManagedAiAccessWarning ? (
+        <Alert variant="warning">
+          <AlertTitle>Self-managed AI access still needs one active provider key</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              Prompt generation can continue here, but automation runs will stay blocked until this
+              org adds an active provider key in AI Configuration.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void navigate({
+                  to: buildWorkspacePath("/settings"),
+                  search: { tab: "ai" },
+                });
+              }}
+            >
+              Open AI Configuration
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {selectedWorkspaceId ? (
         <AutomationPromptBox workspaceId={selectedWorkspaceId} variant="hero" />
