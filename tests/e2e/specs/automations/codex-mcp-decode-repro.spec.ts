@@ -1,11 +1,14 @@
+import { readFile } from "node:fs/promises";
 import type { APIRequestContext, Locator } from "@playwright/test";
 import { test, expect } from "../../fixtures/golden.fixture";
 import { createConvexAdmin } from "../../helpers/convex-admin";
 import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
+import { serviceLogFileForWorker } from "../../infra/stack-manager";
 
 type ProviderEvent = {
   body: unknown;
   path: string;
+  provider?: string;
 };
 
 const clickElement = async (locator: Locator): Promise<void> => {
@@ -23,16 +26,6 @@ const setControlValue = async (locator: Locator, value: string): Promise<void> =
     element.dispatchEvent(new Event("input", { bubbles: true }));
     element.dispatchEvent(new Event("change", { bubbles: true }));
   }, value);
-};
-
-const readProviderEvents = async (
-  request: APIRequestContext,
-  baseUrl: string,
-): Promise<ProviderEvent[]> => {
-  const response = await request.get(`${baseUrl}/__provider-events`);
-  expect(response.ok()).toBeTruthy();
-  const payload = (await response.json()) as { events?: ProviderEvent[] };
-  return payload.events ?? [];
 };
 
 const eventBodyHasSearchTools = (body: unknown): boolean => {
@@ -88,6 +81,7 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   auth,
   pages,
   page,
+  provider,
   request,
 }) => {
   test.skip(
@@ -159,13 +153,11 @@ test("codex automation run completes after search_tools when fake OpenAI respons
       page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
     ).toContainText("Active");
   }
+
   const createdRun = (await admin.createAutomationRun(
     createdAutomation.created.automation.id,
     "manual",
   )) as { id: string };
-  const openAiEventCountBeforeDispatch = (
-    await readProviderEvents(request, app.runtime.fakeGatewayBaseUrl)
-  ).length;
 
   const dispatchResult = (await admin.dispatchAutomationRun(createdRun.id, app.namespace)) as {
     dispatched: boolean;
@@ -203,11 +195,26 @@ test("codex automation run completes after search_tools when fake OpenAI respons
 
   await expect.poll(readLogText, { timeout: 20_000, intervals: [500, 1_000, 2_000] }).not.toBe("");
 
+  const readServiceLog = async (name: "dashboard"): Promise<string> => {
+    try {
+      return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+
   let finalRunState: {
     hasOpenAiResponsesSearchToolsRequest: boolean;
     status: string | null;
     outcomeSuccess: boolean | null;
+    fakeGatewaySawResponses: boolean;
+    fakeGatewaySawRecordOutcomeFunction: boolean;
+    fakeGatewaySawFunctionOutputFollowUp: boolean;
+    dashboardSawToolCallReceived: boolean;
+    dashboardSawSearchToolsCompleted: boolean;
+    dashboardSawRecordOutcomeCall: boolean;
     hasStreamDisconnectError: boolean;
+    hasAgentRecordedOutcome: boolean;
     logText: string;
   } | null = null;
 
@@ -216,16 +223,41 @@ test("codex automation run completes after search_tools when fake OpenAI respons
       async () => {
         const run = await admin.getAutomationRun(createdRun.id);
         const logSummary = await summarizeRunLogs(request, admin, createdRun.id);
-        const openAiEvents = await readProviderEvents(request, app.runtime.fakeGatewayBaseUrl);
-        const newOpenAiEvents = openAiEvents.slice(openAiEventCountBeforeDispatch);
+        const openAiEvents = (await provider.events("openai")) as ProviderEvent[];
+        const stringifyOpenAiEvents = JSON.stringify(openAiEvents);
+        const dashboardLog = await readServiceLog("dashboard");
         finalRunState = {
-          hasOpenAiResponsesSearchToolsRequest: newOpenAiEvents.some(
-            (event) => event.path.includes("responses") && eventBodyHasSearchTools(event.body),
-          ),
+          hasOpenAiResponsesSearchToolsRequest: openAiEvents.some(
+            (event) => typeof event.path === "string" && event.path.endsWith("/responses"),
+          )
+            ? openAiEvents.some(
+                (event) =>
+                  typeof event.path === "string" &&
+                  event.path.endsWith("/responses") &&
+                  eventBodyHasSearchTools(event.body),
+              )
+            : false,
           status: run?.status ?? null,
           outcomeSuccess: run?.outcome_success ?? null,
+          fakeGatewaySawResponses: openAiEvents.some(
+            (event) => typeof event.path === "string" && event.path.endsWith("/responses"),
+          ),
+          fakeGatewaySawRecordOutcomeFunction: stringifyOpenAiEvents.includes(
+            '"name":"mcp__keppo__record_outcome"',
+          ),
+          fakeGatewaySawFunctionOutputFollowUp: stringifyOpenAiEvents.includes(
+            '"type":"function_call_output"',
+          ),
+          dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
+          dashboardSawSearchToolsCompleted: dashboardLog.includes(
+            '"msg":"mcp.search_tools.completed"',
+          ),
+          dashboardSawRecordOutcomeCall: dashboardLog.includes('"tool_name":"record_outcome"'),
           hasStreamDisconnectError: logSummary.text.includes(
             "stream disconnected before completion",
+          ),
+          hasAgentRecordedOutcome: logSummary.text.includes(
+            "Automation outcome (agent recorded): Success.",
           ),
           logText: logSummary.text,
         };
@@ -240,7 +272,14 @@ test("codex automation run completes after search_tools when fake OpenAI respons
       hasOpenAiResponsesSearchToolsRequest: true,
       status: "succeeded",
       outcomeSuccess: true,
+      fakeGatewaySawResponses: true,
+      fakeGatewaySawRecordOutcomeFunction: true,
+      fakeGatewaySawFunctionOutputFollowUp: true,
+      dashboardSawToolCallReceived: true,
+      dashboardSawSearchToolsCompleted: true,
+      dashboardSawRecordOutcomeCall: true,
       hasStreamDisconnectError: false,
+      hasAgentRecordedOutcome: true,
     });
 
   expect(
