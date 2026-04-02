@@ -182,6 +182,73 @@ describe("DockerSandboxProvider", () => {
     );
   });
 
+  it("rewrites bundled model gateway URLs for container reachability", async () => {
+    const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchFn);
+
+    const spawnCalls: Array<{ cmd: string; args: string[] }> = [];
+    const spawnMock = vi.fn((cmd: string, args: string[]) => {
+      spawnCalls.push({ cmd, args });
+
+      if (args[0] === "image" && args[1] === "inspect") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => child.emit("close", 0));
+        return child;
+      }
+
+      if (args[0] === "run") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout?.write("container_456\n");
+          child.emit("close", 0);
+        });
+        return child;
+      }
+
+      if (args[0] === "logs") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => child.emit("close", 0));
+        return child;
+      }
+
+      if (args[0] === "wait") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout?.write("0\n");
+          child.emit("close", 0);
+        });
+        return child;
+      }
+
+      if (args[0] === "rm") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => child.emit("close", 0));
+        return child;
+      }
+
+      throw new Error(`Unexpected docker args: ${args.join(" ")}`);
+    });
+
+    const provider = new DockerSandboxProvider(spawnMock as unknown as typeof nodeSpawn);
+    await provider.dispatch({
+      ...baseConfig,
+      runtime: {
+        ...baseConfig.runtime,
+        env: {
+          ...baseConfig.runtime.env,
+          OPENAI_BASE_URL: "http://127.0.0.1:9901",
+          ANTHROPIC_BASE_URL: "http://localhost:9902",
+        },
+      },
+    });
+
+    const runCall = spawnCalls.find((call) => call.args[0] === "run");
+    expect(runCall).toBeDefined();
+    const dockerArgs = runCall?.args.join(" ") ?? "";
+    expect(dockerArgs).toContain("OPENAI_BASE_URL=http://host.docker.internal:9901");
+    expect(dockerArgs).toContain("ANTHROPIC_BASE_URL=http://host.docker.internal:9902");
+  });
+
   it("builds the sandbox image when it is missing locally", async () => {
     const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchFn);

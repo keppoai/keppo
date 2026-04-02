@@ -52,6 +52,7 @@ const toLocalConvexSiteUrl = (convexUrl: string): string => {
 export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
   const fakeGatewayBase = `http://127.0.0.1:${params.ports.fakeGateway}`;
   const dashboardBase = `http://localhost:${params.ports.dashboard}`;
+  const internalApiBase = `http://127.0.0.1:${params.ports.dashboard}`;
   const apiBase = dashboardBase;
   const queueBrokerBase = `http://127.0.0.1:${params.ports.queueBroker}`;
   const useFakeOpenAiResponses = process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1";
@@ -107,15 +108,18 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     BETTER_AUTH_SECRET:
       process.env.BETTER_AUTH_SECRET ?? `keppo-e2e-better-auth-secret-${params.workerIndex}`,
     KEPPO_URL: dashboardBase,
+    // Keep browser auth on localhost, but force backend-only dispatch callbacks onto
+    // IPv4 loopback so Convex/node-side fetches do not depend on localhost resolution.
+    KEPPO_API_INTERNAL_BASE_URL: `${internalApiBase}/api`,
     VITE_KEPPO_URL: dashboardBase,
     KEPPO_FAKE_EXTERNAL_BASE_URL: fakeGatewayBase,
     KEPPO_E2E_FAKE_GATEWAY_BASE_URL: fakeGatewayBase,
     ...(useFakeOpenAiResponses
       ? {
           KEPPO_E2E_OPENAI_BASE_URL: fakeGatewayBase,
-          // This repro must bypass bundled gateway mode so automation dispatch
-          // exercises the fake OpenAI Responses endpoint with BYOK auth.
-          KEPPO_LLM_GATEWAY_URL: "",
+          // Route bundled OpenAI runtime requests through the same fake gateway
+          // so hosted-mode dispatches still exercise the fake /responses surface.
+          KEPPO_LLM_GATEWAY_URL: fakeGatewayBase,
         }
       : {}),
     KEPPO_PROCESS_APPROVED_ACTIONS_INLINE: "false",
@@ -125,7 +129,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     KEPPO_QUEUE_MAX_ATTEMPTS: "5",
     KEPPO_CRON_SECRET: cronToken,
     KEPPO_LOCAL_QUEUE_BROKER_URL: queueBrokerBase,
-    KEPPO_LOCAL_QUEUE_CONSUMER_URL: `${apiBase}/internal/queue/approved-action`,
+    KEPPO_LOCAL_QUEUE_CONSUMER_URL: `${internalApiBase}/internal/queue/approved-action`,
     KEPPO_LOCAL_QUEUE_CONSUMER_AUTH_HEADER: `Bearer ${cronToken}`,
     KEPPO_EXTERNAL_FETCH_ALLOWLIST: [...externalAllowlist].join(","),
     KEPPO_LOCAL_HOST_ALLOWLIST: [...localHostAllowlist].join(","),
@@ -182,9 +186,11 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     },
     dashboard: {
       ...base,
-      HOST: "127.0.0.1",
+      // Containerized automation sandboxes connect back through host.docker.internal,
+      // so the E2E dashboard must listen beyond loopback.
+      HOST: "0.0.0.0",
       PORT: String(params.ports.dashboard),
-      NITRO_HOST: "127.0.0.1",
+      NITRO_HOST: "0.0.0.0",
       NITRO_PORT: String(params.ports.dashboard),
       VITE_API_BASE: "/",
       VITE_KEPPO_URL: dashboardBase,

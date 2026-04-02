@@ -568,6 +568,175 @@ describe("automation scheduler contract boundaries", () => {
     });
   });
 
+  it("derives the dispatch URL from the local queue consumer origin when no hosted base is configured", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_API_INTERNAL_BASE_URL", "");
+    vi.stubEnv("KEPPO_URL", "");
+    vi.stubEnv(
+      "KEPPO_LOCAL_QUEUE_CONSUMER_URL",
+      "http://localhost:9903/internal/queue/approved-action",
+    );
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_manual_local_queue_origin",
+      email: "convex-scheduler-manual-local-queue-origin@example.com",
+      name: "Convex Scheduler Manual Local Queue Origin",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [
+          { field: "email", value: "convex-scheduler-manual-local-queue-origin@example.com" },
+        ],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-manual-local-queue-origin@example.com",
+      name: "Convex Scheduler Manual Local Queue Origin",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    await t.finishAllScheduledFunctions(() => {
+      vi.runAllTimers();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:9903/internal/automations/dispatch",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(String),
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      automation_run_id: run.id,
+      dispatch_token: expect.any(String),
+    });
+  });
+
+  it("derives the dispatch URL from the E2E namespace port block when no other base is configured", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_API_INTERNAL_BASE_URL", "");
+    vi.stubEnv("KEPPO_URL", "");
+    vi.stubEnv("KEPPO_LOCAL_QUEUE_CONSUMER_URL", "");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_manual_namespace_origin",
+      email: "convex-scheduler-manual-namespace-origin@example.com",
+      name: "Convex Scheduler Manual Namespace Origin",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-manual-namespace-origin@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-manual-namespace-origin@example.com",
+      name: "Convex Scheduler Manual Namespace Origin",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    const result = await authT.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+      namespace: "e2e-run.0.worker.spec",
+    });
+
+    expect(result).toMatchObject({
+      dispatched: true,
+      status: "dispatched",
+      http_status: 204,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9903/internal/automations/dispatch",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(String),
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      automation_run_id: run.id,
+      dispatch_token: expect.any(String),
+    });
+  });
+
+  it("prefers the namespace-derived cron secret for E2E dispatch auth over ambient env secrets", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_API_INTERNAL_BASE_URL", "");
+    vi.stubEnv("KEPPO_URL", "");
+    vi.stubEnv("KEPPO_LOCAL_QUEUE_CONSUMER_URL", "");
+    vi.stubEnv("KEPPO_CRON_SECRET", "non-e2e-secret");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_namespace_secret_precedence",
+      email: "convex-scheduler-namespace-secret-precedence@example.com",
+      name: "Convex Scheduler Namespace Secret Precedence",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [
+          {
+            field: "email",
+            value: "convex-scheduler-namespace-secret-precedence@example.com",
+          },
+        ],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-namespace-secret-precedence@example.com",
+      name: "Convex Scheduler Namespace Secret Precedence",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    const result = await authT.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+      namespace: "e2e-run.0.worker.spec",
+    });
+
+    expect(result).toMatchObject({
+      dispatched: true,
+      status: "dispatched",
+      http_status: 204,
+    });
+    const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(dispatchHeaders.get("authorization")).toBe("Bearer e2e-cron-token-0");
+  });
+
   it("rewrites bundled missing-key dispatch failures with the bundled credential label", async () => {
     vi.useFakeTimers();
     vi.stubEnv(
@@ -758,5 +927,57 @@ describe("automation scheduler contract boundaries", () => {
     );
     const terminateHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(terminateHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
+  });
+
+  it("derives the terminate URL from KEPPO_URL when no internal base is configured", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_URL", "https://keppo.ai");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const fixture = await seedAutomationFixture(t, "org_convex_scheduler_timeout_keppo_url");
+    const startedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("automation_runs", {
+        id: "arun_timeout_contract_keppo_url",
+        automation_id: fixture.automationId,
+        org_id: "org_convex_scheduler_timeout_keppo_url",
+        workspace_id: fixture.workspaceId,
+        config_version_id: fixture.configVersionId,
+        trigger_type: "manual",
+        error_message: null,
+        sandbox_id: null,
+        log_storage_id: null,
+        created_at: startedAt,
+        mcp_session_id: null,
+        client_type: "other",
+        metadata: {
+          automation_run_status: AUTOMATION_RUN_STATUS.running,
+          log_bytes: 0,
+          log_eviction_noted: false,
+        },
+        started_at: startedAt,
+        ended_at: null,
+        status: RUN_STATUS.active,
+      });
+    });
+
+    const result = await t.mutation(refs.reapStaleRuns, { limit: 10 });
+    expect(result.timed_out_count).toBe(1);
+
+    await t.finishAllScheduledFunctions(() => {
+      vi.runAllTimers();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://keppo.ai/internal/automations/terminate",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ automation_run_id: "arun_timeout_contract_keppo_url" }),
+      }),
+    );
   });
 });

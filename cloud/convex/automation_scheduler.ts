@@ -77,7 +77,8 @@ const AUTOMATION_DISPATCH_PATH = "/internal/automations/dispatch";
 const AUTOMATION_TERMINATE_PATH = "/internal/automations/terminate";
 const DEFAULT_E2E_PORT_BASE = 9900;
 const DEFAULT_E2E_PORT_BLOCK_SIZE = 20;
-const DEFAULT_E2E_API_PORT_OFFSET = 2;
+// The E2E harness serves root-owned internal routes from the dashboard port.
+const DEFAULT_E2E_API_PORT_OFFSET = 3;
 const DEFAULT_SCHEDULE_SCAN_LIMIT = 200;
 const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
@@ -85,11 +86,27 @@ const DEFAULT_COLD_LOG_SCAN_LIMIT = 500;
 const DISPATCH_RETRY_DELAY_MS = 1_000;
 const textEncoder = new TextEncoder();
 const DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO = "keppo:dispatch-token:v1";
+const AUTOMATION_DISPATCH_URL_CONFIG_HINT =
+  "KEPPO_AUTOMATION_DISPATCH_URL, KEPPO_API_INTERNAL_BASE_URL, KEPPO_URL, KEPPO_LOCAL_QUEUE_CONSUMER_URL, or an E2E namespace-derived API base";
 
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes)
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
+
+const describeError = (error: unknown): string => {
+  if (!(error instanceof Error)) {
+    return String(error);
+  }
+  const errorWithCause = error as Error & { cause?: unknown };
+  const cause =
+    errorWithCause.cause instanceof Error
+      ? errorWithCause.cause.message
+      : typeof errorWithCause.cause === "string"
+        ? errorWithCause.cause
+        : null;
+  return cause && cause !== error.message ? `${error.message} (cause: ${cause})` : error.message;
+};
 
 const resolveNamespaceApiBase = (namespace?: string): string | null => {
   if (!namespace) {
@@ -196,11 +213,12 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
 };
 
 const resolveInternalAuthHeader = (namespace?: string): string | null => {
+  const namespaceSecret = resolveNamespaceCronSecret(namespace);
   const envSecret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
     process.env.VERCEL_CRON_SECRET;
-  const secret = envSecret ?? resolveNamespaceCronSecret(namespace);
+  const secret = namespaceSecret ?? envSecret;
   if (!secret) {
     return null;
   }
@@ -453,7 +471,7 @@ export const checkScheduledAutomations = internalMutation({
           trigger_type: RUN_TRIGGER_TYPE.schedule,
         });
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = describeError(error);
         await ctx
           .runMutation(refs.createAuditEvent, {
             orgId: automation.org_id,
@@ -478,7 +496,7 @@ export const checkScheduledAutomations = internalMutation({
         );
         dispatched += 1;
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = describeError(error);
         await ctx.runMutation(refs.updateAutomationRunStatus, {
           automation_run_id: run.id,
           status: AUTOMATION_RUN_STATUS.cancelled,
@@ -568,14 +586,14 @@ export const dispatchAutomationRun = internalAction({
     const dispatchUrl = resolveAutomationDispatchUrl(args.namespace);
     if (!dispatchUrl) {
       await emitDispatchFailureAudit(
-        "Missing KEPPO_AUTOMATION_DISPATCH_URL",
+        `Missing automation dispatch URL configuration (${AUTOMATION_DISPATCH_URL_CONFIG_HINT})`,
         "dispatch_action_config",
       );
       await ctx
         .runMutation(refs.updateAutomationRunStatus, {
           automation_run_id: args.runId,
           status: AUTOMATION_RUN_STATUS.cancelled,
-          error_message: "Dispatch failed: missing KEPPO_AUTOMATION_DISPATCH_URL",
+          error_message: `Dispatch failed: missing automation dispatch URL configuration (${AUTOMATION_DISPATCH_URL_CONFIG_HINT})`,
         })
         .catch(() => undefined);
       return {
@@ -683,7 +701,7 @@ export const dispatchAutomationRun = internalAction({
         http_status: response.status,
       };
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = describeError(error);
       if (errorMessage === "AutomationRunNotPending") {
         return {
           dispatched: false,
@@ -1118,7 +1136,7 @@ export const processAutomationTriggerEvents = internalMutation({
         });
         dispatched += 1;
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = describeError(error);
         await ctx.db.patch(event._id, {
           status: AUTOMATION_TRIGGER_EVENT_STATUS.skipped,
           failure_reason: errorMessage.slice(0, 256),

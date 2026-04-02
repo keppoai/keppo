@@ -102,6 +102,12 @@ const normalizeConfigForDocker = (config: SandboxConfig): SandboxConfig => {
   if (runtimeEnv.KEPPO_MCP_SERVER_URL) {
     runtimeEnv.KEPPO_MCP_SERVER_URL = rewriteDockerReachableUrl(runtimeEnv.KEPPO_MCP_SERVER_URL);
   }
+  if (runtimeEnv.OPENAI_BASE_URL) {
+    runtimeEnv.OPENAI_BASE_URL = rewriteDockerReachableUrl(runtimeEnv.OPENAI_BASE_URL);
+  }
+  if (runtimeEnv.ANTHROPIC_BASE_URL) {
+    runtimeEnv.ANTHROPIC_BASE_URL = rewriteDockerReachableUrl(runtimeEnv.ANTHROPIC_BASE_URL);
+  }
   if (runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL) {
     runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL = rewriteDockerReachableUrl(
       runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL,
