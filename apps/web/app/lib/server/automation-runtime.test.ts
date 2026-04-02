@@ -37,6 +37,7 @@ const defaultTestEnv = {
 const createDeps = () => {
   const convex = {
     appendAutomationRunLog: vi.fn().mockResolvedValue(undefined),
+    appendAutomationRunLogBatch: vi.fn().mockResolvedValue(undefined),
     createRun: vi.fn().mockResolvedValue({ id: "run_test" }),
     deductAiCredit: vi.fn().mockResolvedValue({
       org_id: "org_test",
@@ -1110,13 +1111,17 @@ describe("start-owned automation runtime handlers", () => {
 
     expect(logResponse?.status).toBe(200);
     await expect(logResponse?.json()).resolves.toMatchObject({ ok: true, ingested: 3 });
-    expect(deps.convex.appendAutomationRunLog).toHaveBeenCalledWith(
+    expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledWith(
       expect.objectContaining({
         automationRunId: "arun_dispatch_test",
-        level: AUTOMATION_RUN_LOG_LEVEL.stderr,
-        content: "model: gpt-5.2",
-        eventType: "automation_config",
-        eventData: { key: "model", value: "gpt-5.2" },
+        lines: expect.arrayContaining([
+          expect.objectContaining({
+            level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+            content: "model: gpt-5.2",
+            eventType: "automation_config",
+            eventData: { key: "model", value: "gpt-5.2" },
+          }),
+        ]),
       }),
     );
 
