@@ -1,25 +1,14 @@
 # Keppo
 
-Keppo is an open-source AI automation platform built for workflows that need clear controls, human review, and auditability.
+Open-source AI automation platform with human review, approval gates, and auditability built in.
 
-It helps teams connect tools, run automations, gate risky actions behind approvals or rules, and keep operators in control of what AI systems are allowed to do.
+## Links
 
-## Learn More
-
-- Product docs: [keppo.ai/docs](https://keppo.ai/docs)
-- Local setup and development: [`docs/setup.md`](docs/setup.md)
-- Repository specs: [`docs/specs/README.md`](docs/specs/README.md)
-- Engineering rules and guardrails: [`docs/rules/`](docs/rules)
-
-## What You’ll Find Here
-
-- The Keppo application code
-- Self-hosted and local-development setup docs
-- Contributor documentation for architecture, testing, security, and workflow rules
+- [Product docs](https://keppo.ai/docs)
+- [Local setup & development](docs/setup.md)
+- [Architecture & specs](docs/specs/README.md)
+- [Engineering rules](docs/rules)
 
 ## License
 
-- Repository default license: Apache License 2.0 (`LICENSE`)
-- Web app license: Apache License 2.0 (`apps/web/package.json`)
-- Cloud runtime license: Functional Source License 1.1 with Apache 2.0 future license (`cloud/LICENSE`)
-- [`LICENSE.md`](LICENSE.md) describes the Apache-licensed repo surface and the canonical FSL runtime modules under `cloud/`
+Apache 2.0 for the repository and web app. The cloud runtime under `cloud/` uses FSL 1.1 with an Apache 2.0 future license. See [`LICENSE.md`](LICENSE.md) for details.
