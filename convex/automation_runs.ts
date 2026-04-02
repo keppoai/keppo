@@ -46,6 +46,12 @@ import {
   type RunTriggerType,
 } from "./domain_constants";
 import { normalizeAutomationRunStatus, toRunStatus } from "./automation_run_status";
+import {
+  evictAutomationRunLogRows,
+  MAX_AUTOMATION_RUN_LOG_BATCH_LINES,
+  truncateToUtf8Bytes,
+  utf8Bytes,
+} from "./automation_runs_shared";
 import { toAutomationConfigVersionView } from "./automations_shared";
 import { assertAutomationExecutionReady } from "./automations";
 import {
@@ -394,25 +400,6 @@ const ensureTransition = (current: AutomationRunStatus, next: AutomationRunStatu
   throw new Error(`InvalidAutomationRunStatusTransition: ${current} -> ${next}`);
 };
 
-const utf8Bytes = (value: string): number => {
-  return new TextEncoder().encode(value).length;
-};
-
-const truncateToUtf8Bytes = (value: string, maxBytes: number): string => {
-  if (utf8Bytes(value) <= maxBytes) {
-    return value;
-  }
-  let output = "";
-  for (const char of value) {
-    const next = output + char;
-    if (utf8Bytes(next) > maxBytes) {
-      break;
-    }
-    output = next;
-  }
-  return output;
-};
-
 const formatAutomationRunOutcomeLogMessage = (params: {
   success: boolean;
   summary: string;
@@ -661,6 +648,9 @@ const appendAutomationRunLogBatchInternal = async (
   if (args.lines.length === 0) {
     return [];
   }
+  if (args.lines.length > MAX_AUTOMATION_RUN_LOG_BATCH_LINES) {
+    throw new Error("AutomationRunLogBatchTooLarge");
+  }
 
   const run = await getAutomationRunById(ctx, args.automation_run_id);
   const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
@@ -705,26 +695,27 @@ const appendAutomationRunLogBatchInternal = async (
   const targetBeforeAppend = maxLogBytes - totalNewBytes - reserveForNotice;
 
   if (currentBytes > targetBeforeAppend) {
-    let bytesToFree = currentBytes - Math.max(0, targetBeforeAppend);
-    // Estimate how many rows to fetch: assume average row ~128 bytes, fetch 2x
-    const estimatedRows = Math.max(50, Math.ceil((bytesToFree / 128) * 2));
-    const oldestRows = await ctx.db
-      .query("automation_run_logs")
-      .withIndex("by_run_seq", (q) => q.eq("automation_run_id", args.automation_run_id))
-      .order("asc")
-      .take(estimatedRows);
+    const bytesToFree = currentBytes - Math.max(0, targetBeforeAppend);
+    const eviction = await evictAutomationRunLogRows({
+      bytesToFree,
+      loadRows: async (afterSeqExclusive, take) => {
+        return await ctx.db
+          .query("automation_run_logs")
+          .withIndex("by_run_seq", (q) =>
+            afterSeqExclusive === null
+              ? q.eq("automation_run_id", args.automation_run_id)
+              : q.eq("automation_run_id", args.automation_run_id).gt("seq", afterSeqExclusive),
+          )
+          .order("asc")
+          .take(take);
+      },
+      deleteRow: async (row) => {
+        await ctx.db.delete(row._id);
+      },
+    });
+    currentBytes -= eviction.freedBytes;
 
-    for (const row of oldestRows) {
-      if (bytesToFree <= 0) {
-        break;
-      }
-      const rowBytes = utf8Bytes(row.content);
-      await ctx.db.delete(row._id);
-      currentBytes -= rowBytes;
-      bytesToFree -= rowBytes;
-    }
-
-    if (!logEvictionNoted) {
+    if (!logEvictionNoted && eviction.deletedRowCount > 0) {
       await ctx.db.insert("automation_run_logs", {
         automation_run_id: args.automation_run_id,
         seq: nextSeq,
