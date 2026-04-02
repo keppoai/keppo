@@ -21,6 +21,7 @@ import type * as auth from "../auth.js";
 import type * as automation_run_status from "../automation_run_status.js";
 import type * as automation_run_topups from "../automation_run_topups.js";
 import type * as automation_runs from "../automation_runs.js";
+import type * as automation_runs_shared from "../automation_runs_shared.js";
 import type * as automation_scheduler from "../automation_scheduler.js";
 import type * as automation_scheduler_node from "../automation_scheduler_node.js";
 import type * as automation_scheduler_shared from "../automation_scheduler_shared.js";
@@ -133,6 +134,7 @@ declare const fullApi: ApiFromModules<{
   automation_run_status: typeof automation_run_status;
   automation_run_topups: typeof automation_run_topups;
   automation_runs: typeof automation_runs;
+  automation_runs_shared: typeof automation_runs_shared;
   automation_scheduler: typeof automation_scheduler;
   automation_scheduler_node: typeof automation_scheduler_node;
   automation_scheduler_shared: typeof automation_scheduler_shared;

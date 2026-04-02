@@ -74,7 +74,10 @@ test("execute_code runs plain JavaScript and returns console output", async ({
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  const output = await mcp.executeCode('console.log("hello")');
+  const output = await mcp.executeCode({
+    description: "Print a hello message to stdout.",
+    code: 'console.log("hello")',
+  });
   skipIfSandboxUnavailable(output);
   expect(typeof output).toBe("string");
   expect(String(output)).toContain("hello");
@@ -87,9 +90,10 @@ test("execute_code can run a read tool call", async ({ pages, auth, provider }) 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  const output = await mcp.executeCode(
-    'const result = await gmail.searchThreads({ query: "" }); console.log(JSON.stringify(result));',
-  );
+  const output = await mcp.executeCode({
+    description: "Read Gmail threads and print the structured result.",
+    code: 'const result = await gmail.searchThreads({ query: "" }); console.log(JSON.stringify(result));',
+  });
   skipIfSandboxUnavailable(output);
   expect(JSON.stringify(output)).toContain("status");
 });
@@ -104,13 +108,16 @@ test("execute_code supports auto-approved write calls", async ({ pages, auth, pr
   try {
     await mcp.initialize();
 
-    const output = await mcp.executeCode(`
+    const output = await mcp.executeCode({
+      description: "Send a Gmail message through the auto-approved write path.",
+      code: `
       return await gmail.sendEmail({
         to: ["qa@example.com"],
         subject: "Code mode",
         body: "hello"
       });
-    `);
+    `,
+    });
 
     skipIfSandboxUnavailable(output);
     const payload = findJsonPayloadInOutput(output);
@@ -143,13 +150,16 @@ test("execute_code returns approval_pending for write calls needing approval", a
   try {
     await mcp.initialize();
 
-    const output = await mcp.executeCode(`
+    const output = await mcp.executeCode({
+      description: "Attempt a Gmail send that should pause for human approval.",
+      code: `
       return await gmail.sendEmail({
         to: ["qa@example.com"],
         subject: "Needs approval",
         body: "pending"
       });
-    `);
+    `,
+    });
 
     skipIfSandboxUnavailable(output);
     const payload = findJsonPayloadInOutput(output);
@@ -173,9 +183,10 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
   let output: Record<string, unknown> | string | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      output = await mcp.executeCode(
-        'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
-      );
+      output = await mcp.executeCode({
+        description: "Try a Slack read to verify disabled providers are blocked.",
+        code: 'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
+      });
       break;
     } catch (error) {
       if (attempt >= 2 || !isTransientServerError(error)) {
@@ -204,7 +215,10 @@ test("execute_code times out infinite loops", async ({ pages, auth, provider }) 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  const output = await mcp.executeCode("while (true) {}");
+  const output = await mcp.executeCode({
+    description: "Run an infinite loop to verify timeout handling.",
+    code: "while (true) {}",
+  });
   skipIfSandboxUnavailable(output, EXPECTED_EXECUTION_FAILED_CODES_TIMEOUT);
   expect(output).toMatchObject({
     status: "execution_failed",
@@ -225,9 +239,10 @@ test("execute_code passes dynamic tool calls through to execution layer", async 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  const output = await mcp.executeCode(
-    'const fn = "searchThreads"; const result = await gmail[fn]({ query: "" }); console.log(JSON.stringify(result));',
-  );
+  const output = await mcp.executeCode({
+    description: "Call a Gmail tool through a dynamic property lookup and print the result.",
+    code: 'const fn = "searchThreads"; const result = await gmail[fn]({ query: "" }); console.log(JSON.stringify(result));',
+  });
   skipIfSandboxUnavailable(output);
   const payload = findJsonPayloadInOutput(output);
   expect(payload.status).toBe("succeeded");

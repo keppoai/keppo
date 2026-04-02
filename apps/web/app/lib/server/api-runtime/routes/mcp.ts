@@ -512,7 +512,21 @@ const parseSearchToolsArgs = (
   };
 };
 
-const parseExecuteCodeArgs = (args: Record<string, unknown>): { code: string } => {
+const parseExecuteCodeArgs = (
+  args: Record<string, unknown>,
+): {
+  code: string;
+  description: string;
+} => {
+  const description = typeof args.description === "string" ? args.description.trim() : "";
+  if (!description) {
+    throw createCodeModeStructuredExecutionError({
+      type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
+      toolName: "execute_code",
+      errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
+      reason: "execute_code requires a non-empty description string.",
+    });
+  }
   const code = typeof args.code === "string" ? args.code : "";
   if (!code.trim()) {
     throw createCodeModeStructuredExecutionError({
@@ -522,7 +536,7 @@ const parseExecuteCodeArgs = (args: Record<string, unknown>): { code: string } =
       reason: "execute_code requires a non-empty code string.",
     });
   }
-  return { code };
+  return { code, description };
 };
 
 const formatExecuteCodeStructuredResultText = (payload: ExecuteCodeResultPayload): string =>
@@ -574,7 +588,10 @@ const parseExecuteCodeWorkerFailurePayload = (
       error_code: errorCode,
     };
   }
-  if (!message.includes("requires a non-empty code string")) {
+  if (
+    !message.includes("requires a non-empty code string") &&
+    !message.includes("requires a non-empty description string")
+  ) {
     return null;
   }
   return {
@@ -658,9 +675,14 @@ const MCP_TOOL_INPUT_SCHEMAS: Record<string, McpToolInputSchema> = {
   execute_code: {
     type: "object",
     properties: {
+      description: {
+        type: "string",
+        description:
+          "Required 1-2 sentence operator-facing summary of what the code is about to do.",
+      },
       code: { type: "string" },
     },
-    required: ["code"],
+    required: ["description", "code"],
   },
 };
 
@@ -999,7 +1021,7 @@ const createMcpServer = (
             extractToolReferences,
             generateCodeModeSDK,
           } = codeMode;
-          const { code } = parseExecuteCodeArgs(toolArgs);
+          const { code, description } = parseExecuteCodeArgs(toolArgs);
           await deps.convex.seedToolIndex();
           const workspaceContext = await deps.convex.getWorkspaceCodeModeContext(
             handlerContext.workspaceId,
@@ -1346,6 +1368,7 @@ const createMcpServer = (
             org_id: handlerContext.orgId,
             ...(extra.sessionId ? { session_id: extra.sessionId } : {}),
             tool_name: "execute_code",
+            description_length: description.length,
             log_lines: lines.length,
           });
 

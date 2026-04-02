@@ -455,10 +455,16 @@ export class McpClient {
     return typed.content?.[0]?.json?.results ?? [];
   }
 
-  async executeCode(code: string): Promise<Record<string, unknown> | string> {
+  async executeCode(params: {
+    description: string;
+    code: string;
+  }): Promise<Record<string, unknown> | string> {
     const result = await this.rpc("tools/call", {
       name: "execute_code",
-      arguments: { code },
+      arguments: {
+        description: params.description,
+        code: params.code,
+      },
     });
     const typed = result as CallToolRpcResult;
     if (typed.structuredContent) {

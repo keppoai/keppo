@@ -466,6 +466,45 @@ describe("createMcpRouteDispatcher", () => {
     expect(payload.result?.tools?.map((tool) => tool.name)).toContain("record_outcome");
   });
 
+  it("advertises execute_code with a required description field in code mode", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.listToolCatalogForWorkspace.mockResolvedValue([
+      {
+        name: "execute_code",
+        description: "Execute code",
+      },
+    ]);
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const listResponse = await dispatch({
+      request: createToolsListRequest(sessionId!),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(listResponse)) as {
+      result?: {
+        tools?: Array<{
+          name: string;
+          inputSchema?: { required?: string[]; properties?: Record<string, { type?: string }> };
+        }>;
+      };
+    };
+
+    const executeCodeTool = payload.result?.tools?.find((tool) => tool.name === "execute_code");
+    expect(executeCodeTool?.inputSchema?.required).toEqual(["description", "code"]);
+    expect(executeCodeTool?.inputSchema?.properties).toMatchObject({
+      description: { type: "string" },
+      code: { type: "string" },
+    });
+  });
+
   it("rejects record_outcome outside automation sessions", async () => {
     const { convex, deps } = createDeps();
     convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
@@ -523,7 +562,10 @@ describe("createMcpRouteDispatcher", () => {
     const sessionId = initializeResponse.headers.get("mcp-session-id");
 
     const response = await dispatch({
-      request: createToolCallRequest(sessionId!, "execute_code", { code: "console.log('hi')" }),
+      request: createToolCallRequest(sessionId!, "execute_code", {
+        description: "Log a greeting for the operator.",
+        code: "console.log('hi')",
+      }),
       workspaceIdParam: "ws_test",
     });
     const payload = (await parseStreamableHttpJson(response)) as {
@@ -668,7 +710,10 @@ describe("createMcpRouteDispatcher", () => {
     const sessionId = initializeResponse.headers.get("mcp-session-id");
 
     const response = await dispatch({
-      request: createToolCallRequest(sessionId!, "execute_code", { code: "   " }),
+      request: createToolCallRequest(sessionId!, "execute_code", {
+        description: "Try to execute blank code.",
+        code: "   ",
+      }),
       workspaceIdParam: "ws_test",
     });
     const payload = (await parseStreamableHttpJson(response)) as {
@@ -698,6 +743,57 @@ describe("createMcpRouteDispatcher", () => {
         tool_name: "execute_code",
         error_code: "validation_failed",
         client_message: "execution_failed: execute_code requires a non-empty code string.",
+        message_redacted: false,
+      }),
+    );
+  });
+
+  it("logs structured execute_code description validation failures returned to the client", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "execute_code", {
+        description: "   ",
+        code: "console.log('hi')",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: {
+        structuredContent?: { status?: string; reason?: string; error_code?: string };
+        content?: Array<{ text?: string }>;
+        isError?: boolean;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).not.toBe(true);
+    expect(payload.result?.structuredContent).toMatchObject({
+      status: "execution_failed",
+      reason: "execute_code requires a non-empty description string.",
+      error_code: "validation_failed",
+    });
+    expect(payload.result?.content?.[0]?.text).toBe(
+      "execution_failed: execute_code requires a non-empty description string.",
+    );
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "mcp.execute_code.failed",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "execute_code",
+        error_code: "validation_failed",
+        client_message: "execution_failed: execute_code requires a non-empty description string.",
         message_redacted: false,
       }),
     );
