@@ -518,6 +518,56 @@ describe("automation scheduler contract boundaries", () => {
     expect(dispatchHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
   });
 
+  it("derives the dispatch URL from KEPPO_URL when no internal base is configured", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_URL", "http://localhost:9901");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_manual_keppo_url",
+      email: "convex-scheduler-manual-keppo-url@example.com",
+      name: "Convex Scheduler Manual Keppo URL",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-manual-keppo-url@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-manual-keppo-url@example.com",
+      name: "Convex Scheduler Manual Keppo URL",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    await t.finishAllScheduledFunctions(() => {
+      vi.runAllTimers();
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:9901/internal/automations/dispatch",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(String),
+      }),
+    );
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toMatchObject({
+      automation_run_id: run.id,
+      dispatch_token: expect.any(String),
+    });
+  });
+
   it("rewrites bundled missing-key dispatch failures with the bundled credential label", async () => {
     vi.useFakeTimers();
     vi.stubEnv(
