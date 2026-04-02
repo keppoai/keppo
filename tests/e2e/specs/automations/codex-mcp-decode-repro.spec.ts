@@ -217,7 +217,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     hasAgentRecordedOutcome: boolean;
     logText: string;
   } | null = null;
-
   await expect
     .poll(
       async () => {

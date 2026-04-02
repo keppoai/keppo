@@ -150,11 +150,11 @@ export class ConvexAdminHelper {
     });
   }
 
-  async dispatchAutomationRun(runId: string, namespace?: string) {
+  async dispatchAutomationRun(runId: string, namespace = this.app.namespace) {
     return await this.withRetry(() =>
       this.client.action(refs.dispatchAutomationRun, {
         runId,
-        ...(namespace ? { namespace } : {}),
+        namespace,
       }),
     );
   }
