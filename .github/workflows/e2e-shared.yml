@@ -146,6 +146,15 @@ jobs:
           --shard=${{ matrix.shard }}/4
           --reporter=line,json,blob
 
+      - name: Run Codex MCP Responses Regression
+        if: ${{ matrix.shard == 1 }}
+        env:
+          KEPPO_E2E_OPENAI_RESPONSES_FAKE: "1"
+        run: >-
+          pnpm run test:e2e:ci:timed --
+          tests/e2e/specs/automations/codex-mcp-decode-repro.spec.ts
+          --reporter=line,json,blob
+
       - name: Upload E2E Artifacts
         if: always()
         uses: actions/upload-artifact@v4

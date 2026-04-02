@@ -22,7 +22,7 @@ const setControlValue = async (locator: Locator, value: string): Promise<void> =
   }, value);
 };
 
-test("codex automation run fails after search_tools when fake OpenAI responses stream ends early", async ({
+test("codex automation run completes after search_tools when fake OpenAI responses stream stays valid", async ({
   app,
   auth,
   pages,
@@ -51,7 +51,7 @@ test("codex automation run fails after search_tools when fake OpenAI responses s
     orgId: seeded.orgId,
     workspaceId: seeded.workspaceId,
     name: `Codex MCP decode repro ${app.metadata.testId}`,
-    prompt: "Use the available Gmail send-email tool to send a message.",
+    prompt: "Find the Gmail send-email tool with search_tools, then record the outcome.",
   })) as {
     created: {
       automation: {
@@ -184,29 +184,33 @@ test("codex automation run fails after search_tools when fake OpenAI responses s
       fakeGatewaySawSearchToolsFunction: fakeGatewayLog.includes(
         '"name":"mcp__keppo__search_tools"',
       ),
+      fakeGatewaySawRecordOutcomeFunction: fakeGatewayLog.includes(
+        '"name":"mcp__keppo__record_outcome"',
+      ),
       fakeGatewaySawFunctionOutputFollowUp: fakeGatewayLog.includes(
         '"type":"function_call_output"',
       ),
       dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
       dashboardSawSearchToolsCompleted: dashboardLog.includes('"msg":"mcp.search_tools.completed"'),
+      dashboardSawRecordOutcomeCall: dashboardLog.includes('"tool_name":"record_outcome"'),
       hasStreamDisconnectError: logText.includes(
         "stream disconnected before completion: stream closed before response.completed",
       ),
-      hasFallbackFailureOutcome: logText.includes(
-        "Automation outcome (fallback generated): Failure.",
-      ),
+      hasAgentRecordedOutcome: logText.includes("Automation outcome (agent recorded): Success."),
       logText,
     },
-    "fake OpenAI repro did not hit the expected failing Codex/MCP path",
+    "fake OpenAI repro did not hit the expected successful Codex/MCP path",
   ).toEqual({
-    status: "failed",
+    status: "succeeded",
     fakeGatewaySawResponses: true,
     fakeGatewaySawSearchToolsFunction: true,
+    fakeGatewaySawRecordOutcomeFunction: true,
     fakeGatewaySawFunctionOutputFollowUp: true,
     dashboardSawToolCallReceived: true,
     dashboardSawSearchToolsCompleted: true,
-    hasStreamDisconnectError: true,
-    hasFallbackFailureOutcome: true,
+    dashboardSawRecordOutcomeCall: true,
+    hasStreamDisconnectError: false,
+    hasAgentRecordedOutcome: true,
     logText,
   });
 });

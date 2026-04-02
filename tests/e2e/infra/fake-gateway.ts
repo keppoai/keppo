@@ -578,17 +578,6 @@ const sendSseResponse = (res: ServerResponse, response: OpenAiFakeResponse): voi
   res.end();
 };
 
-const sendMalformedSseResponse = (res: ServerResponse): void => {
-  res.writeHead(200, {
-    "content-type": "text/event-stream",
-    "cache-control": "no-cache",
-    connection: "keep-alive",
-  });
-  res.write(`event: response.created\ndata: {"type":"response.created","sequence_number":1}\n\n`);
-  res.write('event: response.completed\ndata: {"type":"response.completed"');
-  res.end();
-};
-
 const buildOpenAiSearchToolsResponse = (sessionKey: string, step: number): OpenAiFakeResponse =>
   buildOpenAiResponse({
     id: `resp_${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_")}_${step}`,
@@ -606,6 +595,58 @@ const buildOpenAiSearchToolsResponse = (sessionKey: string, step: number): OpenA
       },
     ],
   });
+
+const buildOpenAiRecordOutcomeResponse = (sessionKey: string, step: number): OpenAiFakeResponse =>
+  buildOpenAiResponse({
+    id: `resp_${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_")}_${step}`,
+    output: [
+      {
+        id: `fc_${step}`,
+        type: "function_call",
+        call_id: `call_record_outcome_${step}`,
+        name: "mcp__keppo__record_outcome",
+        arguments: JSON.stringify({
+          success: true,
+          summary: "Located the Gmail send-email tool and recorded the automation outcome.",
+        }),
+        status: "completed",
+      },
+    ],
+  });
+
+const buildOpenAiFinalMessageResponse = (sessionKey: string, step: number): OpenAiFakeResponse => {
+  const text = "Finished the automation run after recording the final outcome.";
+  return buildOpenAiResponse({
+    id: `resp_${sessionKey.replace(/[^a-zA-Z0-9_-]/g, "_")}_${step}`,
+    output: [
+      {
+        id: `msg_${step}`,
+        type: "message",
+        role: "assistant",
+        status: "completed",
+        content: [
+          {
+            type: "output_text",
+            text,
+            annotations: [],
+          },
+        ],
+      },
+    ],
+    outputText: text,
+  });
+};
+
+const buildOpenAiScriptResponse = (sessionKey: string, step: number): OpenAiFakeResponse => {
+  switch (step) {
+    case 1:
+      return buildOpenAiSearchToolsResponse(sessionKey, step);
+    case 2:
+      return buildOpenAiRecordOutcomeResponse(sessionKey, step);
+    default:
+      return buildOpenAiFinalMessageResponse(sessionKey, step);
+  }
+};
 
 const summarizeOpenAiRequestBody = (body: unknown): Record<string, unknown> => {
   const payload = body && typeof body === "object" && !Array.isArray(body) ? body : {};
@@ -679,8 +720,7 @@ const start = async (): Promise<void> => {
       ) {
         const sessionKey = resolveOpenAiSessionKey(req);
         const step = nextOpenAiScriptStep(sessionKey);
-        const responsePayload =
-          step === 1 ? buildOpenAiSearchToolsResponse(sessionKey, step) : null;
+        const responsePayload = buildOpenAiScriptResponse(sessionKey, step);
         requestLogger.capture({
           id: `req_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
           at: new Date().toISOString(),
@@ -695,13 +735,9 @@ const start = async (): Promise<void> => {
         console.log(
           `[fake-openai] path=${url.pathname} session=${sessionKey} step=${step} request=${JSON.stringify(
             summarizeOpenAiRequestBody(body),
-          )} response=${responsePayload ? JSON.stringify(responsePayload.output) : "<malformed-sse>"}`,
+          )} response=${JSON.stringify(responsePayload.output)}`,
         );
-        if (responsePayload) {
-          sendSseResponse(res, responsePayload);
-        } else {
-          sendMalformedSseResponse(res);
-        }
+        sendSseResponse(res, responsePayload);
         return;
       }
 
