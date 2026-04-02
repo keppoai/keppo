@@ -86,6 +86,7 @@ describe("DockerSandboxProvider", () => {
     expect(dockerfile).toContain(
       "RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh",
     );
+    expect(dockerfile).toContain("@openai/codex@0.118.0");
   });
 
   it("launches the runner in Docker and rewrites loopback URLs for container reachability", async () => {

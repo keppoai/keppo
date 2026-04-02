@@ -13,6 +13,7 @@ const ENTRYPOINT_PATH = `${SANDBOX_WORKDIR}/keppo-automation-runner.mjs`;
 const SETUP_TIMEOUT_BUFFER_MS = 60_000;
 const TERMINATION_GRACE_MS = 2_000;
 const SANDBOX_HANDLE_SEPARATOR = "::";
+const PINNED_CODEX_PACKAGE = "@openai/codex@0.118.0";
 
 type VercelNetworkPolicy =
   | "allow-all"
@@ -115,7 +116,7 @@ const resolveRunnerPackage = (runnerCommand: string): string => {
   const binary = runnerCommand.trim().split(/\s+/u)[0]?.trim().toLowerCase();
   switch (binary) {
     case "codex":
-      return "@openai/codex";
+      return PINNED_CODEX_PACKAGE;
     case "claude":
       return "@anthropic-ai/claude-code";
     default:
