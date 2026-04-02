@@ -40,7 +40,7 @@ This spec defines the canonical ownership of test layers. Operational commands, 
 - Docs changes use `pnpm run test:e2e:base -- tests/e2e/specs/docs/public-docs.spec.ts`.
 - Automation-trigger changes use `pnpm run test:e2e:base -- tests/e2e/specs/automations/provider-event-triggers.spec.ts`.
 - Automation authoring/editing changes should cover the guided creation/edit questions flow, reviewed diff state, and Mermaid stale/regenerate behavior in targeted Vitest and the smallest relevant Playwright automation spec.
-- Code Mode browser verification is explicit: set `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` when sandbox availability should become a hard failure instead of a skip.
+- Code Mode browser verification is explicit: set `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` when sandbox availability should become a hard failure instead of a skip. PR and `main` CI browser lanes do this by default alongside explicit Docker sandbox-provider env so the shared E2E workflow verifies the real Docker-backed execution path.
 
 ## Canonical browser flows
 

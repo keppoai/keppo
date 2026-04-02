@@ -12,6 +12,9 @@ env:
   NODE_OPTIONS: "--max-old-space-size=4096"
   CONVEX_AGENT_MODE: anonymous
   E2E_WORKERS: "1"
+  KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX: "1"
+  KEPPO_SANDBOX_PROVIDER: "docker"
+  KEPPO_CODE_MODE_SANDBOX_PROVIDER: "docker"
   E2E_FLAKE_BUDGET: "2"
   KEPPO_E2E_STRICT_HANDLES: "1"
   BETTER_AUTH_SECRET: "keppo-ci-better-auth-secret-0123456789"
@@ -139,6 +142,9 @@ jobs:
 
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Verify Docker sandbox availability
+        run: docker info
 
       - name: Run Shared E2E Lane Shard
         run: >-
