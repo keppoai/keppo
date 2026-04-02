@@ -143,23 +143,41 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     }
   };
 
-  let openAiEvents = await provider.events();
+  const readOpenAiEvents = async (): Promise<Array<Record<string, unknown>>> => {
+    return await provider.events("openai");
+  };
+
+  let openAiEvents = await readOpenAiEvents();
+  const stringifyOpenAiEvents = (): string => JSON.stringify(openAiEvents);
   await expect
     .poll(
       async () => {
-        openAiEvents = await provider.events();
-        return openAiEvents.some(
-          (event) =>
-            event.provider === "openai" &&
-            typeof event.path === "string" &&
-            event.path.endsWith("/responses"),
-        );
+        openAiEvents = await readOpenAiEvents();
+        const openAiEventText = stringifyOpenAiEvents();
+        return {
+          fakeGatewaySawResponses: openAiEvents.some(
+            (event) => typeof event.path === "string" && event.path.endsWith("/responses"),
+          ),
+          fakeGatewaySawSearchToolsFunction: openAiEventText.includes(
+            '"name":"mcp__keppo__search_tools"',
+          ),
+          fakeGatewaySawRecordOutcomeFunction: openAiEventText.includes(
+            '"name":"mcp__keppo__record_outcome"',
+          ),
+          fakeGatewaySawFunctionOutputFollowUp: openAiEventText.includes(
+            '"type":"function_call_output"',
+          ),
+        };
       },
       { timeout: 20_000, intervals: [500, 1_000, 2_000] },
     )
-    .toBe(true);
+    .toEqual({
+      fakeGatewaySawResponses: true,
+      fakeGatewaySawSearchToolsFunction: true,
+      fakeGatewaySawRecordOutcomeFunction: true,
+      fakeGatewaySawFunctionOutputFollowUp: true,
+    });
 
-  const stringifyOpenAiEvents = (): string => JSON.stringify(openAiEvents);
   let dashboardLog = await readServiceLog("dashboard");
   await expect
     .poll(
@@ -178,10 +196,7 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     {
       status: run?.status ?? null,
       fakeGatewaySawResponses: openAiEvents.some(
-        (event) =>
-          event.provider === "openai" &&
-          typeof event.path === "string" &&
-          event.path.endsWith("/responses"),
+        (event) => typeof event.path === "string" && event.path.endsWith("/responses"),
       ),
       fakeGatewaySawSearchToolsFunction: stringifyOpenAiEvents().includes(
         '"name":"mcp__keppo__search_tools"',

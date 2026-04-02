@@ -120,6 +120,7 @@
 - E2E infra log tails used in failure artifacts/startup errors must be bounded and redacted, and default stdout streaming must remain high-signal only (full stream allowed only behind `KEPPO_E2E_VERBOSE=1`).
 - Namespace identifiers used for e2e isolation must include Playwright repeat index (`testInfo.repeatEachIndex`) in addition to retry index; repeat runs (`--repeat-each`) must never share namespace keys.
 - Queue-broker control paths used by test infra must be namespace-scoped (`/reset?namespace=...`, `/state?namespace=...`, `/inject-failure` with `namespace`) and fixture/spec helpers must forward `app.namespace` so parallel tests cannot observe or purge each other's queue state.
+- E2E helpers that invoke scheduler-owned internal actions (for example `dispatchAutomationRun` / terminate helpers) must forward the active `app.namespace`; those actions derive local dispatch/callback URLs from the namespace in E2E mode and fail closed without it.
 - PR and `main` CI must run the same full browser lane, sharded at the workflow level when needed; the only intentional difference between those workflows is the trigger metadata.
 - Provider action conformance e2e should be driven from shared scenario packs so local fake runs and nightly real-provider runs execute the same action definitions.
 - Shared provider action scenarios must include normalized golden expectations for positive output and negative error shapes; conformance runner assertions should diff normalized payloads/errors, not raw volatile envelopes.

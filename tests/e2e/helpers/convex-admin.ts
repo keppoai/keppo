@@ -154,6 +154,7 @@ export class ConvexAdminHelper {
     return await this.withRetry(() =>
       this.client.action(refs.dispatchAutomationRun, {
         runId,
+        namespace: this.app.namespace,
       }),
     );
   }
