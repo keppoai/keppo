@@ -8,6 +8,7 @@ const refs = {
   seedUserOrg: makeFunctionReference<"mutation">("mcp:seedUserOrg"),
   listOrgAiKeys: makeFunctionReference<"query">("org_ai_keys:listOrgAiKeys"),
   deleteOrgAiKey: makeFunctionReference<"mutation">("org_ai_keys:deleteOrgAiKey"),
+  upsertOrgAiKey: makeFunctionReference<"mutation">("org_ai_keys:upsertOrgAiKey"),
 };
 
 const createAuthedHarness = async (params: { userId: string; email: string; name: string }) => {
@@ -147,5 +148,35 @@ describe("convex org ai key deletion", () => {
         .unique(),
     );
     expect(persisted?.key_mode).toBe("bundled");
+  });
+
+  it("rejects self-managed key writes when hosted bundled runtime is enabled", async () => {
+    const previousGatewayUrl = process.env.KEPPO_LLM_GATEWAY_URL;
+    process.env.KEPPO_LLM_GATEWAY_URL = "https://gateway.example.com";
+
+    try {
+      const { orgId, authT } = await createAuthedHarness({
+        userId: "usr_org_ai_key_hosted",
+        email: "org-ai-key-hosted@example.com",
+        name: "Org AI Key Hosted",
+      });
+
+      await expect(
+        authT.mutation(refs.upsertOrgAiKey, {
+          org_id: orgId,
+          provider: "openai",
+          key_mode: "byok",
+          raw_key: "sk-test-hosted-key",
+        }),
+      ).rejects.toThrow(
+        "Hosted bundled runtime manages AI credentials automatically. Open Billing to add credits instead of saving a self-managed key.",
+      );
+    } finally {
+      if (previousGatewayUrl === undefined) {
+        delete process.env.KEPPO_LLM_GATEWAY_URL;
+      } else {
+        process.env.KEPPO_LLM_GATEWAY_URL = previousGatewayUrl;
+      }
+    }
   });
 });

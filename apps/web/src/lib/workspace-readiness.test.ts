@@ -60,7 +60,7 @@ describe("buildWorkspaceReadinessSteps", () => {
     ).toMatchObject({
       label: "Confirm AI access",
       description:
-        "Generated automations stay blocked until the organization has bundled runtime access.",
+        "Generated automations stay blocked until the organization has available bundled AI credits.",
     });
   });
 

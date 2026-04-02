@@ -118,13 +118,13 @@ function AutomationExecutionSection({
   const runButtonTooltip = executionStatePending
     ? "Checking AI access before enabling manual runs."
     : executionState.mode === "bundled"
-      ? "Open Billing to add credits or change the plan before running automations."
+      ? "Open Billing to purchase credits or upgrade your plan before running automations."
       : "Add an API key before running automations.";
   const resumeBlockedByExecutionState = automationStatus !== "active" && runBlockedByExecutionState;
   const resumeTooltip = executionStatePending
     ? "Checking AI access before enabling resume."
     : executionState.mode === "bundled"
-      ? "Open Billing to add credits or change the plan before resuming this automation."
+      ? "Open Billing to purchase credits or upgrade your plan before resuming this automation."
       : "Add an API key before resuming this automation.";
 
   return (

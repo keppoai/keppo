@@ -49,7 +49,7 @@ export function buildWorkspaceReadinessSteps(
       label: "Confirm AI access",
       description:
         readiness.ai_access_mode === "bundled"
-          ? "Generated automations stay blocked until the organization has bundled runtime access."
+          ? "Generated automations stay blocked until the organization has available bundled AI credits."
           : "Generated automations stay blocked until the organization has an active self-managed AI key.",
       completed: readiness.has_ai_key,
       href: "/settings",

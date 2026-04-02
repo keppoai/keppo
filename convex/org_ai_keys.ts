@@ -27,6 +27,7 @@ import {
   aiModelProviderValidator,
   requireBoundedString,
 } from "./validators";
+import { getAiCreditBalanceForOrg } from "./ai_credits";
 
 const ORG_AI_KEY_SCAN_BUDGET = 32;
 const TEST_ONLY_DECRYPT_FLAG = "KEPPO_ENABLE_TEST_ONLY_DECRYPT";
@@ -53,6 +54,18 @@ const ensureAutomationSubscriptionAuthEnabled = async (
   }
   if (!(await isAutomationSubscriptionAuthEnabled(ctx))) {
     throw new Error("Automation subscription auth is disabled.");
+  }
+};
+
+const ensureSelfManagedAiKeysAllowed = async (
+  ctx: QueryCtx | MutationCtx,
+  orgId: string,
+): Promise<void> => {
+  const balance = await getAiCreditBalanceForOrg(ctx, orgId);
+  if (balance.bundled_runtime_enabled) {
+    throw new Error(
+      "Hosted bundled runtime manages AI credentials automatically. Open Billing to add credits instead of saving a self-managed key.",
+    );
   }
 };
 
@@ -500,6 +513,7 @@ export const upsertOrgAiKey = mutation({
     if (args.key_mode === AI_KEY_MODE.bundled) {
       throw new Error("Bundled AI keys are managed automatically by billing.");
     }
+    await ensureSelfManagedAiKeysAllowed(ctx, args.org_id);
     await ensureAutomationSubscriptionAuthEnabled(ctx, args.key_mode);
     const rawKey = requireBoundedString(args.raw_key, {
       field: "AI key",
