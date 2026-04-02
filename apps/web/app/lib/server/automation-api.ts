@@ -83,6 +83,7 @@ type StartOwnedAutomationApiConvex = Pick<
   | "checkRateLimit"
   | "claimApiDedupeKey"
   | "completeApiDedupeKey"
+  | "getAiCreditBalance"
   | "getApiDedupeKey"
   | "getWorkspaceCodeModeContext"
   | "listToolCatalogForWorkspace"
@@ -1155,6 +1156,7 @@ export const handleGenerateAutomationPromptRequest = async (
     allowance_remaining: number;
     purchased_remaining: number;
     total_available: number;
+    bundled_runtime_enabled: boolean;
   } | null = null;
 
   try {
@@ -1208,6 +1210,7 @@ export const handleGenerateAutomationPromptRequest = async (
           allowance_remaining: balance.allowance_remaining,
           purchased_remaining: balance.purchased_remaining,
           total_available: balance.total_available,
+          bundled_runtime_enabled: balance.bundled_runtime_enabled,
         },
         billing: buildMermaidBillingPayload(),
       });
@@ -1236,6 +1239,7 @@ export const handleGenerateAutomationPromptRequest = async (
         allowance_remaining: balance.allowance_remaining,
         purchased_remaining: balance.purchased_remaining,
         total_available: balance.total_available,
+        bundled_runtime_enabled: balance.bundled_runtime_enabled,
       },
       billing: buildDraftBillingPayload(),
     });
@@ -1279,6 +1283,20 @@ export const handleOpenAiConnectRequest = async (
     );
   }
 
+  const creditBalance = await deps.convex.getAiCreditBalance({
+    orgId: sessionIdentity.orgId,
+  });
+  if (creditBalance.bundled_runtime_enabled) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
+      },
+      403,
+    );
+  }
+
   const verifier = toBase64Url(randomBytes(32));
   const statePayload: OpenAiOauthState = {
     kind: "openai_automation_key",
@@ -1307,7 +1325,10 @@ export const handleOpenAiConnectRequest = async (
   }
   return new Response(
     null,
-    withSecurityHeaders(request, { status: 302, headers: { Location: authUrl } }),
+    withSecurityHeaders(request, {
+      status: 302,
+      headers: { Location: authUrl },
+    }),
   );
 };
 

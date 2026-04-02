@@ -46,4 +46,38 @@ describe("buildWorkspaceReadinessSteps", () => {
       })[0]?.completed,
     ).toBe(true);
   });
+
+  it("tailors the AI access copy to hosted bundled runtime", () => {
+    expect(
+      buildWorkspaceReadinessSteps({
+        has_connected_integration: true,
+        has_enabled_workspace_integration: true,
+        has_ai_key: false,
+        ai_access_mode: "bundled",
+        has_automation: false,
+        has_first_action: false,
+      })[1],
+    ).toMatchObject({
+      label: "Confirm AI access",
+      description:
+        "Generated automations stay blocked until the organization has available bundled AI credits.",
+    });
+  });
+
+  it("keeps self-managed AI access copy focused on active provider keys", () => {
+    expect(
+      buildWorkspaceReadinessSteps({
+        has_connected_integration: true,
+        has_enabled_workspace_integration: true,
+        has_ai_key: false,
+        ai_access_mode: "self_managed",
+        has_automation: false,
+        has_first_action: false,
+      })[1],
+    ).toMatchObject({
+      label: "Confirm AI access",
+      description:
+        "Generated automations stay blocked until the organization has an active self-managed AI key.",
+    });
+  });
 });

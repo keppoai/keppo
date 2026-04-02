@@ -74,7 +74,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   await expect(
     page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
   ).toContainText("Active");
-
   const createdRun = (await admin.createAutomationRun(
     createdAutomation.created.automation.id,
     "manual",

@@ -74,15 +74,15 @@ describe("automations", () => {
     expect(getIncludedAiCredits("free")).toEqual(INCLUDED_AI_CREDITS.free);
     expect(getIncludedAiCredits("starter")).toEqual(INCLUDED_AI_CREDITS.starter);
     expect(getIncludedAiCredits("pro")).toEqual(INCLUDED_AI_CREDITS.pro);
-    expect(supportsBundledAiRuntime("free")).toBe(false);
+    expect(supportsBundledAiRuntime("free")).toBe(true);
     expect(supportsBundledAiRuntime("starter")).toBe(true);
     expect(supportsBundledAiRuntime("pro")).toBe(true);
   });
 
-  it("derives automation execution mode from org billing state", () => {
+  it("derives hosted automation execution mode from org credit state", () => {
     expect(
       resolveAutomationExecutionReadiness({
-        tierId: "starter",
+        bundledRuntimeEnabled: true,
         totalCreditsAvailable: 3,
         hasActiveByokKey: false,
       }),
@@ -93,7 +93,29 @@ describe("automations", () => {
     });
     expect(
       resolveAutomationExecutionReadiness({
-        tierId: "starter",
+        bundledRuntimeEnabled: true,
+        totalCreditsAvailable: 0,
+        hasActiveByokKey: true,
+      }),
+    ).toMatchObject({
+      mode: "bundled",
+      can_run: false,
+      requires_byok: false,
+    });
+    expect(
+      resolveAutomationExecutionReadiness({
+        bundledRuntimeEnabled: false,
+        totalCreditsAvailable: 5,
+        hasActiveByokKey: false,
+      }),
+    ).toMatchObject({
+      mode: "byok",
+      can_run: false,
+      bundled_runtime_enabled: false,
+    });
+    expect(
+      resolveAutomationExecutionReadiness({
+        bundledRuntimeEnabled: false,
         totalCreditsAvailable: 0,
         hasActiveByokKey: true,
       }),
@@ -101,17 +123,6 @@ describe("automations", () => {
       mode: "byok",
       can_run: true,
       requires_byok: true,
-    });
-    expect(
-      resolveAutomationExecutionReadiness({
-        tierId: "free",
-        totalCreditsAvailable: 5,
-        hasActiveByokKey: false,
-      }),
-    ).toMatchObject({
-      mode: "byok",
-      can_run: false,
-      bundled_runtime_eligible: false,
     });
   });
 

@@ -12,6 +12,7 @@ import {
   mergeRunLogLines,
   parseAutomationTriggerEvents,
   parsePaginatedAutomations,
+  resolveAutomationExecutionState,
   toRunEvents,
   type AutomationConfigVersion,
   type AutomationRunLogLine,
@@ -47,6 +48,58 @@ describe("automation runner/provider mapping", () => {
     ).toMatchObject({
       total_available: 95,
       bundled_runtime_enabled: true,
+    });
+  });
+
+  it("keeps hosted execution in bundled mode even when credits are exhausted", () => {
+    expect(
+      resolveAutomationExecutionState({
+        provider: "openai",
+        creditBalance: {
+          org_id: "org_123",
+          period_start: "2026-03-01T00:00:00.000Z",
+          period_end: "2026-04-01T00:00:00.000Z",
+          allowance_total: 20,
+          allowance_reset_period: "one_time",
+          allowance_used: 20,
+          allowance_remaining: 0,
+          purchased_remaining: 0,
+          total_available: 0,
+          bundled_runtime_enabled: true,
+        },
+        orgAiKeys: [],
+      }),
+    ).toEqual({
+      mode: "bundled",
+      requires_active_byok_key: false,
+      has_active_byok_key: false,
+      can_run: false,
+    });
+  });
+
+  it("requires a self-managed key when bundled runtime is unavailable", () => {
+    expect(
+      resolveAutomationExecutionState({
+        provider: "openai",
+        creditBalance: {
+          org_id: "org_123",
+          period_start: "2026-03-01T00:00:00.000Z",
+          period_end: "2026-04-01T00:00:00.000Z",
+          allowance_total: 20,
+          allowance_reset_period: "one_time",
+          allowance_used: 5,
+          allowance_remaining: 15,
+          purchased_remaining: 0,
+          total_available: 15,
+          bundled_runtime_enabled: false,
+        },
+        orgAiKeys: [],
+      }),
+    ).toEqual({
+      mode: "byok",
+      requires_active_byok_key: true,
+      has_active_byok_key: false,
+      can_run: false,
     });
   });
 

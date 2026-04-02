@@ -2,6 +2,7 @@ export type WorkspaceReadinessSnapshot = {
   has_connected_integration: boolean;
   has_enabled_workspace_integration: boolean;
   has_ai_key: boolean;
+  ai_access_mode?: "bundled" | "self_managed";
   has_automation: boolean;
   has_first_action: boolean;
 };
@@ -18,6 +19,7 @@ const EMPTY_READINESS: WorkspaceReadinessSnapshot = {
   has_connected_integration: false,
   has_enabled_workspace_integration: false,
   has_ai_key: false,
+  ai_access_mode: "self_managed",
   has_automation: false,
   has_first_action: false,
 };
@@ -44,9 +46,11 @@ export function buildWorkspaceReadinessSteps(
     },
     {
       id: "configure-ai-key",
-      label: "Configure an AI key",
+      label: "Confirm AI access",
       description:
-        "Generated automations stay blocked until the organization has an active AI key.",
+        readiness.ai_access_mode === "bundled"
+          ? "Generated automations stay blocked until the organization has available bundled AI credits."
+          : "Generated automations stay blocked until the organization has an active self-managed AI key.",
       completed: readiness.has_ai_key,
       href: "/settings",
     },

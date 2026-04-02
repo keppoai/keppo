@@ -142,8 +142,8 @@ function SetupProgress({
             : "Setup complete"}
         </p>
         <p className="mt-1 text-sm text-muted-foreground">
-          Generate the draft first. Keppo will guide provider and key setup in the next step, and
-          nothing goes live until you review the automation.
+          Generate the draft first. Keppo will guide provider and AI access setup in the next step,
+          and nothing goes live until you review the automation.
         </p>
       </div>
 
@@ -294,7 +294,8 @@ function ReturningUserDashboard({
                 Automation summary
               </div>
               <CardTitle className="text-2xl">
-                {activeAutomationCount} active automation{activeAutomationCount === 1 ? "" : "s"}
+                {activeAutomationCount} active automation
+                {activeAutomationCount === 1 ? "" : "s"}
               </CardTitle>
               <p className="max-w-3xl text-sm text-muted-foreground">
                 {latestRun

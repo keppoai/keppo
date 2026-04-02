@@ -834,7 +834,7 @@ describe.sequential("Local Convex Automation Integration", () => {
     expect(secondScheduleCheck.dispatched).toBe(0);
   });
 
-  it("skips keyless scheduled automations without aborting the scheduler loop", async () => {
+  it("skips scheduled automations with no remaining hosted runtime credits without aborting the scheduler loop", async () => {
     const blocked = await http.mutation(refs.createAutomationViaContract, {
       tier: "free",
       triggerType: "schedule",
@@ -845,6 +845,14 @@ describe.sequential("Local Convex Automation Integration", () => {
       tier: "free",
       scheduleCron: "* * * * *",
     });
+
+    const freeTierCredits = getIncludedAiCreditsForTier("free").total;
+    for (let count = 0; count < freeTierCredits; count += 1) {
+      await http.mutation(refs.deductAiCredit, {
+        org_id: blocked.orgId,
+        usage_source: "runtime",
+      });
+    }
 
     const scheduleCheck = await http.mutation(refs.checkScheduledAutomations, {});
     expect(scheduleCheck).toEqual({

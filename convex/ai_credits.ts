@@ -407,6 +407,19 @@ export const getAiCreditBalanceForOrg = async (
   });
 };
 
+export const isBundledRuntimeEnabledForOrg = async (
+  ctx: QueryCtx | MutationCtx,
+  orgId: string,
+  subscription?: {
+    tier?: string | null;
+  } | null,
+): Promise<boolean> => {
+  const resolvedSubscription =
+    subscription ?? (await ctx.runQuery(refs.getSubscriptionForOrg, { orgId }));
+  const tier = resolvedSubscription?.tier ?? SUBSCRIPTION_TIER.free;
+  return supportsBundledAiRuntime(tier) && hasGatewayRuntime();
+};
+
 export const getAiCreditBalanceForOrgInternal = internalQuery({
   args: {
     org_id: v.string(),

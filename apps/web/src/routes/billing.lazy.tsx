@@ -437,6 +437,15 @@ function BillingPage() {
   const { canManage } = useAuth();
   const runtime = useDashboardRuntime();
   const billing = runtime.useQuery(billingQueryRef, {});
+  let aiCreditBalanceRaw: unknown;
+  try {
+    aiCreditBalanceRaw = runtime.useQuery(
+      makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
+      billing ? { org_id: billing.org_id } : "skip",
+    );
+  } catch {
+    aiCreditBalanceRaw = null;
+  }
   const redeemInviteCode = runtime.useMutation(redeemInviteCodeRef);
   const [busyAction, setBusyAction] = useState<
     | "checkout_starter"
@@ -512,6 +521,10 @@ function BillingPage() {
       period_end: optimisticInvitePromo.expiresAt,
     };
   }, [billing, optimisticInvitePromo]);
+  const aiCreditBalance = useMemo(
+    () => parseAiCreditBalance(aiCreditBalanceRaw),
+    [aiCreditBalanceRaw],
+  );
 
   const billingOrgId = displayBilling?.org_id ?? null;
   const billingTier = displayBilling?.tier ?? null;
@@ -614,6 +627,7 @@ function BillingPage() {
     }
     return getBillingUsageView(displayBilling);
   }, [displayBilling]);
+  const bundledRuntimeAvailableForDeployment = aiCreditBalance?.bundled_runtime_enabled ?? false;
   const tierComparison = useMemo<TierComparisonCard[]>(
     () =>
       (["free", "starter", "pro"] as const).map((tierId) => {
@@ -624,18 +638,22 @@ function BillingPage() {
           priceCentsMonthly: tier.price_cents_monthly,
           workspaces: tier.max_workspaces,
           aiCredits: tier.included_ai_credits.total,
-          aiCreditsLabel: tier.included_ai_credits.bundled_runtime_enabled
-            ? "Bundled AI credits / mo"
+          aiCreditsLabel: bundledRuntimeAvailableForDeployment
+            ? tier.included_ai_credits.reset_period === "one_time"
+              ? "Bundled trial credits"
+              : "Bundled AI credits / mo"
             : tier.included_ai_credits.reset_period === "one_time"
               ? "Included trial credits"
               : "Included AI credits / mo",
-          aiCreditsDescription: tier.included_ai_credits.bundled_runtime_enabled
-            ? "Includes Keppo-managed runtime credits."
-            : "One-time trial credits cover prompt generation only.",
+          aiCreditsDescription: bundledRuntimeAvailableForDeployment
+            ? tier.included_ai_credits.reset_period === "one_time"
+              ? "One-time trial credits cover prompt generation and bundled runtime."
+              : "Includes Keppo-managed runtime credits."
+            : "Supports prompt generation on self-managed deployments.",
           toolCalls: tier.max_tool_calls_per_month,
         } satisfies TierComparisonCard;
       }),
-    [],
+    [bundledRuntimeAvailableForDeployment],
   );
   const promoExpiryLabel = invitePromo
     ? new Date(invitePromo.expires_at).toLocaleDateString(undefined, {
@@ -1419,6 +1437,48 @@ function BillingPage() {
         </Card>
       ) : null}
 
+      <Card>
+        <CardHeader>
+          <CardTitle>Current Plan</CardTitle>
+          <CardDescription>
+            Tier: <span className="font-medium capitalize">{toTierLabel(currentBilling.tier)}</span>{" "}
+            ({currentBilling.status})
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3">
+          {invitePromo && promoExpiryLabel ? (
+            <div className="rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/12 via-primary/8 to-background px-4 py-4 text-sm text-primary shadow-sm md:col-span-3">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div className="space-y-1">
+                  <div className="inline-flex w-fit rounded-full border border-primary/25 bg-background/80 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/80">
+                    Invite promo active
+                  </div>
+                  <p className="text-sm font-semibold text-foreground">
+                    {promoTierLabel} access is unlocked until {promoExpiryLabel}.
+                  </p>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    Code{" "}
+                    <span className="rounded bg-background px-1.5 py-0.5 font-mono text-xs text-foreground">
+                      {invitePromo.code}
+                    </span>{" "}
+                    is covering this workspace today. Start Stripe checkout any time before the
+                    promo ends to keep paid access without interruption.
+                  </p>
+                </div>
+              </div>
+            </div>
+          ) : null}
+          <div className="rounded-lg border bg-muted/40 p-3 text-sm md:col-span-3">
+            {bundledRuntimeAvailableForDeployment
+              ? currentBilling.limits.included_ai_credits.reset_period === "one_time"
+                ? `This tier includes a one-time grant of ${currentBilling.limits.included_ai_credits.total} bundled AI credits for prompt generation and automation runtime.`
+                : `This plan includes ${currentBilling.limits.included_ai_credits.total} bundled AI credits each billing cycle for prompt generation and bundled automation runtime.`
+              : currentBilling.limits.included_ai_credits.reset_period === "one_time"
+                ? `This tier includes a one-time grant of ${currentBilling.limits.included_ai_credits.total} credits for prompt generation on self-managed deployments.`
+                : `This plan includes ${currentBilling.limits.included_ai_credits.total} credits each billing cycle for prompt generation on self-managed deployments. Automation runtime still requires a self-managed provider key.`}
+          </div>
+        </CardContent>
+      </Card>
       <Card>
         <CardHeader>
           <CardTitle>Usage This Period</CardTitle>

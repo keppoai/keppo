@@ -1,12 +1,12 @@
-import { useMemo } from "react";
 import { createLazyRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { automationBuildRoute } from "./automations.build";
 import { AutomationPromptBox } from "@/components/automations/automation-prompt-box";
-import { InlineApiKeySetup } from "@/components/automations/inline-api-key-setup";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { parseAiCreditBalance, parseOrgAiKeys } from "@/lib/automations-view-model";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useWorkspace } from "@/hooks/use-workspace-context";
@@ -21,24 +21,22 @@ function BuildAutomationPage() {
   const { buildWorkspacePath } = useRouteParams();
   const { selectedWorkspaceId } = useWorkspace();
   const orgId = getOrgId();
-  const billing = useQuery(
-    makeFunctionReference<"query">("billing:getCurrentOrgBilling"),
-    orgId ? {} : "skip",
+  const creditBalance = parseAiCreditBalance(
+    useQuery(
+      makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
+      orgId ? { org_id: orgId } : "skip",
+    ),
   );
-  const orgAiKeys = useQuery(
-    makeFunctionReference<"query">("org_ai_keys:listOrgAiKeys"),
-    orgId ? { org_id: orgId } : "skip",
+  const orgAiKeys = parseOrgAiKeys(
+    useQuery(
+      makeFunctionReference<"query">("org_ai_keys:listOrgAiKeys"),
+      orgId ? { org_id: orgId } : "skip",
+    ),
   );
-  const hasActiveAiKey = useMemo(() => {
-    if (!Array.isArray(orgAiKeys)) {
-      return false;
-    }
-    return orgAiKeys.some(
-      (entry) =>
-        entry && typeof entry === "object" && (entry as { is_active?: unknown }).is_active === true,
-    );
-  }, [orgAiKeys]);
-  const needsInlineKeySetup = billing?.tier === "free" && !hasActiveAiKey;
+  const showSelfManagedAiAccessWarning =
+    creditBalance?.bundled_runtime_enabled === false && !orgAiKeys.some((key) => key.is_active);
+  const showBundledCreditsWarning =
+    creditBalance?.bundled_runtime_enabled === true && (creditBalance.total_available ?? 0) <= 0;
 
   if (!canManage()) {
     return (
@@ -76,7 +74,50 @@ function BuildAutomationPage() {
         </p>
       </div>
 
-      {needsInlineKeySetup && orgId ? <InlineApiKeySetup orgId={orgId} /> : null}
+      {showSelfManagedAiAccessWarning ? (
+        <Alert variant="warning">
+          <AlertTitle>Self-managed AI access still needs one active provider key</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              Prompt generation can continue here, but automation runs will stay blocked until this
+              org adds an active provider key in AI Configuration.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void navigate({
+                  to: buildWorkspacePath("/settings"),
+                  search: { tab: "ai" },
+                });
+              }}
+            >
+              Open AI Configuration
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {showBundledCreditsWarning ? (
+        <Alert variant="warning">
+          <AlertTitle>Bundled AI credits are exhausted for this hosted workspace</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>
+              Prompt generation can continue here, but automation runs will stay blocked until this
+              org purchases more bundled credits in Billing.
+            </p>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void navigate({
+                  to: buildWorkspacePath("/billing"),
+                });
+              }}
+            >
+              Open Billing
+            </Button>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {selectedWorkspaceId ? (
         <AutomationPromptBox workspaceId={selectedWorkspaceId} variant="hero" />

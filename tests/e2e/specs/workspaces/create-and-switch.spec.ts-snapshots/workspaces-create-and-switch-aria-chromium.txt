@@ -42,7 +42,7 @@
   - button "Each Friday, assemble a short approvals digest for the operations team."
   - paragraph: What happens next
   - paragraph: "Step 1 of 4: Connect a provider"
-  - paragraph: Generate the draft first. Keppo will guide provider and key setup in the next step, and nothing goes live until you review the automation.
+  - paragraph: Generate the draft first. Keppo will guide provider and AI access setup in the next step, and nothing goes live until you review the automation.
   - text: Up next Connect a provider
 - heading "Operator command palette" [level=2]
 - paragraph: Jump between entities, open key surfaces, run automations, and launch the guided builder.

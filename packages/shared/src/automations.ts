@@ -638,6 +638,7 @@ export const AI_CREDIT_USAGE_SOURCE = {
 
 export type IncludedAiCredits = {
   total: number;
+  // Tier-level eligibility only. Actual bundled runtime also requires the hosted gateway.
   bundled_runtime_enabled: boolean;
   reset_period: "monthly" | "one_time";
 };
@@ -645,7 +646,7 @@ export type IncludedAiCredits = {
 export const INCLUDED_AI_CREDITS: Record<SubscriptionTierId, IncludedAiCredits> = {
   free: {
     total: AI_CREDIT_ALLOWANCES.free,
-    bundled_runtime_enabled: false,
+    bundled_runtime_enabled: true,
     reset_period: "one_time",
   },
   starter: {
@@ -787,7 +788,7 @@ export type AutomationExecutionMode = (typeof AUTOMATION_EXECUTION_MODES)[number
 
 export type AutomationExecutionReadiness = {
   mode: AutomationExecutionMode;
-  bundled_runtime_eligible: boolean;
+  bundled_runtime_enabled: boolean;
   bundled_credits_available: boolean;
   requires_byok: boolean;
   has_active_byok_key: boolean;
@@ -795,20 +796,29 @@ export type AutomationExecutionReadiness = {
 };
 
 export const resolveAutomationExecutionReadiness = (params: {
-  tierId: SubscriptionTierId;
+  bundledRuntimeEnabled: boolean;
   totalCreditsAvailable: number;
   hasActiveByokKey: boolean;
 }): AutomationExecutionReadiness => {
-  const bundledRuntimeEligible = supportsBundledAiRuntime(params.tierId);
-  const bundledCreditsAvailable = bundledRuntimeEligible && params.totalCreditsAvailable > 0;
-  const mode: AutomationExecutionMode = bundledCreditsAvailable ? "bundled" : "byok";
+  const bundledCreditsAvailable = params.bundledRuntimeEnabled && params.totalCreditsAvailable > 0;
+
+  if (params.bundledRuntimeEnabled) {
+    return {
+      mode: "bundled",
+      bundled_runtime_enabled: true,
+      bundled_credits_available: bundledCreditsAvailable,
+      requires_byok: false,
+      has_active_byok_key: params.hasActiveByokKey,
+      can_run: bundledCreditsAvailable,
+    };
+  }
 
   return {
-    mode,
-    bundled_runtime_eligible: bundledRuntimeEligible,
-    bundled_credits_available: bundledCreditsAvailable,
-    requires_byok: mode === "byok",
+    mode: "byok",
+    bundled_runtime_enabled: false,
+    bundled_credits_available: false,
+    requires_byok: true,
     has_active_byok_key: params.hasActiveByokKey,
-    can_run: mode === "bundled" || params.hasActiveByokKey,
+    can_run: params.hasActiveByokKey,
   };
 };

@@ -32,6 +32,18 @@ const createDeps = () => {
       expiresAtMs: Date.now() + 60_000,
     }),
     completeApiDedupeKey: vi.fn().mockResolvedValue(true),
+    getAiCreditBalance: vi.fn().mockResolvedValue({
+      org_id: "org_test",
+      period_start: "2026-03-14T00:00:00.000Z",
+      period_end: "2026-04-14T00:00:00.000Z",
+      allowance_total: 100,
+      allowance_reset_period: "monthly",
+      allowance_used: 1,
+      allowance_remaining: 99,
+      purchased_remaining: 25,
+      total_available: 124,
+      bundled_runtime_enabled: false,
+    }),
     getApiDedupeKey: vi.fn().mockResolvedValue(null),
     getWorkspaceCodeModeContext: vi.fn().mockResolvedValue({
       workspace: {
@@ -531,6 +543,39 @@ describe("start-owned automation api handlers", () => {
       localhost_callback_command: expect.stringContaining("Listening for OpenAI OAuth callback"),
       localhost_redirect_uri: "http://localhost:1455/auth/callback",
     });
+  });
+
+  it("rejects OpenAI connect for hosted bundled-runtime orgs", async () => {
+    const deps = createDeps();
+    deps.convex.getAiCreditBalance.mockResolvedValueOnce({
+      org_id: "org_test",
+      period_start: "2026-03-14T00:00:00.000Z",
+      period_end: "2026-04-14T00:00:00.000Z",
+      allowance_total: 100,
+      allowance_reset_period: "monthly",
+      allowance_used: 100,
+      allowance_remaining: 0,
+      purchased_remaining: 0,
+      total_available: 0,
+      bundled_runtime_enabled: true,
+    });
+
+    const response = await handleOpenAiConnectRequest(
+      new Request("http://127.0.0.1/api/automations/openai/connect?return_to=%2Fsettings", {
+        headers: {
+          accept: "application/json",
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "workspace_forbidden",
+    });
+    expect(deps.convex.upsertOpenAiOauthKey).not.toHaveBeenCalled();
   });
 
   it("completes OpenAI OAuth with the authenticated Start session", async () => {

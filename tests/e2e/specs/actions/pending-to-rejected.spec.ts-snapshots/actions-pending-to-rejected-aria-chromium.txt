@@ -24,8 +24,8 @@
 - button "Operational readiness 2 / 5" [expanded]
 - progressbar
 - paragraph: Next step
-- paragraph: Add an AI key
-- paragraph: Generated automations stay blocked until the organization has an active AI key.
+- paragraph: Confirm AI access
+- paragraph: Generated automations stay blocked until the organization has available bundled AI credits.
 - link "Continue":
   - /settings
 - list:
@@ -34,9 +34,9 @@
   - listitem:
     - button "Enable it in this workspace Choose which connected providers this workspace can actually use."
   - listitem:
-    - link "Add an AI key Generated automations stay blocked until the organization has an active AI key.":
+    - link "Confirm AI access Generated automations stay blocked until the organization has available bundled AI credits.":
       - /settings
-      - button "Add an AI key Generated automations stay blocked until the organization has an active AI key."
+      - button "Confirm AI access Generated automations stay blocked until the organization has available bundled AI credits."
   - listitem:
     - link "Create the first automation Draft one focused automation target so the workspace can do useful work.":
       - /url: /automations

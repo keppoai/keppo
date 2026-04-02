@@ -314,7 +314,9 @@ export function AutomationConfigEditor({
         setValue("description", parsed.description, { shouldDirty: true });
       }
       if (!getValues("mermaid_content").trim()) {
-        setValue("mermaid_content", parsed.mermaid_content, { shouldDirty: true });
+        setValue("mermaid_content", parsed.mermaid_content, {
+          shouldDirty: true,
+        });
         setEditorMermaidPromptHash(computeAutomationPromptHash(parsed.prompt));
       }
       setCreditPreview(parsed.totalAvailable);
@@ -396,7 +398,9 @@ export function AutomationConfigEditor({
       setEditorMermaidPromptHash(computeAutomationPromptHash(prompt));
     } catch (caught) {
       setError(
-        toUserFacingError(caught, { fallback: "Failed to regenerate the workflow diagram." }),
+        toUserFacingError(caught, {
+          fallback: "Failed to regenerate the workflow diagram.",
+        }),
       );
     } finally {
       setIsRegeneratingMermaid(false);
@@ -496,7 +500,9 @@ export function AutomationConfigEditor({
                   onBlur: async (event) => {
                     const normalized = normalizeMermaidContent(event.target.value);
                     if (normalized !== event.target.value) {
-                      setValue("mermaid_content", normalized, { shouldDirty: true });
+                      setValue("mermaid_content", normalized, {
+                        shouldDirty: true,
+                      });
                     }
                     const message = await validateMermaidContent(normalized);
                     if (message) {
@@ -617,7 +623,6 @@ export function AutomationConfigEditor({
                   state={executionState}
                   billingPath={buildOrgPath("/settings/billing")}
                   settingsPath={buildOrgPath("/settings")}
-                  showUpgradeAction={creditBalance?.bundled_runtime_enabled !== true}
                 />
               )}
             </div>

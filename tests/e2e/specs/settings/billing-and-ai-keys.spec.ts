@@ -9,19 +9,6 @@ import {
 } from "../../helpers/billing-hooks";
 import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
 
-const setControlValue = async (locator: Locator, value: string): Promise<void> => {
-  await locator.evaluate((element, nextValue) => {
-    const prototype =
-      element instanceof HTMLTextAreaElement
-        ? HTMLTextAreaElement.prototype
-        : HTMLInputElement.prototype;
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, "value");
-    descriptor?.set?.call(element, nextValue);
-    element.dispatchEvent(new Event("input", { bubbles: true }));
-    element.dispatchEvent(new Event("change", { bubbles: true }));
-  }, value);
-};
-
 type BillingActionOutcome =
   | {
       kind: "redirect";
@@ -141,28 +128,15 @@ test("settings ai keys and credits", async ({ app, auth, page, pages }) => {
   // query extra time to propagate under CI load.
   await expect(
     page.getByText(
-      "Paid plans can run automations with Keppo-managed gateway credentials. Add a BYO key here only if you want a fallback path when bundled credits run out.",
+      "Keppo-managed credits power both prompt generation and automation runtime here. Free-trial and paid credits use the same bundled pool.",
     ),
   ).toBeVisible({ timeout: 30_000 });
-  await expect(
-    page.getByText("No BYO or legacy subscription credentials configured yet."),
-  ).toBeVisible();
+  await expect(page.getByText("Hosted mode keeps credentials managed")).toBeVisible();
+  await expect(page.getByLabel("API key")).toHaveCount(0);
   await page.screenshot({
     path: "ux-artifacts/ai-configuration-bundled-runtime.png",
     fullPage: true,
   });
-
-  await page.getByLabel("Provider").selectOption("openai");
-  await page.getByLabel("Mode").selectOption("byok");
-  await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-1234");
-  await clickElement(page.getByRole("button", { name: "Save Key" }));
-
-  const activeKeyRow = page.locator(
-    '[data-testid="ai-key-row"][data-ai-key-provider="openai"][data-ai-key-mode="byok"]',
-  );
-  await expect(activeKeyRow).toContainText("Active");
-  await expect(activeKeyRow).toContainText("openai");
-  await expect(activeKeyRow).toContainText("...1234");
 
   const creditsCheckout = await waitForBillingActionOutcomeAfterClick(
     page,
@@ -177,9 +151,6 @@ test("settings ai keys and credits", async ({ app, auth, page, pages }) => {
   } else {
     await expect(page.getByRole("alert")).toContainText("Billing action failed");
   }
-
-  await clickElement(activeKeyRow.getByRole("button", { name: "Remove" }));
-  await expect(activeKeyRow).toHaveCount(0);
 });
 
 test("billing page reflects tier ctas and managed-payments checkout flows", async ({
@@ -216,7 +187,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await expect(page.getByTestId("billing-tier-label")).toHaveText("Free trial");
   await expect(page.getByText("$0/mo")).toBeVisible();
   await expect(
-    page.getByText("One-time trial credits cover prompt generation only."),
+    page.getByText("One-time trial credits cover prompt generation and bundled runtime."),
   ).toBeVisible();
   await expect(page.getByText("AI Credits", { exact: true })).toBeVisible();
   await expect(page.getByText("Automation Runs", { exact: true })).toBeVisible();

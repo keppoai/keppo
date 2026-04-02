@@ -392,7 +392,7 @@ For a clean self-hosted install:
 2. Follow the highlighted readiness step on the dashboard home or sidebar guide.
 3. Connect an integration in `/integrations`.
 4. Enable that integration for the active workspace in `/settings/workspaces`.
-5. Add an organization AI key in `/settings` under `AI Configuration`.
+5. Confirm AI access in `/settings` under `AI Configuration`. Hosted deployments use bundled credits there; self-hosted deployments add an organization AI key.
 6. Create the first automation in `/automations`, starting with manual trigger mode unless you already trust the prompt and policy settings.
 7. Trigger a first action so approvals, runs, notifications, and audit history all have live data.
 
