@@ -307,7 +307,6 @@ describe("start-owned oauth api handlers", () => {
       expect.objectContaining({
         code: "oauth_code_test",
         redirectUri: "http://127.0.0.1/oauth/integrations/google/callback",
-        externalAccountFallback: "org_test",
       }),
       {},
     );
@@ -556,6 +555,60 @@ describe("start-owned oauth api handlers", () => {
     expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
   });
 
+  it("fails closed when credential exchange does not return an external account id", async () => {
+    const deps = createDeps();
+    deps.exchangeCredentials = vi.fn().mockResolvedValue({
+      accessToken: "access_token_test",
+      refreshToken: "refresh_token_test",
+      expiresAt: "2026-03-14T00:00:00.000Z",
+      externalAccountId: null,
+      scopes: ["scope:read"],
+    });
+    deps.getProviderModule = vi.fn().mockReturnValue({
+      metadata: {
+        oauth: {
+          defaultScopes: ["scope:read"],
+        },
+      },
+      facets: {
+        auth: {
+          buildAuthRequest: deps.buildAuthRequest,
+          exchangeCredentials: deps.exchangeCredentials,
+        },
+      },
+    });
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "google",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "Google",
+      correlation_id: "corr_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: null,
+    })}`;
+
+    const response = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/google/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "token_exchange_failed",
+        message: "OAuth provider did not return an external account identifier.",
+        provider: "google",
+      },
+    });
+    expect(deps.convex.upsertOAuthProviderForOrg).not.toHaveBeenCalled();
+  });
+
   it("replays a completed callback redirect for the initiating manager after state cleanup", async () => {
     const deps = createDeps();
     deps.convex.getManagedOAuthConnectState = vi.fn().mockResolvedValue(null);
@@ -762,7 +815,6 @@ describe("start-owned oauth api handlers", () => {
       expect.objectContaining({
         code: "oauth_code_test",
         redirectUri: "http://127.0.0.1/oauth/integrations/reddit/callback",
-        externalAccountFallback: "org_test",
       }),
       {},
     );

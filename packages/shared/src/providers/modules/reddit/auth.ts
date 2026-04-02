@@ -13,6 +13,8 @@ const REDDIT_DEFAULT_CLIENT_ID = "fake-reddit-client-id";
 const REDDIT_DEFAULT_CLIENT_SECRET = "fake-reddit-client-secret";
 const REDDIT_DEFAULT_SCOPES = getProviderDefaultScopes("reddit");
 const REDDIT_USER_AGENT = "Keppo/1.0";
+const MISSING_EXTERNAL_ACCOUNT_ID_ERROR =
+  "OAuth profile lookup did not return a provider account identifier.";
 
 const REDDIT_PROVIDER_SCOPE_MAP: Record<string, string[]> = {
   "reddit.read": [
@@ -112,7 +114,7 @@ const resolveEnv = (runtime: ProviderRuntimeContext) => {
 const loadExternalAccountId = async (
   accessToken: string,
   runtime: ProviderRuntimeContext,
-): Promise<string | null> => {
+): Promise<string> => {
   const { apiBaseUrl } = resolveEnv(runtime);
   for (const profilePath of ["/api/v1/me", "/profile"]) {
     const response = await runtime.httpClient(`${apiBaseUrl}${profilePath}`, {
@@ -138,7 +140,7 @@ const loadExternalAccountId = async (
       return String(id);
     }
   }
-  return null;
+  throw new Error(MISSING_EXTERNAL_ACCOUNT_ID_ERROR);
 };
 
 const exchangeCredentials = async (
@@ -182,10 +184,7 @@ const exchangeCredentials = async (
     requestedScopes,
     parseScopeList(payload.scope),
   );
-  const externalAccountId =
-    (await loadExternalAccountId(payload.access_token, runtime)) ??
-    request.externalAccountFallback ??
-    null;
+  const externalAccountId = await loadExternalAccountId(payload.access_token, runtime);
 
   return {
     accessToken: payload.access_token,

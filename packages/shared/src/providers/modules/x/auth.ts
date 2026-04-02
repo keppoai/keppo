@@ -14,6 +14,8 @@ const X_DEFAULT_API_PATH = "/x/v1";
 const X_DEFAULT_CLIENT_ID = "fake-x-client-id";
 const X_DEFAULT_CLIENT_SECRET = "fake-x-client-secret";
 const X_DEFAULT_SCOPES = getProviderDefaultScopes("x");
+const MISSING_EXTERNAL_ACCOUNT_ID_ERROR =
+  "OAuth profile lookup did not return a provider account identifier.";
 
 const X_PROVIDER_SCOPE_MAP: Record<string, string[]> = {
   "x.read": [
@@ -125,7 +127,7 @@ const resolveEnv = (runtime: ProviderRuntimeContext) => {
 const loadExternalAccountId = async (
   accessToken: string,
   runtime: ProviderRuntimeContext,
-): Promise<string | null> => {
+): Promise<string> => {
   const { apiBaseUrl } = resolveEnv(runtime);
   for (const profilePath of ["/users/me", "/2/users/me", "/profile"]) {
     const response = await runtime.httpClient(`${apiBaseUrl}${profilePath}`, {
@@ -152,7 +154,7 @@ const loadExternalAccountId = async (
     }
   }
 
-  return null;
+  throw new Error(MISSING_EXTERNAL_ACCOUNT_ID_ERROR);
 };
 
 const exchangeCredentials = async (
@@ -198,10 +200,7 @@ const exchangeCredentials = async (
     requestedScopes,
     parseScopeList(payload.scope),
   );
-  const externalAccountId =
-    (await loadExternalAccountId(payload.access_token, runtime)) ??
-    request.externalAccountFallback ??
-    null;
+  const externalAccountId = await loadExternalAccountId(payload.access_token, runtime);
 
   return {
     accessToken: payload.access_token,

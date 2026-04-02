@@ -140,4 +140,125 @@ describe("provider registry", () => {
       ),
     ).rejects.toThrow(/invalid_refresh_token/i);
   });
+
+  it("fails closed for managed OAuth providers when profile lookup returns no account id", async () => {
+    const exchange = providerRegistry.getProviderModule("google").hooks.exchangeCredentials;
+
+    await expect(
+      exchange(
+        {
+          code: "oauth_code_test",
+          redirectUri: "http://127.0.0.1/oauth/integrations/google/callback",
+        },
+        runtimeContext({
+          httpClient: async (url, init) => {
+            if (url === "http://127.0.0.1:9911/gmail/oauth/token") {
+              expect(init?.method).toBe("POST");
+              return new Response(
+                JSON.stringify({
+                  access_token: "access_token_test",
+                  expires_in: 120,
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              );
+            }
+            if (url === "http://127.0.0.1:9911/gmail/api/users/me/profile") {
+              return new Response(JSON.stringify({}), {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+          },
+        }),
+      ),
+    ).rejects.toThrow(/did not return a provider account identifier/i);
+  });
+
+  it("fails closed for X OAuth when profile lookup returns no account id", async () => {
+    const exchange = providerRegistry.getProviderModule("x").hooks.exchangeCredentials;
+
+    await expect(
+      exchange(
+        {
+          code: "oauth_code_test",
+          redirectUri: "http://127.0.0.1/oauth/integrations/x/callback",
+          pkceCodeVerifier: "pkce_verifier_test",
+        },
+        runtimeContext({
+          httpClient: async (url, init) => {
+            if (url === "http://127.0.0.1:9911/x/oauth/token") {
+              expect(init?.method).toBe("POST");
+              return new Response(
+                JSON.stringify({
+                  access_token: "access_token_test",
+                  expires_in: 120,
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              );
+            }
+            if (url === "http://127.0.0.1:9911/x/v1/users/me") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            if (url === "http://127.0.0.1:9911/x/v1/2/users/me") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            if (url === "http://127.0.0.1:9911/x/v1/profile") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+          },
+        }),
+      ),
+    ).rejects.toThrow(/did not return a provider account identifier/i);
+  });
+
+  it("fails closed for Reddit OAuth when profile lookup returns no account id", async () => {
+    const exchange = providerRegistry.getProviderModule("reddit").hooks.exchangeCredentials;
+
+    await expect(
+      exchange(
+        {
+          code: "oauth_code_test",
+          redirectUri: "http://127.0.0.1/oauth/integrations/reddit/callback",
+        },
+        runtimeContext({
+          httpClient: async (url, init) => {
+            if (url === "https://www.reddit.com/api/v1/access_token") {
+              expect(init?.method).toBe("POST");
+              return new Response(
+                JSON.stringify({
+                  access_token: "access_token_test",
+                  expires_in: 120,
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              );
+            }
+            if (url === "https://oauth.reddit.com/api/v1/me") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            if (url === "https://oauth.reddit.com/profile") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+          },
+        }),
+      ),
+    ).rejects.toThrow(/did not return a provider account identifier/i);
+  });
 });
