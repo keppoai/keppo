@@ -54,6 +54,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
   const dashboardBase = `http://localhost:${params.ports.dashboard}`;
   const apiBase = dashboardBase;
   const queueBrokerBase = `http://127.0.0.1:${params.ports.queueBroker}`;
+  const useFakeOpenAiResponses = process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1";
   const convexSiteUrl = process.env.KEPPO_CONVEX_SITE_URL ?? toLocalConvexSiteUrl(params.convexUrl);
   const cronToken = `e2e-cron-token-${params.workerIndex}`;
   const externalAllowlist = new Set(
@@ -95,6 +96,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     TZ: "UTC",
     LANG: "C",
     LC_ALL: "C",
+    KEPPO_E2E_MODE: "true",
     KEPPO_E2E_RUN_ID: params.runId,
     KEPPO_E2E_WORKER_INDEX: String(params.workerIndex),
     KEPPO_E2E_NAMESPACE_PREFIX: params.namespacePrefix,
@@ -108,8 +110,13 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     VITE_KEPPO_URL: dashboardBase,
     KEPPO_FAKE_EXTERNAL_BASE_URL: fakeGatewayBase,
     KEPPO_E2E_FAKE_GATEWAY_BASE_URL: fakeGatewayBase,
-    ...(process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1"
-      ? { KEPPO_E2E_OPENAI_BASE_URL: fakeGatewayBase }
+    ...(useFakeOpenAiResponses
+      ? {
+          KEPPO_E2E_OPENAI_BASE_URL: fakeGatewayBase,
+          // This repro must bypass bundled gateway mode so automation dispatch
+          // exercises the fake OpenAI Responses endpoint with BYOK auth.
+          KEPPO_LLM_GATEWAY_URL: "",
+        }
       : {}),
     KEPPO_PROCESS_APPROVED_ACTIONS_INLINE: "false",
     KEPPO_INLINE_WORKER: "false",

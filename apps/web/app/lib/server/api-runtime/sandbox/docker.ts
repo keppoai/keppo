@@ -392,12 +392,12 @@ export class DockerSandboxProvider implements SandboxProvider {
     const env = {
       ...dockerConfig.bootstrap.env,
       ...dockerConfig.runtime.env,
-      KEPPO_RUNNER_COMMAND: composeDockerCommand(dockerConfig),
       KEPPO_LOG_CALLBACK_URL: dockerConfig.runtime.callbacks.log_url,
       KEPPO_COMPLETE_CALLBACK_URL: dockerConfig.runtime.callbacks.complete_url,
       KEPPO_TIMEOUT_MS: String(Math.max(1, dockerConfig.timeout_ms)),
     };
 
+    const command = composeDockerCommand(dockerConfig);
     const args = [
       "run",
       "-d",
@@ -406,8 +406,12 @@ export class DockerSandboxProvider implements SandboxProvider {
       containerName,
       "--add-host",
       DOCKER_HOST_GATEWAY,
+      "--entrypoint",
+      "sh",
       ...Object.entries(env).flatMap(([key, value]) => ["-e", `${key}=${value}`]),
       DOCKER_IMAGE_TAG,
+      "-lc",
+      command,
     ];
 
     const runResult = await runDockerCommand(this.spawnFn, args);

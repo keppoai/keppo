@@ -1,9 +1,31 @@
+import { existsSync, readFileSync } from "node:fs";
 import { spawn as nodeSpawn } from "node:child_process";
 import { EventEmitter } from "node:events";
 import { resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DockerSandboxProvider, resetDockerSandboxStateForTests } from "./docker.js";
+
+const resolveRepoRootPath = (): string => {
+  let current = resolve(process.cwd());
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (existsSync(resolve(current, "pnpm-workspace.yaml"))) {
+      return current;
+    }
+    const parent = resolve(current, "..");
+    if (parent === current) {
+      break;
+    }
+    current = parent;
+  }
+  return resolve(process.cwd());
+};
+
+const repoRootPath = resolveRepoRootPath();
+const dockerfilePath = resolve(
+  repoRootPath,
+  "apps/web/app/lib/server/api-runtime/sandbox/Dockerfile",
+);
 
 const baseConfig = {
   bootstrap: {
@@ -57,6 +79,15 @@ afterEach(() => {
 });
 
 describe("DockerSandboxProvider", () => {
+  it("keeps the sandbox Dockerfile compatible with legacy local builders", () => {
+    const dockerfile = readFileSync(dockerfilePath, "utf8");
+
+    expect(dockerfile).not.toContain("COPY <<");
+    expect(dockerfile).toContain(
+      "RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh",
+    );
+  });
+
   it("launches the runner in Docker and rewrites loopback URLs for container reachability", async () => {
     const fetchFn = vi.fn<typeof fetch>().mockResolvedValue(new Response(null, { status: 200 }));
     vi.stubGlobal("fetch", fetchFn);
@@ -126,14 +157,18 @@ describe("DockerSandboxProvider", () => {
       expect.arrayContaining([
         "--add-host",
         "host.docker.internal:host-gateway",
+        "--entrypoint",
+        "sh",
         "keppo-automation-sandbox:local-v2",
       ]),
     );
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_MCP_SERVER_URL=http://host.docker.internal:8787/mcp/ws_test",
     );
-    expect(runCall?.args.join(" ")).toContain(
-      "KEPPO_RUNNER_COMMAND=true && mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home' && codex exec --model 'gpt-5.2' 'hello'",
+    expect(runCall?.args).toContain("-lc");
+    const shellCommand = runCall?.args[runCall.args.length - 1] ?? "";
+    expect(shellCommand).toContain(
+      "true && mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home' && codex exec --model 'gpt-5.2' 'hello'",
     );
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_LOG_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
@@ -215,8 +250,8 @@ describe("DockerSandboxProvider", () => {
       "-t",
       "keppo-automation-sandbox:local-v2",
       "-f",
-      resolve(process.cwd(), "app/lib/server/api-runtime/sandbox/Dockerfile"),
-      resolve(process.cwd(), "..", ".."),
+      dockerfilePath,
+      repoRootPath,
     ]);
   });
 

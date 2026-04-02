@@ -536,10 +536,11 @@ export const buildRunnerCommand = (params: {
     params.networkAccess === "mcp_only"
       ? ` --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'`
       : "";
+  const automationApprovalBypassFlag = " --dangerously-bypass-approvals-and-sandbox";
   const customOpenAiProviderArgs = shouldUseCodexCustomOpenAiProvider(params)
     ? ` --config 'model_provider="${CODEX_CUSTOM_OPENAI_PROVIDER_ID}"'`
     : "";
-  return `codex exec --skip-git-repo-check${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
+  return `codex exec --skip-git-repo-check${automationApprovalBypassFlag}${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
 };
 
 export const buildAutomationRunnerPrompt = (prompt: string): string => {

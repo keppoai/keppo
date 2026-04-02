@@ -272,7 +272,7 @@ describe("start-owned automation runtime handlers", () => {
       },
     });
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --skip-git-repo-check --model 'gpt-5.2'",
+      "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
     );
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
@@ -437,7 +437,7 @@ describe("start-owned automation runtime handlers", () => {
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.network_access).toBe("mcp_and_web");
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --skip-git-repo-check --model 'gpt-5.2'",
+      "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
     );
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
   });
@@ -538,7 +538,7 @@ describe("start-owned automation runtime handlers", () => {
       OPENAI_BASE_URL: "https://gateway.keppo.test",
     });
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --skip-git-repo-check --config 'model_provider=\"keppo_openai_api\"' --model 'gpt-5.2'",
+      "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider=\"keppo_openai_api\"' --model 'gpt-5.2'",
     );
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
   });

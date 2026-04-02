@@ -51,8 +51,19 @@ describe("buildWorkerEnv", () => {
   it("routes dashboard auth through the dashboard origin", () => {
     const env = buildWorkerEnv(params);
 
+    expect(env.base.KEPPO_E2E_MODE).toBe("true");
     expect(env.base.KEPPO_URL).toBe("http://localhost:9903");
     expect(env.base.VITE_KEPPO_URL).toBe("http://localhost:9903");
     expect(env.dashboard.VITE_KEPPO_URL).toBe("http://localhost:9903");
+  });
+
+  it("enables the fake OpenAI responses path only when requested", () => {
+    vi.stubEnv("KEPPO_E2E_OPENAI_RESPONSES_FAKE", "1");
+
+    const env = buildWorkerEnv(params);
+
+    expect(env.base.KEPPO_E2E_MODE).toBe("true");
+    expect(env.base.KEPPO_E2E_OPENAI_BASE_URL).toBe("http://127.0.0.1:9901");
+    expect(env.base.KEPPO_LLM_GATEWAY_URL).toBe("");
   });
 });

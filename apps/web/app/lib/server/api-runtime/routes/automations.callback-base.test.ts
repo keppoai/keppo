@@ -46,7 +46,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         prompt: "Review open issues",
       }),
     ).toBe(
-      `codex exec --skip-git-repo-check --model 'gpt-5.2' --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'`,
+      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'`,
     );
   });
 
@@ -70,7 +70,9 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         model: "gpt-5.2",
         prompt: "Review open issues",
       }),
-    ).toBe(`codex exec --skip-git-repo-check --model 'gpt-5.2' 'Review open issues'`);
+    ).toBe(
+      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' 'Review open issues'`,
+    );
   });
 
   it("disallows Claude web tools when the automation is MCP-only", () => {
@@ -117,7 +119,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         prompt: "Review open issues",
       }),
     ).toBe(
-      `codex exec --skip-git-repo-check --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
+      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
     );
   });
 
@@ -175,7 +177,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         prompt: "Review open issues",
       }),
     ).toBe(
-      `codex exec --skip-git-repo-check --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
+      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
     );
 
     expect(
