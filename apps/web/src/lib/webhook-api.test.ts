@@ -203,6 +203,54 @@ describe("start-owned webhook api handlers", () => {
     });
   });
 
+  it("does not fan out webhook events when the provider event has no external account id", async () => {
+    const deps = createDeps();
+    deps.extractWebhookEvent.mockReturnValueOnce({
+      deliveryId: "evt_missing_account",
+      eventType: "invoice.payment_succeeded",
+      externalAccountId: null,
+    });
+    deps.convex.recordProviderWebhook.mockResolvedValueOnce({
+      matched_org_ids: [],
+      matched_integrations: 0,
+      matched_orgs: 0,
+    });
+
+    const response = await handleProviderWebhookRequest(
+      withWebhook(
+        "stripe",
+        {
+          id: "evt_missing_account",
+          type: "invoice.payment_succeeded",
+        },
+        {
+          "stripe-signature": "t=1,v1=test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      received: true,
+      provider: "stripe",
+      duplicate: false,
+      matched_integrations: 0,
+      matched_orgs: 0,
+    });
+    expect(deps.convex.recordProviderWebhook).toHaveBeenCalledWith({
+      provider: "stripe",
+      externalAccountId: null,
+      eventType: "invoice.payment_succeeded",
+      payload: {
+        id: "evt_missing_account",
+        type: "invoice.payment_succeeded",
+      },
+      receivedAt: expect.any(String),
+    });
+    expect(deps.convex.ingestProviderEvent).not.toHaveBeenCalled();
+  });
+
   it("dispatches only matching Start-owned webhook routes", async () => {
     const deps = createDeps();
 
