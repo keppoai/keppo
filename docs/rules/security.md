@@ -11,6 +11,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 - Prefer fail-closed behavior for missing, malformed, unverifiable, or unexpectedly broad security inputs.
 - Keep auth secrets, encryption keys, OAuth secrets, webhook secrets, callback HMAC secrets, and internal bearer secrets separate by purpose.
 - Never log raw secrets, tokens, webhook bodies with secrets, or unredacted callback signatures.
+- When logging structured responses that may contain credentials, redact secrets by field name or structured path before printing; do not rely on provider-specific token prefixes or formats.
 - Local-only operator bypasses must require an explicit opt-in env and an actual local-runtime signal; never broaden privileged access based only on `NODE_ENV`, hostnames, or deployment-name heuristics.
 
 ## Auth and trust boundaries
