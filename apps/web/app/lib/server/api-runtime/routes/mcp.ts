@@ -454,7 +454,9 @@ const parseSearchToolsArgs = (
   capability?: string;
   limit?: number;
 } => {
-  const query = typeof args.query === "string" ? args.query.trim() : "";
+  const query =
+    (typeof args.query === "string" ? args.query.trim() : "") ||
+    (typeof args.q === "string" ? args.q.trim() : "");
   if (!query) {
     throw createWorkerExecutionError(
       "execution_failed",
@@ -608,11 +610,12 @@ const MCP_TOOL_INPUT_SCHEMAS: Record<string, McpToolInputSchema> = {
     type: "object",
     properties: {
       query: { type: "string" },
+      q: { type: "string" },
       provider: { type: "string" },
       capability: { type: "string" },
       limit: { type: "integer" },
     },
-    required: ["query"],
+    anyOf: [{ required: ["query"] }, { required: ["q"] }],
   },
   execute_code: {
     type: "object",

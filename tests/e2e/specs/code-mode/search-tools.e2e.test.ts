@@ -69,3 +69,34 @@ test("search_tools returns relevant and filtered tool results", async ({
     await mcp.close();
   }
 });
+
+test("search_tools accepts the Codex q alias", async ({ pages, auth, provider }) => {
+  test.slow();
+  await pages.login.login();
+  const seeded = await auth.seedWorkspace("code-mode-search-q-alias");
+  await auth.connectProviderForOrg(seeded.orgId, "google", undefined, seeded.workspaceId, true);
+
+  const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
+  try {
+    await mcp.initialize();
+    await waitForToolReady(mcp, {
+      toolName: "gmail.listUnread",
+      args: { limit: 1 },
+      timeoutMs: 12_000,
+    });
+
+    const codexAliasResults = await waitForSearchResults(
+      async () => {
+        const result = await mcp.callTool("search_tools", { q: "send email" });
+        return Array.isArray(result.results)
+          ? (result.results as Array<Record<string, unknown>>)
+          : [];
+      },
+      (results) => results.some((entry) => entry.name === "gmail.sendEmail"),
+    );
+
+    expect(codexAliasResults.some((entry) => entry.name === "gmail.sendEmail")).toBe(true);
+  } finally {
+    await mcp.close();
+  }
+});
