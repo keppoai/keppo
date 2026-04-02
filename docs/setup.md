@@ -244,6 +244,7 @@ Notes:
 - `UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL` must be reachable from the Unikraft MicroVM. In local-only experiments you can rely on the default loopback bridge URL, but production/preview deployments need a public or otherwise routable callback origin.
 - If Vercel Deployment Protection is enabled, propagate `VERCEL_AUTOMATION_BYPASS_SECRET` into both the API runtime and the hosted Convex env.
 - Local `docker` sandbox execution requires a working Docker engine on the API host.
+- Sandboxed automation Codex runs are pinned to `@openai/codex@0.118.0` in both the local automation sandbox image and the Vercel bootstrap path. Custom image-based automation runtimes should preserve that pin unless you are intentionally upgrading the runner.
 - For local development, keep `KEPPO_URL`, `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `CONVEX_URL`, and `CONVEX_SITE_URL` on the same hostname. Prefer `localhost` everywhere; mixing `localhost` and `127.0.0.1` splits Better Auth cookies.
 - Local same-site auth defaults to the dashboard origin proxy: `http://localhost:3000/api/auth/*` proxies to the local Convex Better Auth site on `http://localhost:3211/api/auth/*`. Browser E2E uses the same shape with the worker dashboard port.
 - Client IP resolution: `none` ignores forwarded headers, `vercel` prefers `x-real-ip`, `cloudflare` prefers `cf-connecting-ip`.

@@ -31,6 +31,7 @@
 - Before any commit, verify you are not on the `main` branch. If you are on `main`, create and switch to a feature branch before committing.
 - Do not let good work sit uncommitted. Commit early and often at natural checkpoints.
 - **Always commit Convex generated files.** `convex/_generated/` is checked into the repo and required for type-checking (`pnpm check`) and CI to pass. When these files change, stage and commit the updated outputs alongside your source changes.
+- If verification or pre-commit hits unrelated typecheck failures, first run `pnpm install` and then `pnpm build` to regenerate the workspace before treating the failure as a real blocker.
 
 ### Skipping automated review
 

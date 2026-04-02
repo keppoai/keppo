@@ -98,7 +98,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - stores `sandbox_id` as the Start-owned runtime sandbox handle used for later container termination.
 - Production `vercel` sandbox provider behavior:
   - creates a Vercel Sandbox VM with separate bootstrap/runtime stages,
-  - keeps bootstrap env minimal and restricted to package-registry networking while installing the requested runner CLI (`@openai/codex` or `@anthropic-ai/claude-code`),
+  - keeps bootstrap env minimal and restricted to package-registry networking while installing the requested runner CLI (`@openai/codex@0.118.0` for Codex runs, `@anthropic-ai/claude-code` for Claude runs),
   - launches an in-sandbox Node wrapper that executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
   - maps the saved automation `network_access` mode into both sandbox egress policy and runner-native tool restrictions (Codex uses `--config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'` for `mcp_only` and otherwise relies on the default `codex exec` network-enabled behavior for `mcp_and_web`; Claude Code adds `--disallowed-tools WebFetch,WebSearch` for `mcp_only` and otherwise relies on the default tool set),
   - stores `sandbox_id` as an opaque sandbox-handle that includes the detached command identifier so terminate requests can signal the runner process before stopping the VM,
@@ -107,7 +107,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
 - Production `unikraft` sandbox provider behavior:
   - creates a Unikraft Cloud MicroVM from an OCI image referenced by `UNIKRAFT_SANDBOX_IMAGE`,
   - injects the composed runner command and the signed log/completion callback URLs through environment variables (`KEPPO_RUNNER_COMMAND`, `KEPPO_LOG_CALLBACK_URL`, `KEPPO_COMPLETE_CALLBACK_URL`, `KEPPO_TIMEOUT_MS`),
-  - reuses the same automation sandbox image contract as Docker, so the guest entrypoint reads `KEPPO_RUNNER_COMMAND` and launches the requested runner inside the MicroVM,
+  - reuses the same automation sandbox image contract as Docker, so the guest entrypoint reads `KEPPO_RUNNER_COMMAND` and launches the requested runner inside the MicroVM; image-based Codex runs inherit the same pinned `@openai/codex@0.118.0` install as the local Docker sandbox image,
   - polls instance logs through the Unikraft REST API and forwards bounded stdout batches to `/internal/automations/log`,
   - posts terminal completion from the host after the instance reaches a terminal state or is cancelled/timed out,
   - deletes the instance on completion, timeout, or cancellation instead of relying on persistent VM state,

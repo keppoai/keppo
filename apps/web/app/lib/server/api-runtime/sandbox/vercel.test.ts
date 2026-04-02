@@ -75,6 +75,14 @@ describe("VercelSandboxProvider", () => {
       1,
       expect.objectContaining({
         cmd: "npm",
+        args: [
+          "install",
+          "--no-audit",
+          "--no-fund",
+          "--prefix",
+          "/vercel/sandbox/.keppo-automation-runner",
+          "@openai/codex@0.118.0",
+        ],
         env: {},
       }),
     );

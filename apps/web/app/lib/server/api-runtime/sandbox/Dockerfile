@@ -2,9 +2,9 @@ FROM node:22-bookworm
 
 WORKDIR /sandbox
 
-# Runner CLIs are installed by name; pinning happens in package lock management
-# in deployment automation for reproducible images.
-RUN npm install -g @openai/codex @anthropic-ai/claude-code || true
+# Pin Codex in the sandbox image so local and image-based automation runners
+# use the same CLI build as the remote bootstrap path.
+RUN npm install -g @openai/codex@0.118.0 @anthropic-ai/claude-code || true
 
 RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh
 #!/usr/bin/env bash
