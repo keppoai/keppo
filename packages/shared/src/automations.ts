@@ -217,6 +217,7 @@ export const AUTOMATION_RUN_OUTCOME_SOURCE = {
   fallbackMissing: "fallback_missing",
 } as const satisfies Record<string, AutomationRunOutcomeSource>;
 export const AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH = 2000;
+export const AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS = 60_000;
 
 const automationRunStatusSet = new Set<AutomationRunStatus>(AUTOMATION_RUN_STATUSES);
 
@@ -315,6 +316,7 @@ export const AUTOMATION_DISPATCH_ACTION_STATUSES = [
   "dispatched",
   "dispatch_url_missing",
   "dispatch_http_error",
+  "dispatch_run_not_pending",
   "dispatch_request_failed",
 ] as const;
 export type AutomationDispatchActionStatus = (typeof AUTOMATION_DISPATCH_ACTION_STATUSES)[number];
@@ -322,6 +324,7 @@ export const AUTOMATION_DISPATCH_ACTION_STATUS = {
   dispatched: "dispatched",
   dispatchUrlMissing: "dispatch_url_missing",
   dispatchHttpError: "dispatch_http_error",
+  dispatchRunNotPending: "dispatch_run_not_pending",
   dispatchRequestFailed: "dispatch_request_failed",
 } as const satisfies Record<string, AutomationDispatchActionStatus>;
 
@@ -524,6 +527,7 @@ export const AUTOMATION_ROUTE_ERROR_CODES = [
   "invalid_hex",
   "invalid_ciphertext",
   "missing_automation_run_id",
+  "missing_dispatch_token",
   "invalid_automation_run_terminal_status",
   "missing_workspace_id",
   "missing_user_description",

@@ -66,6 +66,25 @@ if (/KEPPO_CALLBACK_HMAC_SECRET|BETTER_AUTH_SECRET/u.test(automationRuntimeSourc
     "apps/web/app/lib/server/automation-runtime.ts must use the shared callback secret resolver instead of reading callback or auth secrets directly.",
   );
 }
+if (!/claimAutomationRunDispatchContext/u.test(automationRuntimeSource)) {
+  failures.push(
+    "apps/web/app/lib/server/automation-runtime.ts must claim a per-run dispatch token before loading automation dispatch context.",
+  );
+}
+
+const automationRoutesSource = read("apps/web/app/lib/server/api-runtime/routes/automations.ts");
+if (!/missing_dispatch_token/u.test(automationRoutesSource)) {
+  failures.push(
+    "apps/web/app/lib/server/api-runtime/routes/automations.ts must require dispatch_token on automation dispatch payloads.",
+  );
+}
+
+const automationSchedulerSource = read("cloud/convex/automation_scheduler.ts");
+if (!/dispatch_token/u.test(automationSchedulerSource)) {
+  failures.push(
+    "cloud/convex/automation_scheduler.ts must send a per-run dispatch_token when calling the internal automation dispatch route.",
+  );
+}
 
 const e2eSharedSource = read("convex/e2e_shared.ts");
 if (!/CONVEX_DEPLOYMENT/u.test(e2eSharedSource) || !/NODE_ENV/u.test(e2eSharedSource)) {

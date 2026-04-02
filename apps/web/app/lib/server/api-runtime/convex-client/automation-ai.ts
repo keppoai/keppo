@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { ConvexHttpClient } from "convex/browser";
 import type {
   AiCreditPurchaseStatus,
@@ -23,6 +24,9 @@ import type {
 import { refs } from "./refs.js";
 
 export type { AutomationRunStatus } from "@keppo/shared/automations";
+
+const hashAutomationRunDispatchToken = (dispatchToken: string): string =>
+  createHash("sha256").update(dispatchToken, "utf8").digest("hex");
 
 export async function matchAndQueueAutomationTriggers(
   client: ConvexHttpClient,
@@ -145,6 +149,16 @@ export async function getAutomationRunDispatchContext(
 ): Promise<AutomationRunDispatchContext | null> {
   return (await client.query(refs.getAutomationRunDispatchContext, {
     automation_run_id: params.automationRunId,
+  })) as AutomationRunDispatchContext | null;
+}
+
+export async function claimAutomationRunDispatchContext(
+  client: ConvexHttpClient,
+  params: { automationRunId: string; dispatchToken: string },
+): Promise<AutomationRunDispatchContext | null> {
+  return (await client.mutation(refs.claimAutomationRunDispatchContext, {
+    automation_run_id: params.automationRunId,
+    dispatch_token_hash: hashAutomationRunDispatchToken(params.dispatchToken),
   })) as AutomationRunDispatchContext | null;
 }
 

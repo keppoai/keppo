@@ -80,6 +80,9 @@ export const refs = {
   getAutomationRunDispatchContext: adminRef(
     internal.automation_runs.getAutomationRunDispatchContext,
   ),
+  claimAutomationRunDispatchContext: adminRef(
+    internal.automation_runs.claimAutomationRunDispatchContext,
+  ),
   issueAutomationWorkspaceCredential: adminRef(
     internal.workspaces.issueAutomationWorkspaceCredential,
   ),

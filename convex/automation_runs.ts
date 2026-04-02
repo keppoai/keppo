@@ -11,6 +11,7 @@ import {
 } from "./_generated/server";
 import { nowIso, randomIdFor, requireOrgMember, requireWorkspaceRole } from "./_auth";
 import { getDefaultBillingPeriod, getTierConfig } from "../packages/shared/src/subscriptions.js";
+import { AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS } from "../packages/shared/src/automations.js";
 import {
   automationRunStatusValidator,
   automationStatusValidator,
@@ -309,6 +310,84 @@ const getAutomationRunById = async (
     .withIndex("by_custom_id", (q) => q.eq("id", automationRunId))
     .unique();
   return requireAutomationRunShape(run);
+};
+
+const getAutomationRunDispatchTokenHash = (run: AutomationRunRow): string | null => {
+  const value = run.metadata.dispatch_token_hash;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const getAutomationRunDispatchToken = (run: AutomationRunRow): string | null => {
+  const value = run.metadata.dispatch_token;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const getAutomationRunDispatchTokenIssuedAt = (run: AutomationRunRow): string | null => {
+  const value = run.metadata.dispatch_token_issued_at;
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : null;
+};
+
+const isDispatchTokenReusable = (issuedAt: string | null, now = Date.now()): boolean => {
+  if (!issuedAt) {
+    return false;
+  }
+  const issuedAtMs = Date.parse(issuedAt);
+  return (
+    Number.isFinite(issuedAtMs) &&
+    now - issuedAtMs >= 0 &&
+    now - issuedAtMs <= AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS
+  );
+};
+
+const constantTimeEqual = (left: string, right: string): boolean => {
+  if (left.length !== right.length) {
+    return false;
+  }
+  let diff = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    diff |= left.charCodeAt(index) ^ right.charCodeAt(index);
+  }
+  return diff === 0;
+};
+
+const clearAutomationRunDispatchTokenMetadata = (
+  metadata: Record<string, unknown>,
+): Record<string, unknown> => {
+  const nextMetadata = { ...metadata };
+  delete nextMetadata.dispatch_token;
+  delete nextMetadata.dispatch_token_hash;
+  delete nextMetadata.dispatch_token_issued_at;
+  return nextMetadata;
+};
+
+type DispatchClaimFailureReason =
+  | "dispatch_token_mismatch"
+  | "dispatch_token_expired"
+  | "dispatch_token_missing"
+  | "automation_missing"
+  | "config_missing";
+
+const appendDispatchClaimFailureLog = async (
+  ctx: MutationCtx,
+  run: AutomationRunRow,
+  reason: DispatchClaimFailureReason,
+) => {
+  const reasonLabels: Record<DispatchClaimFailureReason, string> = {
+    dispatch_token_mismatch: "token did not match the stored dispatch claim",
+    dispatch_token_expired: "token expired before the Start route claimed it",
+    dispatch_token_missing: "no active dispatch claim was stored on the run",
+    automation_missing: "automation metadata was missing while loading the dispatch context",
+    config_missing: "automation config metadata was missing while loading the dispatch context",
+  };
+  await appendAutomationRunLogInternal(ctx, {
+    automation_run_id: run.id,
+    level: "system",
+    event_type: "error",
+    event_data: {
+      reason,
+    },
+    content: `Dispatch claim rejected: ${reasonLabels[reason]}.`,
+  });
 };
 
 const runPeriod = (
@@ -848,7 +927,9 @@ const updateAutomationRunStatusInternal = async (
   ensureTransition(current, params.status);
 
   const metadata = {
-    ...run.metadata,
+    ...(params.status === AUTOMATION_RUN_STATUS.pending
+      ? run.metadata
+      : clearAutomationRunDispatchTokenMetadata(run.metadata)),
     automation_run_status: params.status,
   };
   const now = nowIso();
@@ -1107,6 +1188,156 @@ export const getAutomationRunDispatchContext = internalQuery({
     if (!config) {
       return null;
     }
+    const configView = toAutomationConfigVersionView(config);
+
+    return {
+      run: toAutomationRunView(run),
+      automation: {
+        id: automation.id,
+        org_id: automation.org_id,
+        workspace_id: automation.workspace_id,
+        name: automation.name,
+        status: automation.status,
+      },
+      config: {
+        id: configView.id,
+        automation_id: configView.automation_id,
+        trigger_type: configView.trigger_type,
+        schedule_cron: configView.schedule_cron,
+        provider_trigger: configView.provider_trigger,
+        provider_trigger_migration_state: configView.provider_trigger_migration_state,
+        event_provider: configView.event_provider,
+        event_type: configView.event_type,
+        event_predicate: configView.event_predicate,
+        model_class: configView.model_class,
+        runner_type: configView.runner_type,
+        ai_model_provider: configView.ai_model_provider,
+        ai_model_name: configView.ai_model_name,
+        prompt: configView.prompt,
+        network_access: configView.network_access,
+      },
+    };
+  },
+});
+
+export const issueAutomationRunDispatchToken = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    dispatch_token: v.string(),
+    dispatch_token_hash: v.string(),
+    dispatch_token_issued_at: v.string(),
+  },
+  returns: v.object({
+    dispatch_token: v.string(),
+    dispatch_token_issued_at: v.string(),
+    reused_existing_token: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("automation_runs")
+      .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+      .unique();
+    if (!row) {
+      throw new Error("AutomationRunNotFound");
+    }
+    const run = requireAutomationRunShape(row);
+    if (normalizeAutomationRunStatus(run) !== AUTOMATION_RUN_STATUS.pending) {
+      throw new Error("AutomationRunNotPending");
+    }
+
+    const existingDispatchTokenHash = getAutomationRunDispatchTokenHash(run);
+    const existingDispatchToken = getAutomationRunDispatchToken(run);
+    const existingDispatchTokenIssuedAt = getAutomationRunDispatchTokenIssuedAt(run);
+    if (
+      existingDispatchTokenHash &&
+      existingDispatchToken &&
+      isDispatchTokenReusable(existingDispatchTokenIssuedAt)
+    ) {
+      return {
+        dispatch_token: existingDispatchToken,
+        dispatch_token_issued_at: existingDispatchTokenIssuedAt!,
+        reused_existing_token: true,
+      };
+    }
+
+    await ctx.db.patch(row._id, {
+      metadata: {
+        ...clearAutomationRunDispatchTokenMetadata(run.metadata),
+        dispatch_token: args.dispatch_token,
+        dispatch_token_hash: args.dispatch_token_hash,
+        dispatch_token_issued_at: args.dispatch_token_issued_at,
+      },
+    });
+
+    return {
+      dispatch_token: args.dispatch_token,
+      dispatch_token_issued_at: args.dispatch_token_issued_at,
+      reused_existing_token: false,
+    };
+  },
+});
+
+export const claimAutomationRunDispatchContext = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    dispatch_token_hash: v.string(),
+  },
+  returns: v.union(automationRunDispatchContextValidator, v.null()),
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("automation_runs")
+      .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+      .unique();
+    if (!row) {
+      return null;
+    }
+    const run = requireAutomationRunShape(row);
+    if (normalizeAutomationRunStatus(run) !== AUTOMATION_RUN_STATUS.pending) {
+      return null;
+    }
+    const expectedDispatchTokenHash = getAutomationRunDispatchTokenHash(run);
+    const dispatchTokenIssuedAt = getAutomationRunDispatchTokenIssuedAt(run);
+    if (
+      !expectedDispatchTokenHash ||
+      !constantTimeEqual(expectedDispatchTokenHash, args.dispatch_token_hash)
+    ) {
+      await appendDispatchClaimFailureLog(
+        ctx,
+        run,
+        expectedDispatchTokenHash ? "dispatch_token_mismatch" : "dispatch_token_missing",
+      );
+      return null;
+    }
+    if (!isDispatchTokenReusable(dispatchTokenIssuedAt)) {
+      await appendDispatchClaimFailureLog(ctx, run, "dispatch_token_expired");
+      await ctx.db.patch(row._id, {
+        metadata: clearAutomationRunDispatchTokenMetadata(run.metadata),
+      });
+      return null;
+    }
+
+    const automation = await ctx.db
+      .query("automations")
+      .withIndex("by_custom_id", (q) => q.eq("id", run.automation_id))
+      .unique();
+    if (!automation) {
+      await appendDispatchClaimFailureLog(ctx, run, "automation_missing");
+      return null;
+    }
+
+    const config = await ctx.db
+      .query("automation_config_versions")
+      .withIndex("by_custom_id", (q) => q.eq("id", run.config_version_id))
+      .unique();
+    if (!config) {
+      await appendDispatchClaimFailureLog(ctx, run, "config_missing");
+      return null;
+    }
+
+    await ctx.db.patch(row._id, {
+      metadata: clearAutomationRunDispatchTokenMetadata(run.metadata),
+    });
+
     const configView = toAutomationConfigVersionView(config);
 
     return {

@@ -1,5 +1,3 @@
-// SPDX-License-Identifier: FSL-1.1-Apache-2.0
-
 import { makeFunctionReference } from "convex/server";
 import { v } from "convex/values";
 import {
@@ -9,7 +7,11 @@ import {
   type MutationCtx,
 } from "../../convex/_generated/server";
 import { getTierConfig } from "@keppo/shared/subscriptions";
-import { getAiKeyModeLabel, getAiModelProviderLabel } from "@keppo/shared/automations";
+import {
+  getAiKeyModeLabel,
+  getAiModelProviderLabel,
+  AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS,
+} from "@keppo/shared/automations";
 import {
   AUTOMATION_DISPATCH_ACTION_STATUS,
   AUTOMATION_STATUS,
@@ -48,6 +50,12 @@ import { automationDispatchMissingAiKeyResponseSchema } from "@keppo/shared/prov
 const refs = {
   getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  getAutomationRunDispatchContext: makeFunctionReference<"query">(
+    "automation_runs:getAutomationRunDispatchContext",
+  ),
+  issueAutomationRunDispatchToken: makeFunctionReference<"mutation">(
+    "automation_runs:issueAutomationRunDispatchToken",
+  ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
   ),
@@ -74,6 +82,14 @@ const DEFAULT_SCHEDULE_SCAN_LIMIT = 200;
 const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
 const DEFAULT_COLD_LOG_SCAN_LIMIT = 500;
+const DISPATCH_RETRY_DELAY_MS = 1_000;
+const textEncoder = new TextEncoder();
+const DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO = "keppo:dispatch-token:v1";
+
+const bytesToHex = (bytes: Uint8Array): string =>
+  Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 
 const resolveNamespaceApiBase = (namespace?: string): string | null => {
   if (!namespace) {
@@ -171,6 +187,58 @@ const applyVercelProtectionBypassHeader = (headers: Headers): Headers => {
     headers.set("x-vercel-protection-bypass", secret);
   }
   return headers;
+};
+
+const sha256Hex = async (value: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", textEncoder.encode(value));
+  return bytesToHex(new Uint8Array(digest));
+};
+
+const computeAutomationDispatchToken = async (
+  runId: string,
+  issuedAt: string,
+): Promise<{ raw: string; hash: string }> => {
+  const explicitSecret = process.env.KEPPO_AUTOMATION_DISPATCH_TOKEN_SECRET?.trim();
+  const masterKey = process.env.KEPPO_MASTER_KEY?.trim();
+  const secret = explicitSecret || masterKey;
+  if (!secret) {
+    throw new Error(
+      "Missing KEPPO_AUTOMATION_DISPATCH_TOKEN_SECRET or KEPPO_MASTER_KEY for automation dispatch token derivation.",
+    );
+  }
+  const keyMaterial =
+    explicitSecret || !masterKey
+      ? textEncoder.encode(secret)
+      : new Uint8Array(
+          await crypto.subtle.sign(
+            "HMAC",
+            await crypto.subtle.importKey(
+              "raw",
+              textEncoder.encode(masterKey),
+              { name: "HMAC", hash: "SHA-256" },
+              false,
+              ["sign"],
+            ),
+            textEncoder.encode(DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO),
+          ),
+        );
+  const key = await crypto.subtle.importKey(
+    "raw",
+    keyMaterial,
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign"],
+  );
+  const signature = await crypto.subtle.sign(
+    "HMAC",
+    key,
+    textEncoder.encode(`${runId}:${issuedAt}`),
+  );
+  const raw = `dispatch_${bytesToHex(new Uint8Array(signature))}`;
+  return {
+    raw,
+    hash: await sha256Hex(raw),
+  };
 };
 
 const getAutomationDispatchHttpErrorMessage = (response: {
@@ -500,11 +568,20 @@ export const dispatchAutomationRun = internalAction({
     applyVercelProtectionBypassHeader(headers);
 
     try {
+      const nextIssuedAt = new Date().toISOString();
+      const dispatchToken = await computeAutomationDispatchToken(args.runId, nextIssuedAt);
+      const issued = await ctx.runMutation(refs.issueAutomationRunDispatchToken, {
+        automation_run_id: args.runId,
+        dispatch_token: dispatchToken.raw,
+        dispatch_token_hash: dispatchToken.hash,
+        dispatch_token_issued_at: nextIssuedAt,
+      });
       const response = await fetch(dispatchUrl, {
         method: "POST",
         headers,
         body: JSON.stringify({
           automation_run_id: args.runId,
+          dispatch_token: issued.dispatch_token,
         }),
       });
       if (!response.ok) {
@@ -513,6 +590,51 @@ export const dispatchAutomationRun = internalAction({
           status: response.status,
           bodyText,
         });
+        const responseStatus = (() => {
+          try {
+            const parsed = JSON.parse(bodyText) as { status?: unknown };
+            return typeof parsed.status === "string" ? parsed.status : null;
+          } catch {
+            return null;
+          }
+        })();
+        if (response.status === 404 && responseStatus === "run_not_found") {
+          const latestContext = await ctx.runQuery(refs.getAutomationRunDispatchContext, {
+            automation_run_id: args.runId,
+          });
+          if (!latestContext || latestContext.run.status !== AUTOMATION_RUN_STATUS.pending) {
+            return {
+              dispatched: false,
+              status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchRunNotPending,
+              http_status: response.status,
+            };
+          }
+          await emitDispatchFailureAudit(errorMessage, "dispatch_action_http");
+          if (issued.reused_existing_token) {
+            await ctx.scheduler.runAfter(
+              DISPATCH_RETRY_DELAY_MS,
+              refs.dispatchAutomationRun,
+              buildDispatchAutomationRunArgs(args.runId, args.namespace),
+            );
+            return {
+              dispatched: false,
+              status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchHttpError,
+              http_status: response.status,
+            };
+          }
+          await ctx
+            .runMutation(refs.updateAutomationRunStatus, {
+              automation_run_id: args.runId,
+              status: AUTOMATION_RUN_STATUS.cancelled,
+              error_message: `Dispatch failed: ${errorMessage}`,
+            })
+            .catch(() => undefined);
+          return {
+            dispatched: false,
+            status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchHttpError,
+            http_status: response.status,
+          };
+        }
         await emitDispatchFailureAudit(errorMessage, "dispatch_action_http");
         await ctx
           .runMutation(refs.updateAutomationRunStatus, {
@@ -531,10 +653,17 @@ export const dispatchAutomationRun = internalAction({
       return {
         dispatched: true,
         status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatched,
-        http_status: null,
+        http_status: response.status,
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage === "AutomationRunNotPending") {
+        return {
+          dispatched: false,
+          status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchRunNotPending,
+          http_status: null,
+        };
+      }
       await emitDispatchFailureAudit(errorMessage, "dispatch_action_request");
       await ctx
         .runMutation(refs.updateAutomationRunStatus, {

@@ -56,6 +56,7 @@ import {
   addPurchasedAutomationRuns as addPurchasedAutomationRunsImpl,
   appendAutomationRunLog as appendAutomationRunLogImpl,
   appendAutomationRunLogBatch as appendAutomationRunLogBatchImpl,
+  claimAutomationRunDispatchContext as claimAutomationRunDispatchContextImpl,
   deactivateBundledOrgAiKeys as deactivateBundledOrgAiKeysImpl,
   deductAiCredit as deductAiCreditImpl,
   getAutomationRunDispatchContext as getAutomationRunDispatchContextImpl,
@@ -995,6 +996,13 @@ export class ConvexInternalClient {
     automationRunId: string;
   }): Promise<AutomationRunDispatchContext | null> {
     return getAutomationRunDispatchContextImpl(this.resilientClient, params);
+  }
+
+  async claimAutomationRunDispatchContext(params: {
+    automationRunId: string;
+    dispatchToken: string;
+  }): Promise<AutomationRunDispatchContext | null> {
+    return claimAutomationRunDispatchContextImpl(this.resilientClient, params);
   }
 
   async issueAutomationWorkspaceCredential(params: {

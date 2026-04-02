@@ -15,6 +15,9 @@ const refs = {
   ),
   createAutomationViaContract: makeFunctionReference<"mutation">("e2e:createAutomationViaContract"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
+  dispatchAutomationRun: makeFunctionReference<"action">(
+    "automation_scheduler:dispatchAutomationRun",
+  ),
   getAutomationRun: makeFunctionReference<"query">("e2e:getAutomationFixtureRun"),
   getAutomationRunLogs: makeFunctionReference<"query">("e2e:getAutomationFixtureRunLogs"),
   getInviteToken: makeFunctionReference<"query">("e2e:getInviteToken"),
@@ -145,6 +148,14 @@ export class ConvexAdminHelper {
       automation_id: automationId,
       trigger_type: triggerType,
     });
+  }
+
+  async dispatchAutomationRun(runId: string) {
+    return await this.withRetry(() =>
+      this.client.action(refs.dispatchAutomationRun, {
+        runId,
+      }),
+    );
   }
 
   async getAutomationRun(automationRunId: string) {

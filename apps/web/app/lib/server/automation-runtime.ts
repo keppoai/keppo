@@ -39,6 +39,7 @@ import {
   hasValidAutomationCallbackSignature,
   parseCompletionPayload,
   parseDispatchPayload,
+  parseTerminatePayload,
   parseLogPayload,
   preflightMcpServer,
   resolveAutomationCallbackBaseUrl,
@@ -61,6 +62,7 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   ConvexInternalClient,
   | "appendAutomationRunLog"
   | "appendAutomationRunLogBatch"
+  | "claimAutomationRunDispatchContext"
   | "createRun"
   | "deductAiCredit"
   | "getAiCreditBalance"
@@ -102,6 +104,7 @@ const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
   "invalid_payload",
   "invalid_automation_run_terminal_status",
   "missing_automation_run_id",
+  "missing_dispatch_token",
 ]);
 
 const trimToUndefined = (value: string | null | undefined): string | undefined => {
@@ -251,7 +254,7 @@ export const handleInternalAutomationTerminateRequest = async (
 
   let payload: { automation_run_id: string };
   try {
-    payload = await parseRequestPayload(request, deps, parseDispatchPayload);
+    payload = await parseRequestPayload(request, deps, parseTerminatePayload);
   } catch (error) {
     const invalidPayload = mapInvalidPayloadError(error);
     if (invalidPayload) {
@@ -331,7 +334,7 @@ export const handleInternalAutomationDispatchRequest = async (
     return internalUnauthorizedResponse(request, auth.reason);
   }
 
-  let payload: { automation_run_id: string };
+  let payload: { automation_run_id: string; dispatch_token: string };
   try {
     payload = await parseRequestPayload(request, deps, parseDispatchPayload);
   } catch (error) {
@@ -342,8 +345,9 @@ export const handleInternalAutomationDispatchRequest = async (
     throw error;
   }
 
-  const context = await deps.convex.getAutomationRunDispatchContext({
+  const context = await deps.convex.claimAutomationRunDispatchContext({
     automationRunId: payload.automation_run_id,
+    dispatchToken: payload.dispatch_token,
   });
   if (!context) {
     return jsonResponse(

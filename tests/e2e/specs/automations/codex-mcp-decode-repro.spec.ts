@@ -27,7 +27,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   auth,
   pages,
   page,
-  request,
 }) => {
   test.skip(
     process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE !== "1",
@@ -81,26 +80,17 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     "manual",
   )) as { id: string };
 
-  const dispatchResponse = await request.fetch(`${app.apiBaseUrl}/internal/automations/dispatch`, {
-    method: "POST",
-    timeout: 120_000,
-    headers: {
-      ...(app.runtime.cronAuthorizationHeader
-        ? { authorization: app.runtime.cronAuthorizationHeader }
-        : {}),
-      "content-type": "application/json",
-      ...app.headers,
-    },
-    data: JSON.stringify({
-      automation_run_id: createdRun.id,
-    }),
-  });
+  const dispatchResult = (await admin.dispatchAutomationRun(createdRun.id)) as {
+    dispatched: boolean;
+    status: string;
+    http_status: number | null;
+  };
 
-  const dispatchResponseBody = await dispatchResponse.text();
-  expect(
-    dispatchResponse.status(),
-    `automation dispatch should succeed before the Codex/MCP repro. body=${dispatchResponseBody}`,
-  ).toBe(200);
+  expect(dispatchResult).toMatchObject({
+    dispatched: true,
+    status: "dispatched",
+    http_status: 200,
+  });
 
   const runDetailUrl = new URL(
     await resolveScopedDashboardPath(
