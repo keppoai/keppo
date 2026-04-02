@@ -579,29 +579,43 @@ function BillingPage() {
     }
     return getBillingUsageView(displayBilling);
   }, [displayBilling]);
-  const tierComparison = useMemo(
-    () =>
-      (["free", "starter", "pro"] as const).map((tierId) => {
-        const tier = SUBSCRIPTION_TIERS[tierId];
-        return {
-          id: tierId,
-          label: tier.label,
-          priceCentsMonthly: tier.price_cents_monthly,
-          workspaces: tier.max_workspaces,
-          aiCredits: tier.included_ai_credits.total,
-          aiCreditsLabel: tier.included_ai_credits.bundled_runtime_enabled
-            ? "Bundled AI credits / mo"
-            : tier.included_ai_credits.reset_period === "one_time"
-              ? "Included trial credits"
-              : "Included AI credits / mo",
-          aiCreditsDescription: tier.included_ai_credits.bundled_runtime_enabled
-            ? "Includes Keppo-managed runtime credits."
-            : "One-time trial credits cover prompt generation only.",
-          toolCalls: tier.max_tool_calls_per_month,
-        };
-      }),
-    [],
-  );
+  const tierComparison = useMemo<
+    Array<{
+      id: "free" | "starter" | "pro";
+      label: string;
+      priceCentsMonthly: number;
+      workspaces: number;
+      aiCredits: number;
+      aiCreditsLabel: string;
+      aiCreditsDescription: string;
+      bundledRuntimeEnabled: boolean;
+      aiCreditsResetPeriod: "monthly" | "one_time";
+      toolCalls: number;
+    }>
+  >(() => {
+    const tierIds = ["free", "starter", "pro"] as const;
+    return tierIds.map((tierId) => {
+      const tier = SUBSCRIPTION_TIERS[tierId];
+      return {
+        id: tierId,
+        label: tier.label,
+        priceCentsMonthly: tier.price_cents_monthly,
+        workspaces: tier.max_workspaces,
+        aiCredits: tier.included_ai_credits.total,
+        aiCreditsLabel: tier.included_ai_credits.bundled_runtime_enabled
+          ? "Bundled AI credits / mo"
+          : tier.included_ai_credits.reset_period === "one_time"
+            ? "Included trial credits"
+            : "Included AI credits / mo",
+        aiCreditsDescription: tier.included_ai_credits.bundled_runtime_enabled
+          ? "Includes Keppo-managed runtime credits."
+          : "One-time trial credits cover prompt generation only.",
+        bundledRuntimeEnabled: tier.included_ai_credits.bundled_runtime_enabled,
+        aiCreditsResetPeriod: tier.included_ai_credits.reset_period,
+        toolCalls: tier.max_tool_calls_per_month,
+      };
+    });
+  }, []);
   const promoExpiryLabel = invitePromo
     ? new Date(invitePromo.expires_at).toLocaleDateString(undefined, {
         month: "long",
@@ -610,6 +624,22 @@ function BillingPage() {
       })
     : null;
   const promoTierLabel = invitePromo ? toTierLabel(invitePromo.grant_tier) : null;
+  const currentTierComparison = useMemo(
+    () => (billingTier ? (tierComparison.find((tier) => tier.id === billingTier) ?? null) : null),
+    [billingTier, tierComparison],
+  );
+  const currentPlanCreditsSummary = useMemo(() => {
+    if (!currentTierComparison) {
+      return null;
+    }
+    if (currentTierComparison.bundledRuntimeEnabled) {
+      return `Includes ${currentTierComparison.aiCredits} bundled AI credits each billing cycle for prompt generation and bundled automation runtime. Add a BYO provider key only if you want a fallback after bundled credits run out.`;
+    }
+    if (currentTierComparison.aiCreditsResetPeriod === "one_time") {
+      return `Includes a one-time grant of ${currentTierComparison.aiCredits} AI credits for prompt generation only. Bundled automation runtime is not included on this tier.`;
+    }
+    return `Includes ${currentTierComparison.aiCredits} AI credits each billing cycle for prompt generation.`;
+  }, [currentTierComparison]);
   const usageSummary = useMemo(() => {
     if (!displayBilling || !usageView) {
       return null;
@@ -638,6 +668,27 @@ function BillingPage() {
       return "$0/mo";
     }
     return `$${(priceCents / 100).toFixed(0)}/mo`;
+  };
+
+  const humanizeBillingStatus = (status: string): string => {
+    switch (status) {
+      case "active":
+        return "Active";
+      case "trialing":
+        return "Trial";
+      case "past_due":
+        return "Past due";
+      case "canceled":
+        return "Canceled";
+      case "incomplete":
+        return "Incomplete";
+      case "incomplete_expired":
+        return "Incomplete expired";
+      case "unpaid":
+        return "Unpaid";
+      default:
+        return status;
+    }
   };
 
   const handleCheckout = async (tier: "starter" | "pro"): Promise<void> => {
@@ -836,7 +887,7 @@ function BillingPage() {
     }
   };
 
-  const openChangePlanDialog = (target?: "starter" | "pro" | "free"): void => {
+  const openChangePlanDialog = (target?: "starter" | "pro"): void => {
     if (!billing) {
       return;
     }
@@ -1048,7 +1099,7 @@ function BillingPage() {
             <span data-testid="billing-tier-label" className="font-medium capitalize">
               {toTierLabel(currentBilling.tier)}
             </span>{" "}
-            ({currentBilling.status})
+            ({humanizeBillingStatus(currentBilling.status)})
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-4">
@@ -1078,10 +1129,26 @@ function BillingPage() {
             </div>
           ) : null}
 
+          {currentPlanCreditsSummary ? (
+            <div
+              className="rounded-xl border bg-muted/40 px-4 py-3 text-sm"
+              data-testid="billing-current-plan-ai-credits-summary"
+            >
+              <p>
+                <span className="font-medium text-foreground">
+                  {currentTierComparison?.label} includes{" "}
+                  {currentTierComparison?.aiCreditsLabel.toLowerCase()}.
+                </span>{" "}
+                <span className="text-muted-foreground">{currentPlanCreditsSummary}</span>
+              </p>
+            </div>
+          ) : null}
+
           <div className="grid gap-3 md:grid-cols-3">
             {tierComparison.map((tier) => {
+              const currentTierId = currentBilling.tier as keyof typeof tierRank;
               const isCurrent = tier.id === currentBilling.tier;
-              const currentRank = tierRank[currentBilling.tier];
+              const currentRank = tierRank[currentTierId];
               const cardRank = tierRank[tier.id];
               const isHigher = cardRank > currentRank;
               const isLower = cardRank < currentRank && cardRank > 0;
@@ -1126,6 +1193,14 @@ function BillingPage() {
                   </p>
 
                   <div className="mt-auto flex flex-col gap-2 pt-4">
+                    {isCurrent && tier.id === "free" ? (
+                      <p
+                        className="text-xs leading-5 text-muted-foreground"
+                        data-testid="billing-free-tier-note"
+                      >
+                        Free trial active. Upgrade or redeem an invite code to unlock paid usage.
+                      </p>
+                    ) : null}
                     {isCurrent && canManageBilling && usageView.showManageSubscription ? (
                       <Button
                         data-testid="billing-manage-subscription"
@@ -1185,10 +1260,9 @@ function BillingPage() {
                           : `Upgrade to ${tier.label}`}
                       </Button>
                     ) : null}
-                    {!isCurrent &&
-                    canManageBilling &&
-                    isHigher &&
-                    billingSource === BILLING_SOURCE.invitePromo ? (
+                    {canManageBilling &&
+                    billingSource === BILLING_SOURCE.invitePromo &&
+                    (isHigher || (isCurrent && invitePromo?.grant_tier === tier.id)) ? (
                       <Button
                         data-testid={
                           tier.id === "starter" ? "billing-upgrade-starter" : "billing-upgrade-pro"

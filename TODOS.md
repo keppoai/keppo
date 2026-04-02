@@ -1,0 +1,16 @@
+- [x] Re-read `tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md`, then self-review the full PR context before making changes
+- [x] Rebase the current branch onto `upstream/main` and resolve every merge conflict
+- [x] Investigate the failing `CI Result` check and identify the concrete root cause from available CI context/logs
+- [x] Investigate the failing `e2e / Test 4/4` check and confirm the concrete root cause for `tests/e2e/specs/settings/billing-invite-promo.spec.ts`
+- [x] Investigate the failing `e2e / Checks` check and confirm whether it is only a propagated failure from the failed E2E spec or has an additional root cause
+- [x] Address the trusted review thread at `apps/web/src/routes/billing.lazy.tsx:1170` about invite-promo users lacking a start-subscription CTA on the current tier card
+- [x] Address the trusted review thread at `apps/web/src/routes/billing.lazy.tsx:1051` about restoring plan-specific AI credits guidance
+- [x] Review `trustedReviews` and `trustedIssueComments`, including the cubic-identified issue and Claude low-priority notes, and decide which items require code changes or explicit summary coverage
+- [x] Implement the required billing page code changes and any related test updates
+- [x] Run targeted local E2E verification for the failing billing invite promo spec and confirm it passes
+- [ ] Run `pnpm check` and fix every resulting error until it passes
+- [ ] Self-review the final diff against the PR context and verify all required work is complete
+- [ ] Create a local git commit with a Conventional Commit message for the completed fixes
+- [ ] Re-read `TODOS.md` and confirm every item is marked complete before writing `tmp/pr-review-responder/actions.json`
+- [ ] Write `tmp/pr-review-responder/actions.json` with the required summary and thread actions
+- [ ] Delete `TODOS.md`

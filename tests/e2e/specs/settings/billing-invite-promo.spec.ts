@@ -43,6 +43,9 @@ test("billing page redeems paid invite promos and hides Stripe-only controls", a
   await expect(promoBanner).toContainText("Code PRO222");
   await expect(promoBanner).toContainText("is unlocked until");
   await expect(page.getByTestId("billing-tier-label")).toHaveText("Pro");
+  await expect(page.getByTestId("billing-current-plan-ai-credits-summary")).toContainText(
+    "bundled AI credits",
+  );
   await expect(page.getByTestId("billing-change-plan")).toHaveCount(0);
   await expect(page.getByTestId("billing-manage-subscription")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Start Starter subscription" })).toHaveCount(0);
