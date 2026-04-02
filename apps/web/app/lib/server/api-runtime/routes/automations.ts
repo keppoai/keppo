@@ -425,8 +425,21 @@ export const resolveAutomationCallbackBaseUrl = (requestUrl: string): string => 
   return new URL(requestUrl).origin;
 };
 
-export const resolveVercelAutomationBypassSecret = (): string | undefined =>
-  getEnv().VERCEL_AUTOMATION_BYPASS_SECRET;
+const normalizeKeppoEnvironment = (value: string | undefined): string | undefined => {
+  const normalized = value?.trim().toLowerCase();
+  return normalized && normalized.length > 0 ? normalized : undefined;
+};
+
+export const shouldUseVercelAutomationBypassSecret = (
+  env: NodeJS.ProcessEnv | { KEPPO_ENVIRONMENT?: string | undefined } = getRawEnv(),
+): boolean => normalizeKeppoEnvironment(env.KEPPO_ENVIRONMENT) !== "production";
+
+export const resolveVercelAutomationBypassSecret = (env = getEnv()): string | undefined => {
+  if (!shouldUseVercelAutomationBypassSecret(env)) {
+    return undefined;
+  }
+  return env.VERCEL_AUTOMATION_BYPASS_SECRET;
+};
 
 export const applyVercelProtectionBypassToUrl = (
   rawUrl: string,

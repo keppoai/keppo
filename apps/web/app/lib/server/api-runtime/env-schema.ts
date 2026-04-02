@@ -92,6 +92,7 @@ const codeModeSandboxSchema = z.preprocess(
 const apiEnvSchema = z
   .object({
     NODE_ENV: optionalString,
+    KEPPO_ENVIRONMENT: optionalString,
     KEPPO_STRICT_MODE: truthyEnvFlagSchema,
     KEPPO_URL: optionalString,
     VITE_CONVEX_URL: optionalString,
