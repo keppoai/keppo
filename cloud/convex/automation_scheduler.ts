@@ -136,14 +136,41 @@ const resolveRootOwnedRouteUrl = (baseUrl: string, pathname: string): string => 
   }
 };
 
+const toOrigin = (value: string | undefined): string | null => {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const resolveHostedApiBase = (): string | null => {
+  const explicitBase = process.env.KEPPO_API_INTERNAL_BASE_URL?.trim();
+  if (explicitBase) {
+    return explicitBase;
+  }
+  const keppoUrl = process.env.KEPPO_URL?.trim();
+  if (keppoUrl) {
+    try {
+      return new URL("/api", keppoUrl).toString();
+    } catch {
+      // Fall through to local-only heuristics.
+    }
+  }
+  return toOrigin(process.env.KEPPO_LOCAL_QUEUE_CONSUMER_URL);
+};
+
 const resolveAutomationDispatchUrl = (namespace?: string): string | null => {
   const explicitUrl = process.env.KEPPO_AUTOMATION_DISPATCH_URL?.trim();
   if (explicitUrl) {
     return explicitUrl;
   }
-  const explicitBase = process.env.KEPPO_API_INTERNAL_BASE_URL?.trim();
-  if (explicitBase) {
-    return resolveRootOwnedRouteUrl(explicitBase, AUTOMATION_DISPATCH_PATH);
+  const hostedApiBase = resolveHostedApiBase();
+  if (hostedApiBase) {
+    return resolveRootOwnedRouteUrl(hostedApiBase, AUTOMATION_DISPATCH_PATH);
   }
   const namespaceBase = resolveNamespaceApiBase(namespace);
   if (namespaceBase) {
@@ -157,9 +184,9 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
   if (explicitUrl) {
     return explicitUrl;
   }
-  const explicitBase = process.env.KEPPO_API_INTERNAL_BASE_URL?.trim();
-  if (explicitBase) {
-    return resolveRootOwnedRouteUrl(explicitBase, AUTOMATION_TERMINATE_PATH);
+  const hostedApiBase = resolveHostedApiBase();
+  if (hostedApiBase) {
+    return resolveRootOwnedRouteUrl(hostedApiBase, AUTOMATION_TERMINATE_PATH);
   }
   const namespaceBase = resolveNamespaceApiBase(namespace);
   if (namespaceBase) {
