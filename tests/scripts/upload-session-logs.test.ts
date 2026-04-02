@@ -38,6 +38,10 @@ method="GET"
 url=""
 data_file=""
 auth_header=""
+x_api_version=""
+x_access=""
+x_add_random_suffix=""
+x_allow_overwrite=""
 for ((i=1; i <= $#; i++)); do
   arg="\${!i}"
   case "$arg" in
@@ -58,6 +62,14 @@ for ((i=1; i <= $#; i++)); do
       header_value="\${!j}"
       if [[ "$header_value" == Authorization:* ]]; then
         auth_header="$header_value"
+      elif [[ "$header_value" == x-api-version:* ]]; then
+        x_api_version="$header_value"
+      elif [[ "$header_value" == x-access:* ]]; then
+        x_access="$header_value"
+      elif [[ "$header_value" == x-add-random-suffix:* ]]; then
+        x_add_random_suffix="$header_value"
+      elif [[ "$header_value" == x-allow-overwrite:* ]]; then
+        x_allow_overwrite="$header_value"
       fi
       ;;
   esac
@@ -78,6 +90,22 @@ if [[ "$method" == "PUT" && "$url" == "https://vercel.com/api/blob?pathname=syst
   if [[ "$auth_header" != "Authorization: Bearer vercel_blob_client_test_token" ]]; then
     echo "unexpected blob auth header: $auth_header" >&2
     exit 89
+  fi
+  if [[ "$x_api_version" != "x-api-version: 12" ]]; then
+    echo "unexpected blob x-api-version header: $x_api_version" >&2
+    exit 91
+  fi
+  if [[ "$x_access" != "x-access: private" ]]; then
+    echo "unexpected blob x-access header: $x_access" >&2
+    exit 92
+  fi
+  if [[ "$x_add_random_suffix" != "x-add-random-suffix: 0" ]]; then
+    echo "unexpected blob x-add-random-suffix header: $x_add_random_suffix" >&2
+    exit 93
+  fi
+  if [[ "$x_allow_overwrite" != "x-allow-overwrite: 1" ]]; then
+    echo "unexpected blob x-allow-overwrite header: $x_allow_overwrite" >&2
+    exit 94
   fi
   cat <<'JSON'
 {"url":"https://blob.example.test/private","pathname":"system/pending-uploads/upload-test/file_0-sha-session.jsonl"}

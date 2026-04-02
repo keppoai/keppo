@@ -487,7 +487,11 @@ else
       --request PUT \
       --url "https://vercel.com/api/blob?pathname=$(printf '%s' "${upload_path}" | jq -sRr @uri)" \
       --header "Authorization: Bearer ${upload_token}" \
+      --header "x-api-version: 12" \
       --header "x-vercel-blob-access: private" \
+      --header "x-access: private" \
+      --header "x-add-random-suffix: 0" \
+      --header "x-allow-overwrite: 1" \
       --header "x-content-type: ${upload_content_type}" \
       --data-binary "@${local_file}" \
       > /dev/null 2> "${curl_log_path}"
