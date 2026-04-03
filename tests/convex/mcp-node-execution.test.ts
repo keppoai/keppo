@@ -40,7 +40,13 @@ describe("createExecuteToolCallHandler", () => {
     const runQuery = vi.fn<ActionCtx["runQuery"]>().mockResolvedValue({
       org_id: "org_123",
     });
-    const runMutation = vi.fn<ActionCtx["runMutation"]>().mockRejectedValueOnce(beginError);
+    const runMutation = vi.fn<ActionCtx["runMutation"]>().mockImplementation(async (ref) => {
+      if (ref === deps.refs.beginToolCall) {
+        throw beginError;
+      }
+
+      throw new Error(`unexpected mutation: ${String(ref)}`);
+    });
     const runAction = vi.fn<ActionCtx["runAction"]>();
     const ctx = {
       runQuery,

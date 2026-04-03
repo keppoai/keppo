@@ -1,0 +1,16 @@
+- [x] Read `tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md`.
+- [x] Self-review the PR context, changed files, and trusted feedback to confirm scope before making changes.
+- [x] Rebase the current branch onto `upstream/main` and resolve any merge conflicts.
+- [x] Investigate the non-E2E failing check `CI Result` and identify the underlying failing job(s).
+- [x] Investigate the in-progress non-E2E check `fix-pr` and determine whether it requires any local follow-up.
+- [x] Investigate the failing E2E check `e2e / Test 2/4`, compare it with the PR diff, and decide whether it is PR-related.
+- [x] If the failing E2E check is unrelated to this PR, document that decision in `summaryComment` instead of making a speculative code fix.
+- [x] Review `trustedReviews` and `trustedIssueComments` for actionable feedback items and address any valid requests.
+- [x] Make any required code or test changes from the rebase, CI investigation, or trusted feedback.
+- [x] Run `pnpm check` and fix every failure until it passes.
+- [x] Run local E2E verification if I make changes to fix a PR-related E2E failure.
+- [x] Self-review the final diff and verification results.
+- [ ] Create a local git commit with a Conventional Commit message if any code changes are made.
+- [ ] Re-read `TODOS.md` and confirm every item is complete before writing the workflow artifact.
+- [ ] Write `tmp/pr-review-responder/actions.json`.
+- [ ] Delete `TODOS.md`.
