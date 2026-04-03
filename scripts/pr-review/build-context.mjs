@@ -69,7 +69,7 @@ try {
   diffTruncated = true;
 }
 
-const maxPatchChars = 12000;
+const maxPatchChars = 48000;
 const normalizedFiles = files.map((file) => {
   const patch = typeof file.patch === "string" ? file.patch : "";
   return {
