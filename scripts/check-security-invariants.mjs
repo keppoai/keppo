@@ -72,6 +72,20 @@ if (!/claimAutomationRunDispatchContext/u.test(automationRuntimeSource)) {
   );
 }
 
+const automationRunsSource = read("convex/automation_runs.ts");
+if (
+  !/const MANUAL_AUTOMATION_TRIGGER_ROLES = \[USER_ROLE\.owner, USER_ROLE\.admin\] as const;/u.test(
+    automationRunsSource,
+  ) ||
+  !/requireAutomation\(\s*[\s\S]*?ctx,\s*[\s\S]*?args\.automation_id,\s*[\s\S]*?MANUAL_AUTOMATION_TRIGGER_ROLES,\s*[\s\S]*?\)/u.test(
+    automationRunsSource,
+  )
+) {
+  failures.push(
+    "convex/automation_runs.ts must keep triggerAutomationRunManual restricted to owner/admin members via the explicit MANUAL_AUTOMATION_TRIGGER_ROLES contract.",
+  );
+}
+
 const automationRoutesSource = read("apps/web/app/lib/server/api-runtime/routes/automations.ts");
 if (!/missing_dispatch_token/u.test(automationRoutesSource)) {
   failures.push(
