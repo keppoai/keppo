@@ -35,15 +35,39 @@ export const formatIntegrationErrorDiagnostic = (params: {
   return parts.join(" / ");
 };
 
+const isExpiredTimestamp = (value: string | null | undefined): boolean => {
+  if (!value) {
+    return false;
+  }
+  const expiresAt = Date.parse(value);
+  return Number.isFinite(expiresAt) && expiresAt <= Date.now();
+};
+
+export const isIntegrationCredentialExpired = (params: {
+  credentialExpiresAt?: string | null | undefined;
+  hasRefreshToken?: boolean | null | undefined;
+}): boolean => {
+  if (params.hasRefreshToken) {
+    return false;
+  }
+  return isExpiredTimestamp(params.credentialExpiresAt);
+};
+
 export const isIntegrationReconnectRequired = (params: {
   status?: string | null | undefined;
-  isExpired?: boolean;
+  credentialExpiresAt?: string | null | undefined;
+  hasRefreshToken?: boolean | null | undefined;
   lastErrorCategory?: string | null | undefined;
 }): boolean => {
   if (params.status === "disconnected") {
     return false;
   }
-  if (params.isExpired) {
+  if (
+    isIntegrationCredentialExpired({
+      credentialExpiresAt: params.credentialExpiresAt,
+      hasRefreshToken: params.hasRefreshToken,
+    })
+  ) {
     return true;
   }
   return params.status === "degraded" && params.lastErrorCategory === "auth";

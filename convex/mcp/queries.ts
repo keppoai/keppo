@@ -476,6 +476,7 @@ export const loadConnectorContext = internalQuery({
         status: integration.status,
         lastErrorCategory: integration.last_error_category,
         credentialExpiresAt: credential?.expires_at,
+        hasRefreshToken: Boolean(credential?.refresh_token_enc),
       })
     ) {
       const payload = {

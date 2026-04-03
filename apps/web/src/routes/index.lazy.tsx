@@ -585,12 +585,10 @@ export function DashboardPage() {
       (action.risk_level === "high" || action.risk_level === "critical"),
   ).length;
   const reconnectRequiredIntegrations = integrations.filter((integration) => {
-    const expiresAtMillis = integration.credential_expires_at
-      ? Date.parse(integration.credential_expires_at)
-      : Number.NaN;
     return isIntegrationReconnectRequired({
       status: integration.status,
-      isExpired: Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now(),
+      credentialExpiresAt: integration.credential_expires_at,
+      hasRefreshToken: integration.has_refresh_token,
       lastErrorCategory: integration.last_error_category,
     });
   });

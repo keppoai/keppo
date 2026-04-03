@@ -82,4 +82,44 @@ describe("IntegrationCard", () => {
     expect(screen.queryByRole("button", { name: /Reconnect/i })).not.toBeInTheDocument();
     expect(screen.getByText("Diagnostic: Provider API / Rate limited")).toBeInTheDocument();
   });
+
+  it("does not show reconnect for expired access tokens when a refresh token exists", () => {
+    render(
+      <IntegrationCard
+        provider="google"
+        integration={{
+          id: "integration_1",
+          org_id: "org_1",
+          provider: "google",
+          display_name: "Google",
+          status: "connected",
+          connected: true,
+          created_at: "2026-03-08T00:00:00.000Z",
+          scopes: ["gmail.send"],
+          external_account_id: "automation@example.com",
+          credential_expires_at: "2000-01-01T00:00:00.000Z",
+          has_refresh_token: true,
+          last_health_check_at: "2026-03-08T00:08:00.000Z",
+          last_successful_health_check_at: "2026-03-08T00:08:00.000Z",
+          last_error_code: null,
+          last_error_category: null,
+          last_webhook_at: null,
+          degraded_reason: null,
+          provider_module_version: 1,
+          metadata: {},
+        }}
+        canManage
+        onConnect={vi.fn()}
+        onDisconnect={vi.fn()}
+        onOpen={vi.fn()}
+        onTest={vi.fn(async () => ({ ok: true, detail: "ok" }))}
+      />,
+    );
+
+    expect(screen.getByText(/Google is ready for automations/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Reconnect/i })).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Saved credential expired. Reconnect to restore provider access."),
+    ).not.toBeInTheDocument();
+  });
 });

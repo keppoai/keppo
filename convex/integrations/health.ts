@@ -27,6 +27,7 @@ export const testProvider = mutation({
         status: integration.status,
         lastErrorCategory: integration.last_error_category,
         credentialExpiresAt: bundle.credential?.expires_at,
+        hasRefreshToken: Boolean(bundle.credential?.refresh_token_enc),
       })
     ) {
       return { ok: false, detail: `${provider} is not connected` };

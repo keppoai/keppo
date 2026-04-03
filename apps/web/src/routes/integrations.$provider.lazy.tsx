@@ -22,6 +22,7 @@ import { fullTimestamp, relativeTime } from "@/lib/format";
 import {
   formatIntegrationErrorDiagnostic,
   getIntegrationUnhealthyReason,
+  isIntegrationCredentialExpired,
   isIntegrationReconnectRequired,
 } from "@/lib/integration-health";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
@@ -288,6 +289,7 @@ function IntegrationDetailsHeader({
   scopes,
   status,
   expiresAt,
+  hasRefreshToken,
   lastHealth,
   lastHealthy,
   lastWebhook,
@@ -302,6 +304,7 @@ function IntegrationDetailsHeader({
   scopes: string[];
   status: string;
   expiresAt: string | null;
+  hasRefreshToken: boolean;
   lastHealth: string | null | undefined;
   lastHealthy: string | null | undefined;
   lastWebhook: string | null | undefined;
@@ -315,8 +318,10 @@ function IntegrationDetailsHeader({
       ? "Needs reconnect"
       : "Not connected";
   const accountLabel = externalAccountId ?? "No account linked yet";
-  const expiresAtMillis = expiresAt ? Date.parse(expiresAt) : Number.NaN;
-  const isExpired = Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now();
+  const isExpired = isIntegrationCredentialExpired({
+    credentialExpiresAt: expiresAt,
+    hasRefreshToken,
+  });
   const hasRecentHealthFailure = Boolean(lastHealth && lastHealthy && lastHealth > lastHealthy);
   const unhealthyReason = getIntegrationUnhealthyReason({
     isExpired,
@@ -465,13 +470,14 @@ function IntegrationDetailPage() {
   }, [canonicalProvider, integrations]);
 
   const connected = integration?.connected === true;
-  const expiresAtMillis = integration?.credential_expires_at
-    ? Date.parse(integration.credential_expires_at)
-    : Number.NaN;
-  const isExpired = Number.isFinite(expiresAtMillis) && expiresAtMillis <= Date.now();
+  const isExpired = isIntegrationCredentialExpired({
+    credentialExpiresAt: integration?.credential_expires_at,
+    hasRefreshToken: integration?.has_refresh_token,
+  });
   const needsReconnect = isIntegrationReconnectRequired({
     status: integration?.status,
-    isExpired,
+    credentialExpiresAt: integration?.credential_expires_at,
+    hasRefreshToken: integration?.has_refresh_token,
     lastErrorCategory: integration?.last_error_category,
   });
   const integrationMetadata = useMemo(
@@ -766,6 +772,7 @@ function IntegrationDetailPage() {
         scopes={integration.scopes}
         status={integration.status}
         expiresAt={integration.credential_expires_at}
+        hasRefreshToken={integration.has_refresh_token ?? false}
         lastHealth={integration.last_health_check_at}
         lastHealthy={integration.last_successful_health_check_at}
         lastWebhook={integration.last_webhook_at}
