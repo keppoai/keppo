@@ -10,7 +10,16 @@ const refs = {
 };
 
 describe("provider webhook routing", () => {
-  it("matches no organizations when the webhook has no external account id", async () => {
+  it.each([
+    {
+      caseName: "null external account ids",
+      externalAccountId: null,
+    },
+    {
+      caseName: "whitespace-only external account ids",
+      externalAccountId: "   ",
+    },
+  ])("matches no organizations when the webhook has $caseName", async ({ externalAccountId }) => {
     const t = createConvexTestHarness();
     const now = "2026-04-02T12:00:00.000Z";
 
@@ -76,7 +85,7 @@ describe("provider webhook routing", () => {
 
     const result = await t.mutation(refs.recordProviderWebhook, {
       provider: "stripe",
-      externalAccountId: null,
+      externalAccountId,
       eventType: "invoice.payment_succeeded",
       payload: { id: "evt_missing_account" },
       receivedAt: "2026-04-02T12:05:00.000Z",

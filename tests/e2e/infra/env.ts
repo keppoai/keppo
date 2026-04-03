@@ -56,7 +56,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
   const queueBrokerBase = `http://127.0.0.1:${params.ports.queueBroker}`;
   const useFakeOpenAiResponses = process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1";
   const convexSiteUrl = process.env.KEPPO_CONVEX_SITE_URL ?? toLocalConvexSiteUrl(params.convexUrl);
-  const cronToken = `e2e-cron-token-${params.workerIndex}`;
+  const cronToken = readUsableTestEnv(process.env.KEPPO_CRON_SECRET) ?? "keppo-e2e-cron-secret";
   const externalAllowlist = new Set(
     (process.env.KEPPO_EXTERNAL_FETCH_ALLOWLIST ?? "")
       .split(",")
@@ -107,6 +107,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     BETTER_AUTH_SECRET:
       process.env.BETTER_AUTH_SECRET ?? `keppo-e2e-better-auth-secret-${params.workerIndex}`,
     KEPPO_URL: dashboardBase,
+    KEPPO_API_INTERNAL_BASE_URL: dashboardBase,
     VITE_KEPPO_URL: dashboardBase,
     KEPPO_FAKE_EXTERNAL_BASE_URL: fakeGatewayBase,
     KEPPO_E2E_FAKE_GATEWAY_BASE_URL: fakeGatewayBase,
@@ -169,6 +170,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     base,
     fakeGateway: {
       ...base,
+      HOST: "0.0.0.0",
       PORT: String(params.ports.fakeGateway),
     },
     api: {

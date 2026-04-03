@@ -83,8 +83,9 @@ export const collectManagedConvexEnvValues = ({ mode, env = process.env }) => {
     if (!appliesToMode(entry, mode)) {
       continue;
     }
+    const hasExplicitValue = Object.prototype.hasOwnProperty.call(env, entry.key);
     const raw = trim(env[entry.key]);
-    if (raw) {
+    if (hasExplicitValue) {
       values[entry.key] = raw;
       continue;
     }
