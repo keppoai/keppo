@@ -5795,7 +5795,8 @@ const start = async (): Promise<void> => {
     });
   });
 
-  server.listen(port, "127.0.0.1", () => {
+  const host = process.env.HOST?.trim() || "127.0.0.1";
+  server.listen(port, host, () => {
     process.stdout.write(`fake-gateway listening on ${baseUrl}\n`);
   });
 

@@ -6,7 +6,6 @@ const SANDBOX_UNAVAILABLE_PATTERN =
 /** error_code values that represent intentional sandbox behavior, not infra failures. */
 const EXPECTED_EXECUTION_FAILED_CODES_TIMEOUT = new Set(["timeout"]);
 const REQUIRE_CODE_MODE_SANDBOX = process.env.KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX === "1";
-const RETRYABLE_EXECUTION_FAILED_CODES = new Set(["timeout"]);
 
 const findJsonPayloadInOutput = (
   value: Record<string, unknown> | string,
@@ -67,33 +66,6 @@ const skipIfSandboxUnavailable = (
     );
   }
   test.skip(true, "Code-mode sandbox is unavailable in this environment.");
-};
-
-const retryExecuteCodeOnTransientInfraFailure = async (
-  execute: () => Promise<Record<string, unknown> | string>,
-  reinitialize: () => Promise<void>,
-): Promise<Record<string, unknown> | string> => {
-  let lastResult: Record<string, unknown> | string | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await execute();
-    lastResult = result;
-    const payload =
-      typeof result === "object" && result !== null
-        ? (result as Record<string, unknown>)
-        : findJsonPayloadInOutput(result);
-    if (
-      payload.status !== "execution_failed" ||
-      !RETRYABLE_EXECUTION_FAILED_CODES.has(String(payload.error_code ?? ""))
-    ) {
-      return result;
-    }
-    if (attempt >= 2) {
-      return result;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
-    await reinitialize();
-  }
-  return lastResult ?? {};
 };
 
 test("execute_code runs plain JavaScript and returns console output", async ({
@@ -258,13 +230,22 @@ test("execute_code passes dynamic tool calls through to execution layer", async 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  const output = await retryExecuteCodeOnTransientInfraFailure(
-    () =>
-      mcp.executeCode(
+  let output: Record<string, unknown> | string | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      output = await mcp.executeCode(
         'const fn = "searchThreads"; const result = await gmail[fn]({ query: "" }); console.log(JSON.stringify(result));',
-      ),
-    () => mcp.initialize(),
-  );
+      );
+      break;
+    } catch (error) {
+      if (attempt >= 2 || !isTransientServerError(error)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+      await mcp.initialize();
+    }
+  }
+
   skipIfSandboxUnavailable(output);
   const payload = findJsonPayloadInOutput(output);
   expect(payload.status).toBe("succeeded");

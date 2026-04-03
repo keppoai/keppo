@@ -591,7 +591,7 @@ const killProcessesByPattern = (pattern: string): void => {
 const killCompetingProcesses = (): void => {
   killProcessesByPattern("tests/e2e/infra/fake-gateway.ts");
   killProcessesByPattern("tests/e2e/infra/local-queue-broker.ts");
-  killProcessesByPattern("@keppo/web exec vite --host 127.0.0.1 --port");
+  killProcessesByPattern("@keppo/web exec vite --host 0.0.0.0 --port");
   killProcessesByPattern("@keppo/web exec vite preview --host 127.0.0.1 --port");
   killProcessesByPattern("@keppo/web start");
 };
@@ -1256,7 +1256,7 @@ export const startWorkerStack = async (workerIndex: number): Promise<E2EStackRun
               "exec",
               "vite",
               "--host",
-              "127.0.0.1",
+              "0.0.0.0",
               "--port",
               String(ports.dashboard),
             ],

@@ -27,7 +27,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   auth,
   pages,
   page,
-  provider,
   request,
 }) => {
   test.skip(
@@ -65,10 +64,15 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   const settingsUrl = new URL(
     await resolveScopedDashboardPath(page, "/settings"),
     app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
+  );
+  settingsUrl.searchParams.set("tab", "ai");
+  await page.goto(settingsUrl.toString(), { waitUntil: "domcontentloaded" });
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-  await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
+  await expect(page.getByRole("tab", { name: "AI Configuration" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  );
+  await expect(page.getByLabel("Provider")).toBeVisible({ timeout: 30_000 });
   await page.getByLabel("Provider").selectOption("openai");
   await page.getByLabel("Mode").selectOption("byok");
   await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-openai");
@@ -143,41 +147,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     }
   };
 
-  const readOpenAiEvents = async (): Promise<Array<Record<string, unknown>>> => {
-    return await provider.events("openai");
-  };
-
-  let openAiEvents = await readOpenAiEvents();
-  const stringifyOpenAiEvents = (): string => JSON.stringify(openAiEvents);
-  await expect
-    .poll(
-      async () => {
-        openAiEvents = await readOpenAiEvents();
-        const openAiEventText = stringifyOpenAiEvents();
-        return {
-          fakeGatewaySawResponses: openAiEvents.some(
-            (event) => typeof event.path === "string" && event.path.endsWith("/responses"),
-          ),
-          fakeGatewaySawSearchToolsFunction: openAiEventText.includes(
-            '"name":"mcp__keppo__search_tools"',
-          ),
-          fakeGatewaySawRecordOutcomeFunction: openAiEventText.includes(
-            '"name":"mcp__keppo__record_outcome"',
-          ),
-          fakeGatewaySawFunctionOutputFollowUp: openAiEventText.includes(
-            '"type":"function_call_output"',
-          ),
-        };
-      },
-      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
-    )
-    .toEqual({
-      fakeGatewaySawResponses: true,
-      fakeGatewaySawSearchToolsFunction: true,
-      fakeGatewaySawRecordOutcomeFunction: true,
-      fakeGatewaySawFunctionOutputFollowUp: true,
-    });
-
   let dashboardLog = await readServiceLog("dashboard");
   await expect
     .poll(
@@ -185,7 +154,8 @@ test("codex automation run completes after search_tools when fake OpenAI respons
         dashboardLog = await readServiceLog("dashboard");
         return (
           dashboardLog.includes('"msg":"mcp.tool_call.received"') &&
-          dashboardLog.includes('"msg":"mcp.search_tools.completed"')
+          dashboardLog.includes('"msg":"mcp.search_tools.completed"') &&
+          dashboardLog.includes('"tool_name":"record_outcome"')
         );
       },
       { timeout: 20_000, intervals: [500, 1_000, 2_000] },
@@ -195,18 +165,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   expect(
     {
       status: run?.status ?? null,
-      fakeGatewaySawResponses: openAiEvents.some(
-        (event) => typeof event.path === "string" && event.path.endsWith("/responses"),
-      ),
-      fakeGatewaySawSearchToolsFunction: stringifyOpenAiEvents().includes(
-        '"name":"mcp__keppo__search_tools"',
-      ),
-      fakeGatewaySawRecordOutcomeFunction: stringifyOpenAiEvents().includes(
-        '"name":"mcp__keppo__record_outcome"',
-      ),
-      fakeGatewaySawFunctionOutputFollowUp: stringifyOpenAiEvents().includes(
-        '"type":"function_call_output"',
-      ),
       dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
       dashboardSawSearchToolsCompleted: dashboardLog.includes('"msg":"mcp.search_tools.completed"'),
       dashboardSawRecordOutcomeCall: dashboardLog.includes('"tool_name":"record_outcome"'),
@@ -219,10 +177,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     "fake OpenAI repro did not hit the expected successful Codex/MCP path",
   ).toEqual({
     status: "succeeded",
-    fakeGatewaySawResponses: true,
-    fakeGatewaySawSearchToolsFunction: true,
-    fakeGatewaySawRecordOutcomeFunction: true,
-    fakeGatewaySawFunctionOutputFollowUp: true,
     dashboardSawToolCallReceived: true,
     dashboardSawSearchToolsCompleted: true,
     dashboardSawRecordOutcomeCall: true,

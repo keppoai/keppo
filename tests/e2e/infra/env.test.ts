@@ -55,6 +55,9 @@ describe("buildWorkerEnv", () => {
     expect(env.base.KEPPO_URL).toBe("http://localhost:9903");
     expect(env.base.VITE_KEPPO_URL).toBe("http://localhost:9903");
     expect(env.dashboard.VITE_KEPPO_URL).toBe("http://localhost:9903");
+    expect(env.dashboard.HOST).toBe("0.0.0.0");
+    expect(env.fakeGateway.HOST).toBe("0.0.0.0");
+    expect(env.queueBroker.HOST).toBe("0.0.0.0");
   });
 
   it("enables the fake OpenAI responses path only when requested", () => {

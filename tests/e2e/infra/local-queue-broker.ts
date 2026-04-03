@@ -487,7 +487,9 @@ const server = createServer(async (req, res) => {
 
 const randomId = (): string => Math.random().toString(16).slice(2, 10);
 
-server.listen(port, "127.0.0.1", () => {
+const host = process.env.HOST?.trim() || "127.0.0.1";
+
+server.listen(port, host, () => {
   process.stdout.write(
     `[local-queue-broker] listening on http://127.0.0.1:${port} consumer=${consumerUrl}\n`,
   );

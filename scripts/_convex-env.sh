@@ -411,6 +411,9 @@ setup_e2e_convex_env() {
   append_convex_env_value "$input_file" "NODE_ENV" "test"
   append_convex_env_value "$input_file" "KEPPO_E2E_MODE" "${KEPPO_E2E_MODE:-true}"
   append_convex_env_value "$input_file" "KEPPO_E2E_RUNTIME_SIGNAL" "local"
+  if [ "${KEPPO_E2E_OPENAI_RESPONSES_FAKE:-}" = "1" ]; then
+    append_convex_env_value "$input_file" "KEPPO_LLM_GATEWAY_URL" ""
+  fi
   append_provider_runtime_env_target "$input_file" "e2e"
   append_convex_env_value "$input_file" "KEPPO_FAKE_GMAIL_ACCESS_TOKEN" "${KEPPO_FAKE_GMAIL_ACCESS_TOKEN}"
   append_convex_env_value "$input_file" "KEPPO_FAKE_STRIPE_ACCESS_TOKEN" "${KEPPO_FAKE_STRIPE_ACCESS_TOKEN}"
