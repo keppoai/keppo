@@ -683,6 +683,8 @@ describe("start-owned billing api", () => {
       stripeSubscriptionId: "sub_test",
       status: "canceled",
       tier: "free",
+      currentPeriodStart: "",
+      currentPeriodEnd: "",
     });
     expect(deps.convex.deactivateBundledOrgAiKeys).toHaveBeenCalledWith({
       orgId: "org_test",

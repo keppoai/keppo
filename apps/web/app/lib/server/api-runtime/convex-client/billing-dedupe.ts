@@ -229,7 +229,13 @@ export async function setSubscriptionStatusByStripeSubscription(
     stripeSubscriptionId: params.stripeSubscriptionId,
     status: params.status,
     ...(params.tier ? { tier: params.tier } : {}),
-    ...(params.currentPeriodStart ? { currentPeriodStart: params.currentPeriodStart } : {}),
-    ...(params.currentPeriodEnd ? { currentPeriodEnd: params.currentPeriodEnd } : {}),
+    ...(Object.prototype.hasOwnProperty.call(params, "currentPeriodStart") &&
+    params.currentPeriodStart !== undefined
+      ? { currentPeriodStart: params.currentPeriodStart }
+      : {}),
+    ...(Object.prototype.hasOwnProperty.call(params, "currentPeriodEnd") &&
+    params.currentPeriodEnd !== undefined
+      ? { currentPeriodEnd: params.currentPeriodEnd }
+      : {}),
   });
 }
