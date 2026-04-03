@@ -17,6 +17,7 @@ import { Route as BillingUsageRouteImport } from "./routes/billing/usage";
 import { Route as BillingPortalRouteImport } from "./routes/billing/portal";
 import { Route as BillingExtraUsageRouteImport } from "./routes/billing/extra-usage";
 import { Route as BillingCheckoutRouteImport } from "./routes/billing/checkout";
+import { Route as ApiVersionRouteImport } from "./routes/api/version";
 import { Route as ApiSearchRouteImport } from "./routes/api/search";
 import { Route as ApiHealthRouteImport } from "./routes/api/health";
 import { Route as InternalQueueDispatchApprovedActionRouteImport } from "./routes/internal/queue/dispatch-approved-action";
@@ -86,6 +87,11 @@ const BillingExtraUsageRoute = BillingExtraUsageRouteImport.update({
 const BillingCheckoutRoute = BillingCheckoutRouteImport.update({
   id: "/billing/checkout",
   path: "/billing/checkout",
+  getParentRoute: () => rootRouteImport,
+} as any);
+const ApiVersionRoute = ApiVersionRouteImport.update({
+  id: "/api/version",
+  path: "/api/version",
   getParentRoute: () => rootRouteImport,
 } as any);
 const ApiSearchRoute = ApiSearchRouteImport.update({
@@ -255,6 +261,7 @@ export interface FileRoutesByFullPath {
   "/health": typeof HealthRoute;
   "/api/health": typeof ApiHealthRouteWithChildren;
   "/api/search": typeof ApiSearchRoute;
+  "/api/version": typeof ApiVersionRoute;
   "/billing/checkout": typeof BillingCheckoutRoute;
   "/billing/extra-usage": typeof BillingExtraUsageRoute;
   "/billing/portal": typeof BillingPortalRoute;
@@ -295,6 +302,7 @@ export interface FileRoutesByTo {
   "/health": typeof HealthRoute;
   "/api/health": typeof ApiHealthRouteWithChildren;
   "/api/search": typeof ApiSearchRoute;
+  "/api/version": typeof ApiVersionRoute;
   "/billing/checkout": typeof BillingCheckoutRoute;
   "/billing/extra-usage": typeof BillingExtraUsageRoute;
   "/billing/portal": typeof BillingPortalRoute;
@@ -336,6 +344,7 @@ export interface FileRoutesById {
   "/health": typeof HealthRoute;
   "/api/health": typeof ApiHealthRouteWithChildren;
   "/api/search": typeof ApiSearchRoute;
+  "/api/version": typeof ApiVersionRoute;
   "/billing/checkout": typeof BillingCheckoutRoute;
   "/billing/extra-usage": typeof BillingExtraUsageRoute;
   "/billing/portal": typeof BillingPortalRoute;
@@ -378,6 +387,7 @@ export interface FileRouteTypes {
     | "/health"
     | "/api/health"
     | "/api/search"
+    | "/api/version"
     | "/billing/checkout"
     | "/billing/extra-usage"
     | "/billing/portal"
@@ -418,6 +428,7 @@ export interface FileRouteTypes {
     | "/health"
     | "/api/health"
     | "/api/search"
+    | "/api/version"
     | "/billing/checkout"
     | "/billing/extra-usage"
     | "/billing/portal"
@@ -458,6 +469,7 @@ export interface FileRouteTypes {
     | "/health"
     | "/api/health"
     | "/api/search"
+    | "/api/version"
     | "/billing/checkout"
     | "/billing/extra-usage"
     | "/billing/portal"
@@ -499,6 +511,7 @@ export interface RootRouteChildren {
   HealthRoute: typeof HealthRoute;
   ApiHealthRoute: typeof ApiHealthRouteWithChildren;
   ApiSearchRoute: typeof ApiSearchRoute;
+  ApiVersionRoute: typeof ApiVersionRoute;
   BillingCheckoutRoute: typeof BillingCheckoutRoute;
   BillingExtraUsageRoute: typeof BillingExtraUsageRoute;
   BillingPortalRoute: typeof BillingPortalRoute;
@@ -586,6 +599,13 @@ declare module "@tanstack/react-router" {
       path: "/billing/checkout";
       fullPath: "/billing/checkout";
       preLoaderRoute: typeof BillingCheckoutRouteImport;
+      parentRoute: typeof rootRouteImport;
+    };
+    "/api/version": {
+      id: "/api/version";
+      path: "/api/version";
+      fullPath: "/api/version";
+      preLoaderRoute: typeof ApiVersionRouteImport;
       parentRoute: typeof rootRouteImport;
     };
     "/api/search": {
@@ -837,6 +857,7 @@ const rootRouteChildren: RootRouteChildren = {
   HealthRoute: HealthRoute,
   ApiHealthRoute: ApiHealthRouteWithChildren,
   ApiSearchRoute: ApiSearchRoute,
+  ApiVersionRoute: ApiVersionRoute,
   BillingCheckoutRoute: BillingCheckoutRoute,
   BillingExtraUsageRoute: BillingExtraUsageRoute,
   BillingPortalRoute: BillingPortalRoute,

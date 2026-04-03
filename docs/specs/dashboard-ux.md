@@ -29,6 +29,7 @@
 - Global and route-level error surfaces must show operator-safe copy first and only expose short safe technical detail such as a stable error code, never raw backend exception strings or stack traces.
 - Authenticated dashboard forms, panels, and page-level failures use one shared error presentation contract: title, human-readable summary, next-step guidance, and a default-collapsed technical-details disclosure with copy affordance.
 - Dashboard boot initializes PostHog (`apps/web/src/posthog.ts`) when `VITE_POSTHOG_API_KEY` is present; both global error boundaries capture runtime exceptions with component-stack context.
+- When the running client bundle is behind the current server deployment, the authenticated shell polls `GET /api/version` and shows a persistent reload toast so operators can switch to the latest Keppo version without relying on platform skew protection.
 - Dashboard hosted `preview`, `staging`, and `production` builds emit browser source maps. When `POSTHOG_PERSONAL_API_KEY` + `POSTHOG_PROJECT_ID` are set, those builds also upload source maps to PostHog via `@posthog/rollup-plugin`, using release metadata from `KEPPO_RELEASE_NAME`/`KEPPO_RELEASE_VERSION` (with commit SHA fallbacks).
 - A catch-all not-found route renders a dedicated `404` page (`Page not found`) instead of silent blank/error states.
 - Primary high-traffic pages (dashboard overview, integrations, automations, approvals, audit) render skeleton loading states while Convex queries are unresolved.

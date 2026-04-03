@@ -12,6 +12,7 @@ import { BreadcrumbHeader } from "@/components/layout/breadcrumb-header";
 import { ShellTransitionState } from "@/components/layout/shell-transition-state";
 import { AuthContext, useAuth, useAuthState } from "@/hooks/use-auth";
 import { useApprovalAlerts } from "@/hooks/use-approval-alerts";
+import { useDeploymentRefreshToast } from "@/hooks/use-deployment-refresh-toast";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { WorkspaceContext, useWorkspace, useWorkspaceState } from "@/hooks/use-workspace-context";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
@@ -192,6 +193,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
   const isLoginPage = pathname === "/login";
   const isFullWidthRoute = relativePath === "/approvals" || relativePath === "/settings/audit";
   const notificationsEnabled = !allowPublicRoute && !isStandaloneRoute;
+  useDeploymentRefreshToast({ enabled: isAuthenticated && !allowPublicRoute });
 
   return (
     <WorkspaceProvider>

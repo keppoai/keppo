@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_ENABLE_EMAIL_PASSWORD?: string;
+  readonly VITE_KEPPO_CLIENT_BUILD_ID?: string;
   readonly VITE_POSTHOG_API_KEY?: string;
   readonly VITE_POSTHOG_HOST?: string;
 }

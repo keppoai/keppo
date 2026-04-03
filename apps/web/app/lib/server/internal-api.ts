@@ -85,6 +85,18 @@ const jsonResponse = (request: Request, payload: unknown, status = 200): Respons
   return Response.json(payload, withSecurityHeaders(request, { status }));
 };
 
+const jsonNoStoreResponse = (request: Request, payload: unknown, status = 200): Response => {
+  return Response.json(
+    payload,
+    withSecurityHeaders(request, {
+      status,
+      headers: {
+        "Cache-Control": "no-store",
+      },
+    }),
+  );
+};
+
 const dashboardErrorBody = (
   code: string,
   message: string,
@@ -147,6 +159,16 @@ const parseRequestBody = async <T>(
 
 const hashToken = (token: string): string =>
   createHash("sha256").update(token, "utf8").digest("hex");
+
+const resolveCurrentBuildId = (): string | null => {
+  const buildId =
+    process.env["VERCEL_DEPLOYMENT_ID"] ??
+    process.env["KEPPO_RELEASE_VERSION"] ??
+    process.env["VERCEL_GIT_COMMIT_SHA"] ??
+    "";
+  const trimmed = buildId.trim().slice(0, 256);
+  return trimmed.length > 0 ? trimmed : null;
+};
 
 export const handleInviteCreateRequest = async (
   request: Request,
@@ -422,6 +444,31 @@ export const handleWorkspaceMcpTestRequest = async (
   });
 };
 
+export const handleBuildVersionRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  if (!(await resolveSessionFromRequest(request, deps))) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        ...dashboardErrorBody("auth.unauthorized", "Authentication required.", {
+          status: 401,
+          technicalDetails: "auth.unauthorized",
+          publicSafe: true,
+        }),
+      },
+      401,
+    );
+  }
+
+  return jsonNoStoreResponse(request, {
+    ok: true,
+    buildId: resolveCurrentBuildId(),
+  });
+};
+
 export const dispatchStartOwnedInternalApiRequest = async (
   request: Request,
   deps = getDefaultDeps(),
@@ -439,6 +486,9 @@ export const dispatchStartOwnedInternalApiRequest = async (
   }
   if (request.method === "GET" && url.pathname === "/api/mcp/test") {
     return await handleWorkspaceMcpTestRequest(request, deps);
+  }
+  if (request.method === "GET" && url.pathname === "/api/version") {
+    return await handleBuildVersionRequest(request, deps);
   }
 
   return null;
