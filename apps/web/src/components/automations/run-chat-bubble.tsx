@@ -9,7 +9,7 @@ import {
   TerminalIcon,
   WrenchIcon,
 } from "lucide-react";
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -29,8 +29,9 @@ const formatTimestamp = (ts: string): string => {
 };
 
 const EXECUTE_CODE_SUMMARY_FALLBACK = "Executed code";
+const EXECUTE_CODE_MAX_HIGHLIGHT_LENGTH = 65_536;
 const EXECUTE_CODE_TOKEN_PATTERN =
-  /\/\*[\s\S]*?\*\/|\/\/[^\n\r]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[\s\S])*?`|\b(?:async|await|break|case|catch|class|const|continue|default|else|export|extends|false|finally|for|from|function|if|import|let|new|null|return|switch|this|throw|true|try|undefined|var|while)\b|\b\d+(?:\.\d+)?\b/gs;
+  /\/\*[\s\S]*?\*\/|\/\/[^\n\r]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:[^`\\]|\\.)*`|\b(?:async|await|break|case|catch|class|const|continue|default|else|export|extends|false|finally|for|from|function|if|import|let|new|null|return|switch|this|throw|true|try|undefined|var|while)\b|\b\d+(?:\.\d+)?\b/gu;
 
 type CodeTokenKind = "plain" | "comment" | "string" | "keyword" | "number";
 
@@ -53,6 +54,10 @@ const classifyCodeToken = (value: string): CodeTokenKind => {
 };
 
 const tokenizeJavaScriptCode = (code: string): CodeToken[] => {
+  if (code.length > EXECUTE_CODE_MAX_HIGHLIGHT_LENGTH) {
+    return [{ kind: "plain", text: code }];
+  }
+
   const tokens: CodeToken[] = [];
   let cursor = 0;
 
@@ -188,10 +193,10 @@ const SectionLabel = ({ children }: { children: string }) => (
 );
 
 const HighlightedCodeBlock = ({ code }: { code: string }) => {
-  const tokens = tokenizeJavaScriptCode(code);
+  const tokens = useMemo(() => tokenizeJavaScriptCode(code), [code]);
 
   return (
-    <pre className="run-code-block mt-3 overflow-auto rounded-xl px-3 py-3 text-xs">
+    <pre className="run-code-block mt-3 max-h-80 overflow-auto rounded-xl px-3 py-3 text-xs">
       <code>
         {tokens.map((token, index) => (
           <span
@@ -526,6 +531,8 @@ const ExecuteCodeBubble = ({
   const isError = event.status === "error";
   const codeLineCount = payload.code ? countCodeLines(payload.code) : 0;
   const [isCodeOpen, setIsCodeOpen] = useState(false);
+  const [hasOpenedCode, setHasOpenedCode] = useState(false);
+  const codeToggleLabel = `${isCodeOpen ? "Hide" : "Show"} code for: ${payload.summary}`;
 
   return (
     <BubbleFrame
@@ -558,7 +565,12 @@ const ExecuteCodeBubble = ({
 
         <Collapsible
           open={isCodeOpen}
-          onOpenChange={setIsCodeOpen}
+          onOpenChange={(open) => {
+            setIsCodeOpen(open);
+            if (open) {
+              setHasOpenedCode(true);
+            }
+          }}
           className="rounded-xl border border-black/8 bg-muted/18 px-3 py-2.5 dark:border-white/8"
         >
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -572,14 +584,17 @@ const ExecuteCodeBubble = ({
             </div>
 
             {payload.code ? (
-              <CollapsibleTrigger className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs font-medium">
+              <CollapsibleTrigger
+                aria-label={codeToggleLabel}
+                className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs font-medium"
+              >
                 <ChevronRightIcon className="run-collapsible-chevron size-3" />
                 {isCodeOpen ? "Hide code" : "Show code"}
               </CollapsibleTrigger>
             ) : null}
           </div>
 
-          {payload.code ? (
+          {payload.code && hasOpenedCode ? (
             <CollapsibleContent className="data-[state=closed]:hidden data-[state=open]:block">
               <HighlightedCodeBlock code={payload.code} />
             </CollapsibleContent>

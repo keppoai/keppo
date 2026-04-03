@@ -42,8 +42,12 @@ describe("RunChatBubble", () => {
         'const threads = await gmail.searchThreads({ query: "label:important" });',
       ),
     ).not.toBeInTheDocument();
+    const toggle = screen.getByRole("button", {
+      name: "Show code for: Load recent Gmail threads and print a compact summary.",
+    });
+    expect(toggle).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "Show code" }));
+    await user.click(toggle);
 
     const codeBlock = screen.getByText(
       (_content, node) =>
@@ -54,6 +58,12 @@ describe("RunChatBubble", () => {
     );
     expect(codeBlock).toBeVisible();
     expect(codeBlock).toHaveTextContent("console.log(threads.length);");
+    expect(codeBlock.closest("pre")).toHaveClass("max-h-80");
+    expect(
+      screen.getByRole("button", {
+        name: "Hide code for: Load recent Gmail threads and print a compact summary.",
+      }),
+    ).toBeInTheDocument();
   });
 
   it("falls back to a generic summary when historical runs lack a description", () => {

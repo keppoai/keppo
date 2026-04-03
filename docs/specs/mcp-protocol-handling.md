@@ -27,7 +27,7 @@
 - Built-in tools execute through `executeToolCall`.
 - Custom MCP tools execute through `executeCustomToolCall`.
 - Approval-required writes return structured pending results that reference the created action.
-- `execute_code` requires both raw JavaScript `code` and a short operator-facing `description`; it runs sandboxed JavaScript, generates a typed SDK from the tool registry, and reuses the same gating rules for any provider calls made inside the sandbox.
+- `execute_code` requires both raw JavaScript `code` and a short operator-facing `description` capped at 280 characters; it runs sandboxed JavaScript, generates a typed SDK from the tool registry, and reuses the same gating rules for any provider calls made inside the sandbox.
 
 ## Boundary rules
 

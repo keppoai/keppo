@@ -798,4 +798,56 @@ describe("createMcpRouteDispatcher", () => {
       }),
     );
   });
+
+  it("rejects execute_code descriptions that exceed the operator summary limit", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "execute_code", {
+        description: "x".repeat(281),
+        code: "console.log('hi')",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: {
+        structuredContent?: { status?: string; reason?: string; error_code?: string };
+        content?: Array<{ text?: string }>;
+        isError?: boolean;
+      };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).not.toBe(true);
+    expect(payload.result?.structuredContent).toMatchObject({
+      status: "execution_failed",
+      reason: "execute_code description must be 280 characters or fewer.",
+      error_code: "validation_failed",
+    });
+    expect(payload.result?.content?.[0]?.text).toBe(
+      "execution_failed: execute_code description must be 280 characters or fewer.",
+    );
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "mcp.execute_code.failed",
+      expect.objectContaining({
+        workspace_id: "ws_test",
+        run_id: "run_test",
+        org_id: "org_test",
+        tool_name: "execute_code",
+        error_code: "validation_failed",
+        client_message:
+          "execution_failed: execute_code description must be 280 characters or fewer.",
+        message_redacted: false,
+      }),
+    );
+  });
 });

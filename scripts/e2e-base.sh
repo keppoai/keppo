@@ -109,7 +109,7 @@ run_convex_e2e_once() {
   local nested_failure_pattern
   local success_pattern
   local reported_failure_pattern
-  retryable_pattern="OptimisticConcurrencyControlFailure|Command was killed with SIGKILL|A local backend is still running on port 3210|Local backend isn't running|Local backend did not start on port 3210 within 30 seconds|Hit an error while running local deployment"
+  retryable_pattern="OptimisticConcurrencyControlFailure|Command was killed with SIGKILL|A local backend is still running on port 3210|Local backend isn't running|Local backend did not start on port 3210 within 30 seconds|Hit an error while running local deployment|File not found at https://github.com/get-convex/convex-backend/releases/download/.+/(dashboard|convex-local-backend-[^/]+)\\.zip\\."
   nested_failure_pattern="Failed to run command \`\\./scripts/e2e-convex-run\\.sh\`|Command failed with exit code 1: .*scripts/e2e-base\\.sh|Timed out waiting for Convex e2e helpers to become callable\\."
   success_pattern="[0-9]+ passed"
   reported_failure_pattern="(^|[^0-9])[1-9][0-9]* failed([[:space:]]|$)"

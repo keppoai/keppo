@@ -7,6 +7,6 @@ export const CODE_MODE_TOOLS = [
   {
     name: "execute_code",
     description:
-      "Execute JavaScript code that calls provider tools through typed SDK functions. Always include a short 1-2 sentence description that explains what the code is doing so operators can review runs without reading the source first. Available namespaces: gmail, slack, github, stripe, notion, reddit, x, custom. Use search_tools first to discover which functions are actually usable in this workspace. Code runs in a sandboxed environment with a 30-second timeout and returns short structured failure payloads for approvals, blocks, validation errors, and sandbox/runtime failures.",
+      "Execute JavaScript code that calls provider tools through typed SDK functions. Always include a short 1-2 sentence description, capped at 280 characters, so operators can review runs without reading the source first. Available namespaces: gmail, slack, github, stripe, notion, reddit, x, custom. Use search_tools first to discover which functions are actually usable in this workspace. Code runs in a sandboxed environment with a 30-second timeout and returns short structured failure payloads for approvals, blocks, validation errors, and sandbox/runtime failures.",
   },
 ] as const;

@@ -80,38 +80,95 @@ TS
   done
 }
 
-cleanup_local_convex_processes
-setup_common_local_env_exports
-clear_local_convex_selection_env
+run_local_convex_tests_once() {
+  local log_file
+  local retryable_pattern
+  log_file="$(mktemp -t keppo-local-convex.XXXXXX.log)"
+  retryable_pattern="OptimisticConcurrencyControlFailure|Command was killed with SIGKILL|A local backend is still running on port 3210|Local backend isn't running|Local backend did not start on port 3210 within 30 seconds|Hit an error while running local deployment|File not found at https://github.com/get-convex/convex-backend/releases/download/.+/(dashboard|convex-local-backend-[^/]+)\\.zip\\."
 
-pnpm exec convex dev --local --local-force-upgrade &
-convex_pid=$!
+  set +e
+  (
+    set -euo pipefail
+    exec > >(tee -a "${log_file}") 2>&1
 
-cleanup_backend() {
-  if kill -0 "${convex_pid}" 2>/dev/null; then
-    kill "${convex_pid}" 2>/dev/null || true
-    wait "${convex_pid}" 2>/dev/null || true
+    cleanup_local_convex_processes
+    setup_common_local_env_exports
+    clear_local_convex_selection_env
+
+    pnpm exec convex dev --local --local-force-upgrade &
+    local convex_pid=$!
+
+    cleanup_backend() {
+      if kill -0 "${convex_pid}" 2>/dev/null; then
+        kill "${convex_pid}" 2>/dev/null || true
+        wait "${convex_pid}" 2>/dev/null || true
+      fi
+      cleanup_local_convex_processes
+      return 0
+    }
+
+    trap 'cleanup_backend || true' EXIT
+
+    while [ ! -f "$LOCAL_CONVEX_CONFIG_FILE" ]; do
+      if ! kill -0 "${convex_pid}" 2>/dev/null; then
+        wait "${convex_pid}"
+        exit $?
+      fi
+      sleep 1
+    done
+
+    sync_local_convex_runtime_env
+    setup_common_convex_env
+    setup_e2e_convex_env
+
+    local convex_url
+    convex_url="${CONVEX_URL:-}"
+    wait_for_e2e_convex_helpers "${convex_pid}" "${convex_url}"
+
+    pnpm exec node scripts/e2e-prepare.mjs --build
+    pnpm exec tsx scripts/run-local-convex-tests.ts "$@"
+  )
+  local command_status=$?
+
+  cat "${log_file}"
+
+  if [ "${command_status}" -eq 0 ]; then
+    rm -f "${log_file}"
+    return 0
   fi
-  cleanup_local_convex_processes
-  return 0
+
+  if [ "${command_status}" -eq 137 ] || [ "${command_status}" -eq 143 ]; then
+    rm -f "${log_file}"
+    return 75
+  fi
+
+  if grep -Eq "${retryable_pattern}" "${log_file}"; then
+    rm -f "${log_file}"
+    return 75
+  fi
+
+  rm -f "${log_file}"
+  return "${command_status}"
 }
 
-trap 'cleanup_backend || true' EXIT
+attempt="${attempt:-1}"
+max_attempts="${max_attempts:-5}"
 
-while [ ! -f "$LOCAL_CONVEX_CONFIG_FILE" ]; do
-  if ! kill -0 "${convex_pid}" 2>/dev/null; then
-    wait "${convex_pid}"
-    exit $?
+while true; do
+  set +e
+  run_local_convex_tests_once "$@"
+  status=$?
+  set -e
+
+  if [ "${status}" -eq 0 ]; then
+    break
   fi
-  sleep 1
+
+  if [ "${status}" -ne 75 ] || [ "${attempt}" -ge "${max_attempts}" ]; then
+    exit "${status}"
+  fi
+
+  echo "Transient local Convex test bootstrap failure; retrying (${attempt}/${max_attempts})..."
+  attempt=$((attempt + 1))
+  sleep 2
 done
-
-sync_local_convex_runtime_env
-setup_common_convex_env
-setup_e2e_convex_env
-
-convex_url="${CONVEX_URL:-}"
-wait_for_e2e_convex_helpers "${convex_pid}" "${convex_url}"
-
-pnpm exec node scripts/e2e-prepare.mjs --build
-pnpm exec tsx scripts/run-local-convex-tests.ts "$@"

@@ -27,7 +27,7 @@
 
 - Code Mode uses `search_tools` and `execute_code` plus the `code_mode_tool_index` table.
 - `search_tools` queries the indexed tool catalog and filters results to providers enabled for the workspace.
-- `execute_code` requires an operator-facing 1-2 sentence `description`, generates a typed SDK, statically extracts referenced tools, then runs sandboxed JavaScript with gated provider calls.
+- `execute_code` requires an operator-facing 1-2 sentence `description` capped at 280 characters, generates a typed SDK, statically extracts referenced tools, then runs sandboxed JavaScript with gated provider calls.
 - Sandbox provider selection for Code Mode is independent from automation sandbox selection and is controlled by `KEPPO_CODE_MODE_SANDBOX_PROVIDER` (`docker`, `vercel`, or `unikraft`).
 
 ## Guardrails

@@ -148,6 +148,12 @@ type CodeModeRuntimeModule = typeof import("@keppo/shared/code-mode-runtime");
 let toolsCoreModulePromise: Promise<ToolsCoreModule> | null = null;
 let codeModeRuntimeModulePromise: Promise<CodeModeRuntimeModule> | null = null;
 
+const EXECUTE_CODE_DESCRIPTION_MAX_LENGTH = 280;
+const EXECUTE_CODE_DESCRIPTION_REQUIRED_REASON =
+  "execute_code requires a non-empty description string.";
+const EXECUTE_CODE_DESCRIPTION_TOO_LONG_REASON = `execute_code description must be ${EXECUTE_CODE_DESCRIPTION_MAX_LENGTH} characters or fewer.`;
+const EXECUTE_CODE_CODE_REQUIRED_REASON = "execute_code requires a non-empty code string.";
+
 const loadToolsCoreModule = async (): Promise<ToolsCoreModule> => {
   toolsCoreModulePromise ??= import("@keppo/shared/tools-core");
   return await toolsCoreModulePromise;
@@ -524,7 +530,15 @@ const parseExecuteCodeArgs = (
       type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
       toolName: "execute_code",
       errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
-      reason: "execute_code requires a non-empty description string.",
+      reason: EXECUTE_CODE_DESCRIPTION_REQUIRED_REASON,
+    });
+  }
+  if (description.length > EXECUTE_CODE_DESCRIPTION_MAX_LENGTH) {
+    throw createCodeModeStructuredExecutionError({
+      type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
+      toolName: "execute_code",
+      errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
+      reason: EXECUTE_CODE_DESCRIPTION_TOO_LONG_REASON,
     });
   }
   const code = typeof args.code === "string" ? args.code : "";
@@ -533,7 +547,7 @@ const parseExecuteCodeArgs = (
       type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
       toolName: "execute_code",
       errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
-      reason: "execute_code requires a non-empty code string.",
+      reason: EXECUTE_CODE_CODE_REQUIRED_REASON,
     });
   }
   return { code, description };
@@ -589,8 +603,9 @@ const parseExecuteCodeWorkerFailurePayload = (
     };
   }
   if (
-    !message.includes("requires a non-empty code string") &&
-    !message.includes("requires a non-empty description string")
+    message !== EXECUTE_CODE_CODE_REQUIRED_REASON &&
+    message !== EXECUTE_CODE_DESCRIPTION_REQUIRED_REASON &&
+    message !== EXECUTE_CODE_DESCRIPTION_TOO_LONG_REASON
   ) {
     return null;
   }
@@ -677,8 +692,8 @@ const MCP_TOOL_INPUT_SCHEMAS: Record<string, McpToolInputSchema> = {
     properties: {
       description: {
         type: "string",
-        description:
-          "Required 1-2 sentence operator-facing summary of what the code is about to do.",
+        description: `Required 1-2 sentence operator-facing summary of what the code is about to do (max ${EXECUTE_CODE_DESCRIPTION_MAX_LENGTH} characters).`,
+        maxLength: EXECUTE_CODE_DESCRIPTION_MAX_LENGTH,
       },
       code: { type: "string" },
     },
