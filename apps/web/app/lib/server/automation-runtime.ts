@@ -5,6 +5,8 @@ import {
   AUTOMATION_ROUTE_ERROR_CODES,
   AUTOMATION_ROUTE_STATUS,
   AUTOMATION_RUN_LOG_LEVEL,
+  type AutomationRunEventType,
+  type AutomationRunLogLevel,
   AUTOMATION_MODEL_CLASS,
   AUTOMATION_RUN_STATUS,
   AUTOMATION_RUNNER_TYPE,
@@ -102,6 +104,10 @@ type StartOwnedAutomationRuntimeDeps = {
 let convexClient: ConvexInternalClient | null = null;
 const AUTOMATION_COMPLETE_UPDATE_RETRIES = 2;
 const AUTOMATION_COMPLETE_RETRY_BASE_DELAY_MS = 250;
+const AUTOMATION_LOG_APPEND_RETRIES = 2;
+const AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS = 250;
+const AUTOMATION_LOG_BATCH_SIZE = 50;
+const AUTOMATION_LOG_MAX_LINES = 200;
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
@@ -263,6 +269,36 @@ const updateAutomationRunCompletionWithRetry = async (
         break;
       }
       await sleep(AUTOMATION_COMPLETE_RETRY_BASE_DELAY_MS * 2 ** attempt);
+    }
+  }
+
+  return lastError;
+};
+
+const appendAutomationRunLogBatchWithRetry = async (
+  deps: StartOwnedAutomationRuntimeDeps,
+  params: {
+    automationRunId: string;
+    lines: Array<{
+      level: AutomationRunLogLevel;
+      content: string;
+      eventType?: AutomationRunEventType;
+      eventData?: Record<string, unknown>;
+    }>;
+  },
+): Promise<unknown | null> => {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= AUTOMATION_LOG_APPEND_RETRIES; attempt += 1) {
+    try {
+      await deps.convex.appendAutomationRunLogBatch(params);
+      return null;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= AUTOMATION_LOG_APPEND_RETRIES) {
+        break;
+      }
+      await sleep(AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS * 2 ** attempt);
     }
   }
 
@@ -791,11 +827,10 @@ export const handleInternalAutomationLogRequest = async (
     );
   }
 
-  const limited = payload.lines.slice(0, 200);
-  const BATCH_SIZE = 50;
-  for (let i = 0; i < limited.length; i += BATCH_SIZE) {
-    const chunk = limited.slice(i, i + BATCH_SIZE);
-    await deps.convex.appendAutomationRunLogBatch({
+  const limited = payload.lines.slice(0, AUTOMATION_LOG_MAX_LINES);
+  for (let i = 0; i < limited.length; i += AUTOMATION_LOG_BATCH_SIZE) {
+    const chunk = limited.slice(i, i + AUTOMATION_LOG_BATCH_SIZE);
+    const appendError = await appendAutomationRunLogBatchWithRetry(deps, {
       automationRunId: payload.automation_run_id,
       lines: chunk.map((line) => ({
         level: line.level,
@@ -804,6 +839,28 @@ export const handleInternalAutomationLogRequest = async (
         ...(line.event_data !== undefined ? { eventData: line.event_data } : {}),
       })),
     });
+    if (appendError) {
+      const typedError = toAutomationRouteError(appendError, "automation_route_failed");
+      const { code, message } = extractAutomationRouteError(typedError);
+      deps.logger.error("automation.log.failed", {
+        automation_run_id: payload.automation_run_id,
+        batch_index: i / AUTOMATION_LOG_BATCH_SIZE,
+        batch_size: chunk.length,
+        ingested_before_failure: i,
+        error: message,
+        ...(code ? { error_code: code } : {}),
+      });
+      return jsonResponse(
+        request,
+        {
+          ok: false,
+          status: AUTOMATION_ROUTE_STATUS.logFailed,
+          error: message,
+          ...(code ? { error_code: code } : {}),
+        },
+        500,
+      );
+    }
   }
 
   return jsonResponse(request, {

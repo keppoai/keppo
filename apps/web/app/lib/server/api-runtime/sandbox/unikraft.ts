@@ -29,6 +29,8 @@ type UnikraftClientLike = Pick<
 const DEFAULT_LOG_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_LOG_LIMIT_BYTES = 16_384;
 const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
+const LOG_POST_RETRIES = 2;
+const LOG_POST_RETRY_BASE_DELAY_MS = 250;
 const INSTANCE_STATE_POLL_INTERVAL = 5;
 const MONITOR_FAILURE_MESSAGE =
   "The remote sandbox stopped unexpectedly before the automation completed.";
@@ -68,13 +70,21 @@ const postJson = async (
   url: string,
   payload: AutomationLogRequest | AutomationCompletionRequest,
 ): Promise<void> => {
-  await fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
   });
+  if (!response.ok) {
+    const body = (await response.text()).trim();
+    throw new Error(
+      body.length > 0
+        ? `Callback request failed with status ${String(response.status)}: ${body}`
+        : `Callback request failed with status ${String(response.status)}.`,
+    );
+  }
 };
 
 const postLogLines = async (
@@ -86,13 +96,19 @@ const postLogLines = async (
   if (!runId || lines.length === 0) {
     return;
   }
-  try {
-    await postJson(callbackUrl, {
-      automation_run_id: runId,
-      lines: lines.map((content) => ({ level, content })),
-    });
-  } catch {
-    // Best-effort log forwarding.
+  for (let attempt = 0; attempt <= LOG_POST_RETRIES; attempt += 1) {
+    try {
+      await postJson(callbackUrl, {
+        automation_run_id: runId,
+        lines: lines.map((content) => ({ level, content })),
+      });
+      return;
+    } catch {
+      if (attempt >= LOG_POST_RETRIES) {
+        break;
+      }
+      await sleep(LOG_POST_RETRY_BASE_DELAY_MS * 2 ** attempt);
+    }
   }
 };
 
