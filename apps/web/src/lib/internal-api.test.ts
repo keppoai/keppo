@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import {
   dispatchStartOwnedInternalApiRequest,
+  handleBuildVersionRequest,
   handleInviteAcceptRequest,
   handleInviteCreateRequest,
   handlePushSubscribeRequest,
@@ -108,6 +109,10 @@ const withJson = (path: string, body: unknown, headers?: HeadersInit): Request =
   });
 
 describe("start-owned internal api handlers", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("requires authentication for invite creation", async () => {
     const deps = createDeps();
 
@@ -225,6 +230,47 @@ describe("start-owned internal api handlers", () => {
     });
   });
 
+  it("requires authentication for build-version checks", async () => {
+    const deps = createDeps();
+
+    const response = await handleBuildVersionRequest(
+      new Request("http://127.0.0.1/api/version"),
+      deps,
+    );
+
+    expect(response.status).toBe(401);
+    expect(await response.json()).toEqual({
+      ok: false,
+      error_code: "auth.unauthorized",
+      error: "Authentication required.",
+      status: 401,
+      technical_details: "auth.unauthorized",
+      technical_details_safe_for_public: true,
+    });
+  });
+
+  it("returns the current build id for authenticated sessions", async () => {
+    vi.stubEnv("VERCEL_DEPLOYMENT_ID", "dpl_test_current");
+    const deps = createDeps();
+
+    const response = await handleBuildVersionRequest(
+      new Request("https://app.example.com/api/version", {
+        headers: {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("strict-transport-security")).toContain("max-age=31536000");
+    expect(await response.json()).toEqual({
+      ok: true,
+      buildId: "dpl_test_current",
+    });
+  });
+
   it("dispatches known start-owned internal requests in-process", async () => {
     const deps = createDeps();
 
@@ -245,8 +291,17 @@ describe("start-owned internal api handlers", () => {
       new Request("http://127.0.0.1/api/oauth/integrations/google/connect", { method: "POST" }),
       deps,
     );
+    const buildVersion = await dispatchStartOwnedInternalApiRequest(
+      new Request("http://127.0.0.1/api/version", {
+        headers: {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      }),
+      deps,
+    );
 
     expect(handled?.status).toBe(200);
+    expect(buildVersion?.status).toBe(200);
     expect(unhandled).toBeNull();
   });
 });

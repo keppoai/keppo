@@ -1,10 +1,14 @@
-import { screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { screen, waitFor } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { createFakeDashboardRuntime } from "@/test/fake-dashboard-runtime";
 import { createAuthState, createWorkspaceState, renderDashboard } from "@/test/render-dashboard";
 import { AppLayout } from "./app-layout";
 
 describe("AppLayout", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
   it("renders the login screen for unauthenticated workspace routes", async () => {
     renderDashboard(
       <AppLayout>
@@ -247,5 +251,63 @@ describe("AppLayout", () => {
     expect(await screen.findByText("Authenticated billing-safe body")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Billing" })).toBeInTheDocument();
     expect(screen.queryByRole("heading", { name: "Something went wrong" })).not.toBeInTheDocument();
+  });
+
+  it("shows a reload toast when the client build falls behind the current deployment", async () => {
+    vi.stubEnv("VITE_KEPPO_CLIENT_BUILD_ID", "dpl_client_old");
+    const fetchImpl = vi.fn(async () =>
+      Response.json({
+        ok: true,
+        buildId: "dpl_server_new",
+      }),
+    );
+    const runtime = createFakeDashboardRuntime({
+      fetchImpl: fetchImpl as typeof fetch,
+    });
+
+    renderDashboard(
+      <AppLayout>
+        <div>Authenticated dashboard body</div>
+      </AppLayout>,
+      {
+        route: "/acme/workspace-1/settings/audit",
+        auth: createAuthState({
+          isAuthenticated: true,
+          isLoading: false,
+          session: {
+            authenticated: true,
+            user: {
+              id: "user_123",
+              email: "user@example.com",
+              name: "Keppo User",
+            },
+            organizationId: "org_123",
+            orgSlug: "acme",
+            role: "owner",
+          },
+          getOrgId: () => "org_123",
+          getOrgSlug: () => "acme",
+        }),
+        workspace: createWorkspaceState({
+          selectedWorkspaceId: "workspace_123",
+          selectedWorkspaceMatchesUrl: true,
+        }),
+        runtime,
+      },
+    );
+
+    expect(await screen.findByText("Authenticated dashboard body")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchImpl).toHaveBeenCalledWith(
+        "/api/version",
+        expect.objectContaining({
+          method: "GET",
+          cache: "no-store",
+          credentials: "same-origin",
+        }),
+      );
+    });
+    expect(await screen.findByText("A newer version of Keppo is available.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Reload" })).toBeInTheDocument();
   });
 });

@@ -19,8 +19,27 @@ export function getEnableEmailPasswordDefine(): Record<string, string> {
   };
 }
 
+export function resolveClientBuildIdForViteClient(): string {
+  return (
+    process.env["VERCEL_DEPLOYMENT_ID"] ??
+    process.env["KEPPO_RELEASE_VERSION"] ??
+    process.env["VERCEL_GIT_COMMIT_SHA"] ??
+    ""
+  )
+    .trim()
+    .slice(0, 256);
+}
+
+export function getClientBuildIdDefine(): Record<string, string> {
+  const value = resolveClientBuildIdForViteClient();
+  return {
+    "import.meta.env.VITE_KEPPO_CLIENT_BUILD_ID": JSON.stringify(value),
+  };
+}
+
 export function getKeppoClientEnvDefine(): Record<string, string> {
   return {
     ...getEnableEmailPasswordDefine(),
+    ...getClientBuildIdDefine(),
   };
 }

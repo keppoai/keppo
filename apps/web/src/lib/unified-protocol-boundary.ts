@@ -2,13 +2,7 @@ import { isAuthApiPath, proxyAuthApiRequest } from "./auth-api-proxy";
 import { createProtocolNotFoundResponse, isFailClosedProtocolPath } from "./protocol-boundary";
 import { isStartOwnedApiPath } from "./api-routes";
 import { isStartOwnedRootPath } from "./root-routes";
-
-const API_SECURITY_HEADER_VALUES = {
-  "X-Content-Type-Options": "nosniff",
-  "X-Frame-Options": "DENY",
-  "Referrer-Policy": "no-referrer",
-  "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
-} as const;
+import { createPublicHealthResponse } from "../../app/lib/server/public-health-api";
 
 const isRootBillingPath = (pathname: string): boolean => {
   return pathname === "/billing" || pathname.startsWith("/billing/");
@@ -83,36 +77,10 @@ const loadMcpApiModule = async (): Promise<McpApiModule> => {
   return await mcpApiModulePromise;
 };
 
-const createApiHealthResponse = (request: Request): Response => {
-  const headers = new Headers({
-    "content-type": "application/json; charset=utf-8",
-  });
-
-  for (const [key, value] of Object.entries(API_SECURITY_HEADER_VALUES)) {
-    headers.set(key, value);
-  }
-
-  if (new URL(request.url).protocol === "https:") {
-    headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
-  }
-
-  return new Response(
-    JSON.stringify({
-      ok: true,
-      runtime: "tanstack-start",
-      app: "@keppo/web",
-    }),
-    {
-      status: 200,
-      headers,
-    },
-  );
-};
-
 const dispatchApiRequest = async (request: Request): Promise<Response> => {
   const pathname = new URL(request.url).pathname;
   if (request.method === "GET" && pathname === "/api/health") {
-    return createApiHealthResponse(request);
+    return createPublicHealthResponse(request);
   }
 
   const [adminHealthApi, billingApi, docsSearchApi, internalApi, automationApi, oauthApi] =
