@@ -119,7 +119,7 @@ describe("scripts/bug-finder-recent/publish-issues.mjs", () => {
     expect(payload.title).toContain("@\u200bops");
     expect(payload.body).toContain("@\u200bops");
     expect(payload.body).toContain(buildDedupMarker("project-refresh-mentions-ops"));
-    expect(payload.labels).toEqual(["bugfinder"]);
+    expect(payload.labels).toEqual(["bugfinder", "severity:high"]);
   });
 
   it("filters pull requests and invalid payloads out of repository issue lists", () => {
