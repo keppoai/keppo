@@ -22,6 +22,15 @@ export const recordProviderWebhook = internalMutation({
   handler: async (ctx, args) => {
     const provider = canonicalizeProvider(args.provider);
     const receivedAt = args.receivedAt ?? nowIso();
+    const externalAccountId = args.externalAccountId?.trim();
+
+    if (!externalAccountId) {
+      return {
+        matched_orgs: 0,
+        matched_integrations: 0,
+        matched_org_ids: [],
+      };
+    }
 
     const filteredIntegrations = await ctx.db
       .query("integrations")
@@ -34,19 +43,11 @@ export const recordProviderWebhook = internalMutation({
     const matchedAccounts = (
       await Promise.all(
         filteredIntegrations.map((integration) => {
-          if (args.externalAccountId) {
-            return ctx.db
-              .query("integration_accounts")
-              .withIndex("by_integration_external_account", (q) =>
-                q
-                  .eq("integration_id", integration.id)
-                  .eq("external_account_id", args.externalAccountId!),
-              )
-              .collect();
-          }
           return ctx.db
             .query("integration_accounts")
-            .withIndex("by_integration", (q) => q.eq("integration_id", integration.id))
+            .withIndex("by_integration_external_account", (q) =>
+              q.eq("integration_id", integration.id).eq("external_account_id", externalAccountId),
+            )
             .collect();
         }),
       )

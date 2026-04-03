@@ -1,7 +1,10 @@
+import { readFile } from "node:fs/promises";
 import type { APIRequestContext, Locator } from "@playwright/test";
 import { test, expect } from "../../fixtures/golden.fixture";
 import { createConvexAdmin } from "../../helpers/convex-admin";
+import { gotoWithNavigationRetry } from "../../helpers/billing-hooks";
 import { resolveScopedDashboardPath } from "../../helpers/dashboard-paths";
+import { serviceLogFileForWorker } from "../../infra/stack-manager";
 
 type ProviderEvent = {
   body: unknown;
@@ -125,8 +128,9 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   const settingsUrl = new URL(
     await resolveScopedDashboardPath(page, "/settings"),
     app.dashboardBaseUrl,
-  ).toString();
-  await page.goto(settingsUrl, { waitUntil: "domcontentloaded" });
+  );
+  settingsUrl.searchParams.set("tab", "ai");
+  await gotoWithNavigationRetry(page, settingsUrl.toString());
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
   let aiConfigurationMode: "hosted" | "self-managed" | null = null;
@@ -172,6 +176,16 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     status: string;
     http_status: number | null;
   };
+  if (!dispatchResult.dispatched) {
+    const failedRun = await admin.getAutomationRun(createdRun.id);
+    throw new Error(
+      `Automation dispatch failed: ${JSON.stringify({
+        dispatchResult,
+        runStatus: failedRun?.status ?? null,
+        runError: failedRun?.error_message ?? null,
+      })}`,
+    );
+  }
 
   expect(dispatchResult).toMatchObject({
     dispatched: true,
@@ -243,8 +257,53 @@ test("codex automation run completes after search_tools when fake OpenAI respons
       hasStreamDisconnectError: false,
     });
 
-  expect(
-    finalRunState?.logText,
-    "fake OpenAI repro did not hit the expected successful Codex/MCP path",
-  ).toContain("OpenAI Codex");
+  const finalLogText = finalRunState?.logText ?? "";
+
+  const readServiceLog = async (name: "dashboard"): Promise<string> => {
+    try {
+      return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  let dashboardLog = await readServiceLog("dashboard");
+  await expect
+    .poll(
+      async () => {
+        dashboardLog = await readServiceLog("dashboard");
+        return (
+          dashboardLog.includes('"msg":"automation.dispatch.runtime_configured"') &&
+          dashboardLog.includes('"msg":"automation.dispatch.succeeded"') &&
+          dashboardLog.includes("/internal/automations/complete")
+        );
+      },
+      { timeout: 30_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe(true);
+
+  const result = {
+    status: finalRunState?.status ?? null,
+    outcomeSuccess: finalRunState?.outcomeSuccess ?? null,
+    dashboardConfiguredFakeOpenAiPath:
+      dashboardLog.includes('"msg":"automation.dispatch.runtime_configured"') &&
+      dashboardLog.includes('"has_e2e_openai_base_url":true') &&
+      dashboardLog.includes('"runner_uses_custom_openai_provider":true'),
+    dashboardDispatchSucceeded: dashboardLog.includes('"msg":"automation.dispatch.succeeded"'),
+    dashboardSawCompletionCallback: dashboardLog.includes("/internal/automations/complete"),
+    hasCodexSessionBootstrapped:
+      finalLogText.includes("Added global MCP server 'keppo'.") &&
+      finalLogText.includes("OpenAI Codex"),
+    hasStreamDisconnectError: finalRunState?.hasStreamDisconnectError ?? true,
+  };
+
+  expect(result, "fake OpenAI repro did not hit the expected successful Codex/MCP path").toEqual({
+    status: "succeeded",
+    outcomeSuccess: true,
+    dashboardConfiguredFakeOpenAiPath: true,
+    dashboardDispatchSucceeded: true,
+    dashboardSawCompletionCallback: true,
+    hasCodexSessionBootstrapped: true,
+    hasStreamDisconnectError: false,
+  });
 });

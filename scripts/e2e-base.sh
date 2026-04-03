@@ -19,6 +19,8 @@ export KEPPO_CODE_MODE_TIMEOUT_MS="${KEPPO_CODE_MODE_TIMEOUT_MS:-5000}"
 export KEPPO_E2E_CONVEX_DEPLOYMENT="${KEPPO_E2E_CONVEX_DEPLOYMENT:-anonymous-keppo-e2e}"
 export VITE_API_BASE="/"
 export VITE_VAPID_PUBLIC_KEY="${VITE_VAPID_PUBLIC_KEY:-dGVzdA}"
+dashboard_port="$(( ${KEPPO_E2E_PORT_BASE:-9900} + 3 ))"
+export KEPPO_API_INTERNAL_BASE_URL="http://127.0.0.1:${dashboard_port}"
 export KEPPO_FAKE_EXTERNAL_BASE_URL="http://127.0.0.1:${KEPPO_E2E_FAKE_EXTERNAL_PORT:-9901}"
 if [ "${KEPPO_E2E_OPENAI_RESPONSES_FAKE:-}" = "1" ]; then
   export KEPPO_LLM_GATEWAY_URL=""
@@ -44,6 +46,7 @@ use_local_test_env_fallback "STRIPE_STARTER_PRICE_ID" "price_e2e_starter"
 use_local_test_env_fallback "STRIPE_PRO_PRICE_ID" "price_e2e_pro"
 use_local_test_env_fallback "GOOGLE_CLIENT_SECRET" "fake-google-client-secret"
 use_local_test_env_fallback "REDDIT_CLIENT_SECRET" "fake-reddit-client-secret"
+use_local_test_env_fallback "KEPPO_CRON_SECRET" "keppo-e2e-cron-secret"
 
 setup_e2e_site_url_default
 export VITE_KEPPO_URL="${VITE_KEPPO_URL:-${KEPPO_URL}}"

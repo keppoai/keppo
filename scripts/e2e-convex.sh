@@ -7,6 +7,8 @@ source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_convex-env.sh"
 export KEPPO_E2E_MODE="${KEPPO_E2E_MODE:-true}"
 export BETTER_AUTH_SECRET="${BETTER_AUTH_SECRET:-keppo-local-better-auth-secret-0123456789}"
 export ENABLE_EMAIL_PASSWORD="${ENABLE_EMAIL_PASSWORD:-true}"
+dashboard_port="$(( ${KEPPO_E2E_PORT_BASE:-9900} + 3 ))"
+export KEPPO_API_INTERNAL_BASE_URL="http://127.0.0.1:${dashboard_port}"
 export KEPPO_FAKE_EXTERNAL_BASE_URL="http://127.0.0.1:${KEPPO_E2E_FAKE_EXTERNAL_PORT:-9901}"
 if [ "${KEPPO_E2E_OPENAI_RESPONSES_FAKE:-}" = "1" ]; then
   export KEPPO_LLM_GATEWAY_URL=""
@@ -30,6 +32,7 @@ use_local_test_env_fallback "STRIPE_STARTER_PRICE_ID" "price_e2e_starter"
 use_local_test_env_fallback "STRIPE_PRO_PRICE_ID" "price_e2e_pro"
 use_local_test_env_fallback "GOOGLE_CLIENT_SECRET" "fake-google-client-secret"
 use_local_test_env_fallback "REDDIT_CLIENT_SECRET" "fake-reddit-client-secret"
+use_local_test_env_fallback "KEPPO_CRON_SECRET" "keppo-e2e-cron-secret"
 
 if [ ${#BETTER_AUTH_SECRET} -lt 32 ]; then
   export BETTER_AUTH_SECRET="keppo-local-better-auth-secret-0123456789"
