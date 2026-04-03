@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bug Finder Recent"
+  short_description: "Review recent commits for critical bugs that break user experience."
+  default_prompt: "Use $bug-finder:recent to review the last 7 days of recent commits for real critical and high severity bugs, verify them, and emit findings for issue filing."
