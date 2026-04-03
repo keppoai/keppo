@@ -173,8 +173,9 @@ export function RunChatViewer({ automationRunId }: RunChatViewerProps) {
           ) : null}
         </div>
         <p className="mt-2 text-xs text-muted-foreground">
-          Thinking cards show model narration. Tool, output, and error cards are execution evidence
-          captured from the run.
+          Thinking cards show model narration. Execute code cards surface the AI-written summary and
+          expandable source. Tool, output, and error cards are execution evidence captured from the
+          run.
         </p>
       </div>
 
