@@ -32,6 +32,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 - PKCE `code_verifier` values are secrets. Do not place them in readable front-channel state, query strings, or other browser-visible payloads; store them server-side or in an encrypted backend-owned channel and retrieve them for token exchange on the callback.
 - Secret comparisons for bearer tokens, callback signatures, and similar auth material must use constant-time comparison with a length guard.
 - Webhook handlers must verify provider signatures before any state mutation.
+- Webhook handlers that claim delivery-level dedupe keys must complete or release those keys on every exit path, including ignored or invalid early-return branches.
 - Dead-letter operator triage functions (`dead_letter.listPending`, `dead_letter.replay`, `dead_letter.abandon`) must remain internal Convex functions. Server-side callers may reach them only through admin-authenticated Convex clients, never by re-exposing them as public unauthenticated endpoints.
 - Return URLs and redirect targets must be normalized and restricted to safe in-app destinations.
 - `BETTER_AUTH_SECRET` must be explicit; do not derive it from `KEPPO_URL`, deployment IDs, or other predictable material.
