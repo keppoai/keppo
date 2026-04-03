@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { VercelSandboxProvider } from "../../../../../../../cloud/api/sandbox/vercel.js";
+import { buildRunnerCommand } from "../routes/automations";
 
 const baseConfig = {
   bootstrap: {
@@ -10,7 +11,15 @@ const baseConfig = {
   runtime: {
     bootstrap_command:
       "mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home'",
-    command: "codex --model gpt-5.2 --prompt 'hello'",
+    command: buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "byok",
+      credentialKind: "secret",
+      networkAccess: "mcp_only",
+      model: "gpt-5.2",
+      prompt: "hello",
+    }),
     env: {},
     network_access: "mcp_only" as const,
     callbacks: {

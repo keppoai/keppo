@@ -4,7 +4,7 @@ WORKDIR /sandbox
 
 # Pin Codex in the sandbox image so local and image-based automation runners
 # use the same CLI build as the remote bootstrap path.
-RUN npm install -g @openai/codex@0.118.0 @anthropic-ai/claude-code || true
+RUN npm install -g @openai/codex@0.118.0 || true
 
 RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh
 #!/usr/bin/env bash

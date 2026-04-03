@@ -82,7 +82,7 @@ type SandboxProvider = ReturnType<typeof createAutomationSandboxProvider>;
 
 type ResolvedAutomationModel = {
   modelClass: "auto" | "frontier" | "balanced" | "value";
-  runnerType: "chatgpt_codex" | "claude_code";
+  runnerType: "chatgpt_codex";
   aiModelProvider: "openai" | "anthropic";
   aiModelName: string;
 };
@@ -166,10 +166,7 @@ const resolveAutomationModel = (
   const aiModelProvider = inferProviderFromModelName(aiModelName);
   return {
     modelClass,
-    runnerType:
-      aiModelProvider === "anthropic"
-        ? AUTOMATION_RUNNER_TYPE.claudeCode
-        : AUTOMATION_RUNNER_TYPE.chatgptCodex,
+    runnerType: AUTOMATION_RUNNER_TYPE.chatgptCodex,
     aiModelProvider,
     aiModelName,
   };
@@ -522,10 +519,7 @@ export const handleInternalAutomationDispatchRequest = async (
     await deps.convex.createRun({
       workspaceId: context.automation.workspace_id,
       sessionId: mcpSessionId,
-      clientType:
-        resolvedModel.runnerType === AUTOMATION_RUNNER_TYPE.claudeCode
-          ? CLIENT_TYPE.claudeCode
-          : CLIENT_TYPE.chatgpt,
+      clientType: CLIENT_TYPE.chatgpt,
       metadata: {
         automation_run_id: context.run.id,
         automation_id: context.automation.id,

@@ -112,17 +112,7 @@ const extractRunId = (urlValue: string): string | null => {
   }
 };
 
-const resolveRunnerPackage = (runnerCommand: string): string => {
-  const binary = runnerCommand.trim().split(/\s+/u)[0]?.trim().toLowerCase();
-  switch (binary) {
-    case "codex":
-      return PINNED_CODEX_PACKAGE;
-    case "claude":
-      return "@anthropic-ai/claude-code";
-    default:
-      throw new Error(`Unsupported automation runner command: ${runnerCommand}`);
-  }
-};
+const resolveRunnerPackage = (): string => PINNED_CODEX_PACKAGE;
 
 const toSandboxHandle = (sandboxId: string, cmdId: string): string =>
   `${sandboxId}${SANDBOX_HANDLE_SEPARATOR}${cmdId}`;
@@ -420,7 +410,7 @@ export class VercelSandboxProvider implements SandboxProvider {
       throw new Error("Automation sandbox callbacks must include automation_run_id.");
     }
 
-    const runnerPackage = resolveRunnerPackage(config.runtime.command);
+    const runnerPackage = resolveRunnerPackage();
     const runtimeEnv = {
       ...config.runtime.env,
       ...(config.bootstrap.command.trim().length > 0

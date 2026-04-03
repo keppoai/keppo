@@ -100,8 +100,26 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     expect(command).not.toContain('sandbox_mode="workspace-write"');
   });
 
-  it("disallows Claude web tools when the automation is MCP-only", () => {
-    expect(
+  it("still builds a Codex command when legacy runner metadata says claude_code", () => {
+    const command = buildRunnerCommand({
+      runnerType: "claude_code",
+      aiModelProvider: "openai",
+      aiKeyMode: "byok",
+      credentialKind: "secret",
+      networkAccess: "mcp_only",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
+    );
+    expect(command).toContain("Review open issues");
+    expect(command).toContain('sandbox_mode="workspace-write"');
+  });
+
+  it("rejects Anthropic automation models for sandbox runs", () => {
+    expect(() =>
       buildRunnerCommand({
         runnerType: "claude_code",
         aiModelProvider: "anthropic",
@@ -111,24 +129,8 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         model: "claude-sonnet-4-6",
         prompt: "Review open issues",
       }),
-    ).toBe(
-      `claude --model 'claude-sonnet-4-6' --mcp-server "$KEPPO_MCP_SERVER_URL" --disallowed-tools 'WebFetch,WebSearch' -p 'Review open issues'`,
-    );
-  });
-
-  it("allows Claude web tools when the automation enables web access", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "claude_code",
-        aiModelProvider: "anthropic",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_and_web",
-        model: "claude-sonnet-4-6",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `claude --model 'claude-sonnet-4-6' --mcp-server "$KEPPO_MCP_SERVER_URL" -p 'Review open issues'`,
+    ).toThrow(
+      "automation_route_failed: Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
     );
   });
 
@@ -153,7 +155,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   it("keeps the bootstrap command secret-free and separate from the runner command", () => {
     expect(
       buildRunnerBootstrapCommand({
-        runnerType: "chatgpt_codex",
+        runnerType: "claude_code",
         providerMode: "docker",
       }),
     ).toBe(
@@ -236,6 +238,18 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         aiKeyMode: "subscription_token",
       }),
     ).not.toThrow();
+  });
+
+  it("rejects Anthropic automation auth because sandboxes always use Codex", () => {
+    expect(() =>
+      assertRunnerAuthSupported({
+        runnerType: "chatgpt_codex",
+        aiModelProvider: "anthropic",
+        aiKeyMode: "byok",
+      }),
+    ).toThrow(
+      "automation_route_failed: Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+    );
   });
 
   it("builds the OpenAI OAuth auth bootstrap command shape", () => {

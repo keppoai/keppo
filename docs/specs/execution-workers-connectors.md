@@ -20,7 +20,7 @@
 - Automation configs and runs live in Convex.
 - Provider-trigger configs persist a provider id, provider trigger key, schema version, structured filter payload, preferred/fallback delivery modes, and provider-managed subscription state instead of only flat event strings.
 - API dispatches automation runs to a sandbox provider selected by `KEPPO_SANDBOX_PROVIDER` (`docker`, `vercel`, or `unikraft`).
-- The supported runner types are `chatgpt_codex` and `claude_code`.
+- Automation configs may still store legacy runner metadata (`chatgpt_codex` or `claude_code`), but sandbox execution always dispatches through the managed Codex runner and rejects Anthropic/Claude automation models fail-closed.
 - Sandboxes stream logs and completion back through signed callback routes; termination is a separate internal route.
 
 ## Code Mode
@@ -100,10 +100,10 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - stores `sandbox_id` as the Start-owned runtime sandbox handle used for later container termination.
 - Production `vercel` sandbox provider behavior:
   - creates a Vercel Sandbox VM with separate bootstrap/runtime stages,
-  - keeps bootstrap env minimal and restricted to package-registry networking while installing the requested runner CLI (`@openai/codex@0.118.0` for Codex runs, `@anthropic-ai/claude-code` for Claude runs),
+  - keeps bootstrap env minimal and restricted to package-registry networking while installing the pinned Codex CLI (`@openai/codex@0.118.0`),
   - launches an in-sandbox Node wrapper that executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
   - escalates timeouts and terminate requests from `SIGTERM` to `SIGKILL` only after a short grace window so the runner shell can upload the latest Codex session artifact before the VM is stopped,
-  - maps the saved automation `network_access` mode into both sandbox egress policy and runner-native tool restrictions (Codex uses `--config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'` for `mcp_only` and otherwise relies on the default `codex exec` network-enabled behavior for `mcp_and_web`; Claude Code adds `--disallowed-tools WebFetch,WebSearch` for `mcp_only` and otherwise relies on the default tool set),
+  - maps the saved automation `network_access` mode into both sandbox egress policy and the managed Codex runner flags (`codex exec` uses `--config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'` for `mcp_only` and otherwise relies on the default network-enabled behavior for `mcp_and_web`),
   - stores `sandbox_id` as an opaque sandbox-handle that includes the detached command identifier so terminate requests can signal the runner process before stopping the VM,
   - when Deployment Protection is enabled in `preview` or `staging`, uses `VERCEL_AUTOMATION_BYPASS_SECRET` for Convex dispatch/terminate requests and sandbox-origin callback traffic, and appends the same bypass token to sandbox MCP URLs because the runner CLI can only consume the MCP endpoint as a URL; `production` does not inject or propagate that bypass secret,
   - constrains `mcp_only` runs to the MCP host, callback host, and model-provider API host(s); `mcp_and_web` remains unrestricted.
