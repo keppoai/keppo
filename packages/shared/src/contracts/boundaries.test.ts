@@ -310,6 +310,17 @@ describe("boundary contracts", () => {
     expect(() =>
       parseInternalPushSubscribeRequest({
         subscription: {
+          endpoint: "http://push.example.test/subscriptions/1",
+          keys: {
+            p256dh: "key",
+            auth: "auth",
+          },
+        },
+      }),
+    ).toThrowError(BoundaryParseError);
+    expect(() =>
+      parseInternalPushSubscribeRequest({
+        subscription: {
           keys: {
             p256dh: "key",
             auth: "auth",

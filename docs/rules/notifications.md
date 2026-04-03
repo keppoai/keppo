@@ -17,6 +17,7 @@
 
 - Endpoint-level event preferences are optional and default to enabled.
 - Derive `userId` and `orgId` for push registration from the authenticated API session, never from caller-controlled body fields.
+- Validate push subscription endpoints before persistence and revalidate them immediately before delivery; reject non-HTTPS, loopback, private, link-local, metadata, and DNS-resolved internal destinations fail-closed.
 
 ## Badge semantics
 

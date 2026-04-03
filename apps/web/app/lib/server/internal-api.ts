@@ -9,6 +9,7 @@ import { readBetterAuthSessionToken, parseJsonPayload } from "./api-runtime/app-
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { sendInviteEmail } from "./api-runtime/email.ts";
 import { getEnv } from "./api-runtime/env.ts";
+import { validatePushSubscriptionEndpoint } from "./api-runtime/push.ts";
 import {
   handleBillingCheckoutRequest,
   handleBillingCreditsCheckoutRequest,
@@ -48,6 +49,7 @@ type StartOwnedInternalApiDeps = {
   parseJsonPayload: typeof parseJsonPayload;
   readBetterAuthSessionToken: typeof readBetterAuthSessionToken;
   sendInviteEmail: typeof sendInviteEmail;
+  validatePushSubscriptionEndpoint: typeof validatePushSubscriptionEndpoint;
 };
 
 const SECURITY_HEADER_VALUES = {
@@ -65,6 +67,7 @@ const getDefaultDeps = (): StartOwnedInternalApiDeps => ({
   parseJsonPayload,
   readBetterAuthSessionToken,
   sendInviteEmail,
+  validatePushSubscriptionEndpoint,
 });
 
 const withSecurityHeaders = (request: Request, init?: ResponseInit): ResponseInit => {
@@ -386,6 +389,7 @@ export const handlePushSubscribeRequest = async (
   }
 
   try {
+    await deps.validatePushSubscriptionEndpoint(parsedBody.data.subscription.endpoint);
     const endpoint = await deps.convex.registerPushEndpointForUser({
       orgId: sessionIdentity.orgId,
       userId: sessionIdentity.userId,
@@ -398,7 +402,9 @@ export const handlePushSubscribeRequest = async (
     });
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Push subscription registration failed.";
+      error instanceof Error && error.message.startsWith("Push subscription endpoint")
+        ? "Push subscription endpoint is not allowed."
+        : "Push subscription registration failed.";
     return jsonResponse(
       request,
       {

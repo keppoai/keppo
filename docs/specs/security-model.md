@@ -36,6 +36,7 @@
 - Request bodies are bounded by route class using actual byte counts read from the request stream, even when `Content-Length` is absent or misleading.
 - Proxy headers are trusted only when `KEPPO_TRUSTED_PROXY` opts into a supported mode.
 - Custom MCP and sandbox networking use explicit guardrails against loopback, private, metadata, and unsafe redirect targets.
+- Push notification subscriptions are treated as untrusted outbound destinations: registration and delivery both require `https` endpoints whose DNS resolution stays outside loopback, private, link-local, metadata, and other internal address space.
 - Rate limits, credential-failure lockouts, and org suspension checks happen before execution.
 - High-risk Convex mutations and queries use bounded string validation, explicit creation-path rate limits, and capped indexed scans instead of unbounded `.collect()` reads.
 - API responses include baseline browser-hardening headers, with HSTS emitted only on HTTPS requests.
