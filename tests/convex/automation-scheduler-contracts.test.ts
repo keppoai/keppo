@@ -147,6 +147,53 @@ describe("automation scheduler contract boundaries", () => {
     expect(dispatchHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
   });
 
+  it("derives the local E2E dispatch URL from the route-owning worker port when namespace is set", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_E2E_PORT_BASE", "9900");
+    vi.stubEnv("KEPPO_E2E_PORT_BLOCK_SIZE", "20");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_namespace_url",
+      email: "convex-scheduler-namespace-url@example.com",
+      name: "Convex Scheduler Namespace URL",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-namespace-url@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-namespace-url@example.com",
+      name: "Convex Scheduler Namespace URL",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    await t.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+      namespace: "run_example.0.testid.0.0",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9903/internal/automations/dispatch",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.any(Headers),
+      }),
+    );
+    const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(dispatchHeaders.get("authorization")).toBe("Bearer e2e-cron-token-0");
+  });
+
   it("reuses a recent dispatch token instead of overwriting an in-flight pending run token", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-04-02T05:00:00.000Z"));

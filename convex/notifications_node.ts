@@ -7,7 +7,7 @@ import { internalAction, type ActionCtx } from "./_generated/server";
 const NOTIFICATION_DELIVERY_PATH = "/internal/notifications/deliver";
 const DEFAULT_E2E_PORT_BASE = 9900;
 const DEFAULT_E2E_PORT_BLOCK_SIZE = 20;
-const DEFAULT_E2E_API_PORT_OFFSET = 2;
+const DEFAULT_E2E_INTERNAL_ROUTE_PORT_OFFSET = 3;
 const DEFAULT_RETRY_DELAY_MS = 10_000;
 const MIN_RETRY_DELAY_MS = 1_000;
 const MAX_RETRY_DELAY_MS = 15 * 60_000;
@@ -19,7 +19,7 @@ const refs = {
   ),
 };
 
-const resolveNamespaceApiBase = (namespace?: string): string | null => {
+const resolveNamespaceInternalBase = (namespace?: string): string | null => {
   if (!namespace) {
     return null;
   }
@@ -37,8 +37,8 @@ const resolveNamespaceApiBase = (namespace?: string): string | null => {
     Number.isInteger(basePort) && basePort >= 1024 ? basePort : DEFAULT_E2E_PORT_BASE;
   const safeBlockSize =
     Number.isInteger(blockSize) && blockSize >= 5 ? blockSize : DEFAULT_E2E_PORT_BLOCK_SIZE;
-  const apiPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_API_PORT_OFFSET;
-  return `http://127.0.0.1:${apiPort}`;
+  const port = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_INTERNAL_ROUTE_PORT_OFFSET;
+  return `http://127.0.0.1:${port}`;
 };
 
 const resolveDeliveryUrl = (namespace?: string): string | null => {
@@ -50,18 +50,38 @@ const resolveDeliveryUrl = (namespace?: string): string | null => {
   if (explicitBase) {
     return `${explicitBase.replace(/\/+$/, "")}${NOTIFICATION_DELIVERY_PATH}`;
   }
-  const namespaceBase = resolveNamespaceApiBase(namespace);
+  const namespaceBase = resolveNamespaceInternalBase(namespace);
   if (namespaceBase) {
     return `${namespaceBase}${NOTIFICATION_DELIVERY_PATH}`;
   }
   return null;
 };
 
-const resolveInternalAuthHeader = (): string | null => {
+const resolveNamespaceCronSecret = (namespace?: string): string | null => {
+  if (!namespace) {
+    return null;
+  }
+  const segments = namespace.split(".");
+  if (segments.length < 4) {
+    return null;
+  }
+  const workerIndex = Number(segments[1]);
+  if (!Number.isInteger(workerIndex) || workerIndex < 0) {
+    return null;
+  }
+  return `e2e-cron-token-${workerIndex}`;
+};
+
+const resolveInternalAuthHeader = (namespace?: string): string | null => {
+  const namespaceSecret = resolveNamespaceCronSecret(namespace)?.trim();
+  if (process.env.KEPPO_E2E_MODE === "true" && namespaceSecret) {
+    return `Bearer ${namespaceSecret}`;
+  }
   const secret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
-    process.env.VERCEL_CRON_SECRET;
+    process.env.VERCEL_CRON_SECRET ??
+    namespaceSecret;
   if (!secret) {
     return null;
   }
@@ -187,7 +207,7 @@ export const deliverNotificationEvents = internalAction({
     const headers: Record<string, string> = {
       "content-type": "application/json",
     };
-    const authHeader = resolveInternalAuthHeader();
+    const authHeader = resolveInternalAuthHeader(args.e2eNamespace);
     if (authHeader) {
       headers.authorization = authHeader;
     }

@@ -50,6 +50,7 @@ const toLocalConvexSiteUrl = (convexUrl: string): string => {
 };
 
 export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
+  const serviceBindHost = "0.0.0.0";
   const fakeGatewayBase = `http://127.0.0.1:${params.ports.fakeGateway}`;
   const dashboardBase = `http://localhost:${params.ports.dashboard}`;
   const apiBase = dashboardBase;
@@ -169,6 +170,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     base,
     fakeGateway: {
       ...base,
+      HOST: serviceBindHost,
       PORT: String(params.ports.fakeGateway),
     },
     api: {
@@ -178,13 +180,14 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     },
     queueBroker: {
       ...base,
+      HOST: serviceBindHost,
       PORT: String(params.ports.queueBroker),
     },
     dashboard: {
       ...base,
-      HOST: "127.0.0.1",
+      HOST: serviceBindHost,
       PORT: String(params.ports.dashboard),
-      NITRO_HOST: "127.0.0.1",
+      NITRO_HOST: serviceBindHost,
       NITRO_PORT: String(params.ports.dashboard),
       VITE_API_BASE: "/",
       VITE_KEPPO_URL: dashboardBase,

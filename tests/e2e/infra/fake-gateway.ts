@@ -5795,9 +5795,8 @@ const start = async (): Promise<void> => {
     });
   });
 
-  // Dockerized automation runners reach the host via the gateway IP, not host loopback.
-  // Binding all interfaces keeps local `127.0.0.1` callers working while allowing sandbox traffic.
-  server.listen(port, () => {
+  const host = process.env.HOST?.trim() || "0.0.0.0";
+  server.listen(port, host, () => {
     process.stdout.write(`fake-gateway listening on ${baseUrl}\n`);
   });
 

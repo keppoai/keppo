@@ -77,7 +77,7 @@ const AUTOMATION_DISPATCH_PATH = "/internal/automations/dispatch";
 const AUTOMATION_TERMINATE_PATH = "/internal/automations/terminate";
 const DEFAULT_E2E_PORT_BASE = 9900;
 const DEFAULT_E2E_PORT_BLOCK_SIZE = 20;
-const DEFAULT_E2E_DASHBOARD_PORT_OFFSET = 3;
+const DEFAULT_E2E_INTERNAL_ROUTE_PORT_OFFSET = 3;
 const DEFAULT_SCHEDULE_SCAN_LIMIT = 200;
 const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
@@ -91,7 +91,7 @@ const bytesToHex = (bytes: Uint8Array): string =>
     .map((byte) => byte.toString(16).padStart(2, "0"))
     .join("");
 
-const resolveNamespaceApiBase = (namespace?: string): string | null => {
+const resolveNamespaceInternalBase = (namespace?: string): string | null => {
   if (!namespace) {
     return null;
   }
@@ -109,8 +109,8 @@ const resolveNamespaceApiBase = (namespace?: string): string | null => {
     Number.isInteger(basePort) && basePort >= 1024 ? basePort : DEFAULT_E2E_PORT_BASE;
   const safeBlockSize =
     Number.isInteger(blockSize) && blockSize >= 5 ? blockSize : DEFAULT_E2E_PORT_BLOCK_SIZE;
-  const dashboardPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_DASHBOARD_PORT_OFFSET;
-  return `http://127.0.0.1:${dashboardPort}`;
+  const port = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_INTERNAL_ROUTE_PORT_OFFSET;
+  return `http://127.0.0.1:${port}`;
 };
 
 const resolveNamespaceCronSecret = (namespace?: string): string | null => {
@@ -145,7 +145,7 @@ const resolveAutomationDispatchUrl = (namespace?: string): string | null => {
   if (explicitBase) {
     return resolveRootOwnedRouteUrl(explicitBase, AUTOMATION_DISPATCH_PATH);
   }
-  const namespaceBase = resolveNamespaceApiBase(namespace);
+  const namespaceBase = resolveNamespaceInternalBase(namespace);
   if (namespaceBase) {
     return resolveRootOwnedRouteUrl(namespaceBase, AUTOMATION_DISPATCH_PATH);
   }
@@ -161,7 +161,7 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
   if (explicitBase) {
     return resolveRootOwnedRouteUrl(explicitBase, AUTOMATION_TERMINATE_PATH);
   }
-  const namespaceBase = resolveNamespaceApiBase(namespace);
+  const namespaceBase = resolveNamespaceInternalBase(namespace);
   if (namespaceBase) {
     return resolveRootOwnedRouteUrl(namespaceBase, AUTOMATION_TERMINATE_PATH);
   }
@@ -169,15 +169,15 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
 };
 
 const resolveInternalAuthHeader = (namespace?: string): string | null => {
-  const namespaceSecret = resolveNamespaceCronSecret(namespace);
-  if (namespaceSecret) {
+  const namespaceSecret = resolveNamespaceCronSecret(namespace)?.trim();
+  if (process.env.KEPPO_E2E_MODE === "true" && namespaceSecret) {
     return `Bearer ${namespaceSecret}`;
   }
   const envSecret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
     process.env.VERCEL_CRON_SECRET;
-  const secret = envSecret;
+  const secret = envSecret ?? namespaceSecret;
   if (!secret) {
     return null;
   }

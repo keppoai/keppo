@@ -8,7 +8,7 @@ const SYNTHETIC_CANARY_JOB = "synthetic-canary";
 const HEALTH_PATH = "/health";
 const DEFAULT_E2E_PORT_BASE = 9900;
 const DEFAULT_E2E_PORT_BLOCK_SIZE = 20;
-const DEFAULT_E2E_API_PORT_OFFSET = 2;
+const DEFAULT_E2E_INTERNAL_ROUTE_PORT_OFFSET = 3;
 
 const refs = {
   checkCronHealth: makeFunctionReference<"query">("cron_heartbeats:checkCronHealth"),
@@ -33,8 +33,8 @@ const resolveE2eApiBaseUrl = (): string | null => {
     Number.isInteger(basePort) && basePort >= 1024 ? basePort : DEFAULT_E2E_PORT_BASE;
   const safeBlockSize =
     Number.isInteger(blockSize) && blockSize >= 5 ? blockSize : DEFAULT_E2E_PORT_BLOCK_SIZE;
-  const apiPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_API_PORT_OFFSET;
-  return `http://127.0.0.1:${apiPort}`;
+  const port = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_INTERNAL_ROUTE_PORT_OFFSET;
+  return `http://127.0.0.1:${port}`;
 };
 
 const toOrigin = (value: string | undefined): string | null => {
