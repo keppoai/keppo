@@ -2300,6 +2300,8 @@ export const handleStripeBillingWebhookRequest = async (
         stripeSubscriptionId: subscription.id,
         status: SUBSCRIPTION_STATUS.canceled,
         tier: SUBSCRIPTION_TIER.free,
+        currentPeriodStart: "",
+        currentPeriodEnd: "",
       });
       if (existing?.org_id) {
         await syncBundledGatewayForOrg({

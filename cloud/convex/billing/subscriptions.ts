@@ -149,12 +149,33 @@ export const setSubscriptionStatusByStripeSubscription = internalMutation({
     if (!target) {
       return null;
     }
-    await ctx.db.patch(target._id, {
+    const patch: {
+      status: typeof args.status;
+      tier?: typeof args.tier;
+      current_period_start?: string;
+      current_period_end?: string;
+      updated_at: string;
+    } = {
       status: args.status,
-      ...(args.tier ? { tier: args.tier } : {}),
-      ...(args.currentPeriodStart ? { current_period_start: args.currentPeriodStart } : {}),
-      ...(args.currentPeriodEnd ? { current_period_end: args.currentPeriodEnd } : {}),
       updated_at: nowIso(),
+    };
+    if (args.tier) {
+      patch.tier = args.tier;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(args, "currentPeriodStart") &&
+      args.currentPeriodStart !== undefined
+    ) {
+      patch.current_period_start = args.currentPeriodStart;
+    }
+    if (
+      Object.prototype.hasOwnProperty.call(args, "currentPeriodEnd") &&
+      args.currentPeriodEnd !== undefined
+    ) {
+      patch.current_period_end = args.currentPeriodEnd;
+    }
+    await ctx.db.patch(target._id, {
+      ...patch,
     });
     return null;
   },

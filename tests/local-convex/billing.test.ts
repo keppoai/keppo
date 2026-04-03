@@ -1,7 +1,7 @@
 import { makeFunctionReference } from "convex/server";
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { getTierConfig } from "../../packages/shared/src/subscriptions";
+import { getDefaultBillingPeriod, getTierConfig } from "../../packages/shared/src/subscriptions";
 import type { DbSchema } from "../../packages/shared/src/types";
 import {
   createCheckoutSessionFetch,
@@ -614,6 +614,17 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           status: "active",
           stripe_customer_id: "cus_webhook_deleted",
           stripe_subscription_id: "sub_webhook_deleted",
+          current_period_start: "2026-03-01T00:00:00.000Z",
+          current_period_end: "2026-04-01T00:00:00.000Z",
+        });
+        const freeLimits = getTierConfig("free");
+        await setUsageMeterForOrg({
+          convexUrl,
+          orgId: seeded.orgId,
+          periodStart: "2026-03-01T00:00:00.000Z",
+          periodEnd: "2026-04-01T00:00:00.000Z",
+          toolCallCount: freeLimits.max_tool_calls_per_month,
+          totalToolCallTimeMs: 0,
         });
 
         const rawBody = JSON.stringify({
@@ -639,25 +650,46 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
         const subscription = latestSubscriptionForOrg(snapshot.subscriptions, seeded.orgId);
         expect(subscription.tier).toBe("free");
         expect(subscription.status).toBe("canceled");
+        expect(subscription.current_period_start).toBe("");
+        expect(subscription.current_period_end).toBe("");
 
-        const freeLimits = getTierConfig("free");
-        await setUsageMeterForOrg({
-          convexUrl,
-          orgId: seeded.orgId,
-          periodStart: subscription.current_period_start,
-          periodEnd: subscription.current_period_end,
-          toolCallCount: freeLimits.max_tool_calls_per_month,
-          totalToolCallTimeMs: 0,
-        });
+        const defaultPeriod = getDefaultBillingPeriod(new Date());
+        const usage = await getBillingUsageForOrg(convexUrl, seeded.orgId);
+        expect(usage.period_start).toBe(defaultPeriod.periodStart);
+        expect(usage.period_end).toBe(defaultPeriod.periodEnd);
+        expect(usage.usage.tool_call_count).toBe(0);
 
         const mcp = createMcpClient(seeded.workspaceId, seeded.credentialSecret, headers);
         try {
           await mcp.initialize();
-          await expect(mcp.callTool("keppo.list_pending_actions", {})).rejects.toThrow(
+          const payload = await mcp.callTool("keppo.list_pending_actions", {});
+          expect(Array.isArray(payload.actions)).toBe(true);
+        } finally {
+          await mcp.close();
+        }
+
+        await setUsageMeterForOrg({
+          convexUrl,
+          orgId: seeded.orgId,
+          periodStart: usage.period_start,
+          periodEnd: usage.period_end,
+          toolCallCount: freeLimits.max_tool_calls_per_month,
+          totalToolCallTimeMs: 0,
+        });
+
+        const staleMeter = (await store.getDbSnapshot()).usage_meters.find(
+          (row) => row.org_id === seeded.orgId && row.period_start === "2026-03-01T00:00:00.000Z",
+        );
+        expect(staleMeter?.tool_call_count).toBe(freeLimits.max_tool_calls_per_month);
+
+        const limitedMcp = createMcpClient(seeded.workspaceId, seeded.credentialSecret, headers);
+        try {
+          await limitedMcp.initialize();
+          await expect(limitedMcp.callTool("keppo.list_pending_actions", {})).rejects.toThrow(
             /TOOL_CALL_LIMIT_REACHED/,
           );
         } finally {
-          await mcp.close();
+          await limitedMcp.close();
         }
       },
     );
