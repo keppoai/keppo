@@ -165,8 +165,7 @@ test("codex automation run completes after search_tools when fake OpenAI respons
 
   const run = await admin.getAutomationRun(createdRun.id);
   const logText = await readLogText();
-
-  const readServiceLog = async (name: "dashboard"): Promise<string> => {
+  const readServiceLog = async (name: "dashboard" | "fake-gateway"): Promise<string> => {
     try {
       return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
     } catch {
@@ -189,12 +188,44 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     )
     .toBe(true);
 
+  let fakeGatewayLog = await readServiceLog("fake-gateway");
+  await expect
+    .poll(
+      async () => {
+        fakeGatewayLog = await readServiceLog("fake-gateway");
+        return {
+          fakeGatewaySawResponsesRequest: fakeGatewayLog.includes("[fake-openai] path=/responses"),
+          fakeGatewaySawResponsesFollowUp:
+            (fakeGatewayLog.match(/\[fake-openai\] path=\/responses/g)?.length ?? 0) >= 2,
+          fakeGatewaySawFunctionCallOutputFollowUp: fakeGatewayLog.includes(
+            '"type":"function_call_output"',
+          ),
+        };
+      },
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toEqual({
+      fakeGatewaySawResponsesRequest: true,
+      fakeGatewaySawResponsesFollowUp: true,
+      fakeGatewaySawFunctionCallOutputFollowUp: true,
+    });
+
+  const fakeGatewaySawResponsesRequest = fakeGatewayLog.includes("[fake-openai] path=/responses");
+  const fakeGatewaySawResponsesFollowUp =
+    (fakeGatewayLog.match(/\[fake-openai\] path=\/responses/g)?.length ?? 0) >= 2;
+  const fakeGatewaySawFunctionCallOutputFollowUp = fakeGatewayLog.includes(
+    '"type":"function_call_output"',
+  );
+
   expect(
     {
       status: run?.status ?? null,
       dashboardSawToolCallReceived: dashboardLog.includes('"msg":"mcp.tool_call.received"'),
       dashboardSawSearchToolsCompleted: dashboardLog.includes('"msg":"mcp.search_tools.completed"'),
       dashboardSawRecordOutcomeCall: dashboardLog.includes('"tool_name":"record_outcome"'),
+      fakeGatewaySawResponsesRequest,
+      fakeGatewaySawResponsesFollowUp,
+      fakeGatewaySawFunctionCallOutputFollowUp,
       hasStreamDisconnectError: logText.includes(
         "stream disconnected before completion: stream closed before response.completed",
       ),
@@ -207,6 +238,9 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     dashboardSawToolCallReceived: true,
     dashboardSawSearchToolsCompleted: true,
     dashboardSawRecordOutcomeCall: true,
+    fakeGatewaySawResponsesRequest: true,
+    fakeGatewaySawResponsesFollowUp: true,
+    fakeGatewaySawFunctionCallOutputFollowUp: true,
     hasStreamDisconnectError: false,
     hasAgentRecordedOutcome: true,
     logText,
