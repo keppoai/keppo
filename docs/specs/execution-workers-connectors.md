@@ -129,7 +129,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
 - Callback/log contract:
   - log/complete callback URLs are HMAC-signed and include run-scoped expiry metadata.
   - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`.
-  - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`.
+  - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`, retries transient persistence failures with exponential backoff before surfacing a typed `complete_failed` response, and logs the failed terminal write with the run id and intended terminal status when retries are exhausted.
   - automation-backed MCP sessions expose one additional internal tool, `record_outcome`, which is unavailable to normal MCP clients and records a single final outcome on the owning automation run.
   - `record_outcome` writes are exactly-once at the run level: the first valid call wins, duplicate calls fail, and terminal lifecycle updates synthesize a fallback outcome that matches the final terminal status when no valid outcome was recorded before the run ended. If a run later finishes in a failure state after an earlier success outcome was recorded, the terminal failure replaces that stale success with a fallback failure outcome.
   - hot rows are archived to cold storage via `automation_scheduler:archiveHotLogs`; cold blobs expire per tier retention via `automation_scheduler:expireColdLogs`.

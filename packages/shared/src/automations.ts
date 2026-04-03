@@ -498,6 +498,7 @@ export const AUTOMATION_ROUTE_STATUSES = [
   "run_not_pending",
   "missing_ai_key",
   "dispatch_failed",
+  "complete_failed",
   "invalid_signature",
 ] as const;
 export type AutomationRouteStatus = (typeof AUTOMATION_ROUTE_STATUSES)[number];
@@ -518,6 +519,7 @@ export const AUTOMATION_ROUTE_STATUS = {
   runNotPending: "run_not_pending",
   missingAiKey: "missing_ai_key",
   dispatchFailed: "dispatch_failed",
+  completeFailed: "complete_failed",
   invalidSignature: "invalid_signature",
 } as const satisfies Record<string, AutomationRouteStatus>;
 

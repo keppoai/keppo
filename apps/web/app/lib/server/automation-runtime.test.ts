@@ -4,6 +4,7 @@ import { AI_CREDIT_ERROR_CODE } from "@keppo/shared/ai-credit-errors";
 import { AUTOMATION_RUN_LOG_LEVEL } from "@keppo/shared/automations";
 import {
   dispatchStartOwnedAutomationRuntimeRequest,
+  handleInternalAutomationCompleteRequest,
   handleInternalAutomationDispatchRequest,
   handleInternalAutomationTerminateRequest,
 } from "./automation-runtime";
@@ -128,6 +129,7 @@ describe("start-owned automation runtime handlers", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
     for (const [key, value] of Object.entries(originalEnv)) {
       if (value === undefined) {
@@ -1232,6 +1234,105 @@ describe("start-owned automation runtime handlers", () => {
       automationRunId: "arun_dispatch_test",
       status: "succeeded",
     });
+  });
+
+  it("retries completion status updates before succeeding", async () => {
+    vi.useFakeTimers();
+    const deps = createDeps();
+    deps.convex.updateAutomationRunStatus
+      .mockRejectedValueOnce(new Error("convex timeout on first attempt"))
+      .mockRejectedValueOnce(new Error("convex timeout on second attempt"))
+      .mockResolvedValueOnce(undefined);
+
+    const completionRequest = withJson(
+      "/internal/automations/complete?automation_run_id=arun_retry_test&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_retry_test",
+        status: "failed",
+        error_message: "runner exited",
+      },
+    );
+    const completeUrl = new URL(completionRequest.url);
+    completeUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(
+          `${completeUrl.pathname}:arun_retry_test:${completeUrl.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
+
+    const responsePromise = handleInternalAutomationCompleteRequest(
+      new Request(completeUrl, {
+        method: "POST",
+        headers: completionRequest.headers,
+        body: await completionRequest.text(),
+      }),
+      deps,
+    );
+
+    await vi.runAllTimersAsync();
+    const response = await responsePromise;
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: "failed",
+    });
+    expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledTimes(3);
+    expect(deps.logger.error).not.toHaveBeenCalled();
+  });
+
+  it("returns a typed error when completion status updates keep failing", async () => {
+    vi.useFakeTimers();
+    const deps = createDeps();
+    deps.convex.updateAutomationRunStatus.mockRejectedValue(new Error("convex write unavailable"));
+
+    const completionRequest = withJson(
+      "/internal/automations/complete?automation_run_id=arun_retry_fail&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_retry_fail",
+        status: "cancelled",
+      },
+    );
+    const completeUrl = new URL(completionRequest.url);
+    completeUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(
+          `${completeUrl.pathname}:arun_retry_fail:${completeUrl.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
+
+    const responsePromise = handleInternalAutomationCompleteRequest(
+      new Request(completeUrl, {
+        method: "POST",
+        headers: completionRequest.headers,
+        body: await completionRequest.text(),
+      }),
+      deps,
+    );
+
+    await vi.runAllTimersAsync();
+    const response = await responsePromise;
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "complete_failed",
+      error: "convex write unavailable",
+    });
+    expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledTimes(3);
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "automation.complete.failed",
+      expect.objectContaining({
+        automation_run_id: "arun_retry_fail",
+        status: "cancelled",
+        error: "convex write unavailable",
+        attempts: 3,
+      }),
+    );
   });
 
   it("classifies Codex mcp lifecycle lines for search_tools and execute_code as tool events", async () => {
