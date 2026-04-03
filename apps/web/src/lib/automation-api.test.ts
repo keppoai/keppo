@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   dispatchStartOwnedAutomationApiRequest,
-  handleOpenAiCallbackRequest,
-  handleOpenAiConnectRequest,
-  handleCompleteOpenAiOauthRequest,
   handleGenerateAutomationQuestionsRequest,
   handleGenerateAutomationPromptRequest,
 } from "../../app/lib/server/automation-api";
@@ -71,7 +68,6 @@ const createDeps = () => {
     }),
     releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
     setApiDedupePayload: vi.fn().mockResolvedValue(true),
-    upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
   };
 
   return {
@@ -119,9 +115,6 @@ const createDeps = () => {
         ({
           KEPPO_DASHBOARD_ORIGIN: "http://127.0.0.1:3000",
           KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE: 10,
-          OPENAI_OAUTH_CLIENT_ID: "openai_client_test",
-          OPENAI_OAUTH_REDIRECT_URI: "http://localhost:1455/auth/callback",
-          OPENAI_OAUTH_TOKEN_URL: "https://auth.openai.test/oauth/token",
         }) as never,
     ),
     parseJsonPayload: (raw: string) => JSON.parse(raw),
@@ -133,24 +126,6 @@ const createDeps = () => {
         cookieHeader.match(/better-auth\.session_token=([^;]+)/) ??
         cookieHeader.match(/session_token=([^;]+)/);
       return match?.[1]?.split(".")[0] ?? null;
-    },
-    safeReturnToPath: (value: string | null | undefined) => {
-      const trimmed = value?.trim();
-      if (!trimmed || !trimmed.startsWith("/") || trimmed.startsWith("//")) {
-        return "/settings";
-      }
-      return trimmed;
-    },
-    signOAuthStatePayload: (payloadRaw: string) =>
-      Buffer.from(payloadRaw, "utf8").toString("base64url"),
-    verifyAndDecodeOAuthStatePayload: (signedState: string | null | undefined) => {
-      if (!signedState) {
-        return { ok: false as const, reason: "missing_state" as const };
-      }
-      return {
-        ok: true as const,
-        payloadRaw: Buffer.from(signedState, "base64url").toString("utf8"),
-      };
     },
   };
 };
@@ -524,167 +499,6 @@ describe("start-owned automation api handlers", () => {
     );
   });
 
-  it("returns OpenAI connect launch metadata for authenticated admins", async () => {
-    const deps = createDeps();
-
-    const response = await handleOpenAiConnectRequest(
-      new Request("http://127.0.0.1/api/automations/openai/connect?return_to=%2Fsettings", {
-        headers: {
-          accept: "application/json",
-          cookie: "better-auth.session_token=session_token_test",
-        },
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: true,
-      localhost_callback_command: expect.stringContaining("Listening for OpenAI OAuth callback"),
-      localhost_redirect_uri: "http://localhost:1455/auth/callback",
-    });
-  });
-
-  it("rejects OpenAI connect for hosted bundled-runtime orgs", async () => {
-    const deps = createDeps();
-    deps.convex.getAiCreditBalance.mockResolvedValueOnce({
-      org_id: "org_test",
-      period_start: "2026-03-14T00:00:00.000Z",
-      period_end: "2026-04-14T00:00:00.000Z",
-      allowance_total: 100,
-      allowance_reset_period: "monthly",
-      allowance_used: 100,
-      allowance_remaining: 0,
-      purchased_remaining: 0,
-      total_available: 0,
-      bundled_runtime_enabled: true,
-    });
-
-    const response = await handleOpenAiConnectRequest(
-      new Request("http://127.0.0.1/api/automations/openai/connect?return_to=%2Fsettings", {
-        headers: {
-          accept: "application/json",
-          cookie: "better-auth.session_token=session_token_test",
-        },
-      }),
-      deps,
-    );
-
-    expect(response.status).toBe(403);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      status: "workspace_forbidden",
-    });
-    expect(deps.convex.upsertOpenAiOauthKey).not.toHaveBeenCalled();
-  });
-
-  it("completes OpenAI OAuth with the authenticated Start session", async () => {
-    const deps = createDeps();
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          access_token: "access_test",
-          refresh_token: "refresh_test",
-          expires_in: 3600,
-          token_type: "Bearer",
-          scope: "openid profile email offline_access",
-          id_token: "header.eyJlbWFpbCI6InRlc3RAZXhhbXBsZS5jb20ifQ.signature",
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      ),
-    );
-
-    const oauthState = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_automation_key",
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier: "verifier_test",
-        issued_at: Date.now(),
-      }),
-    );
-
-    const response = await handleCompleteOpenAiOauthRequest(
-      withJson(
-        "/api/automations/openai/complete",
-        {
-          callback_url: `http://localhost:1455/auth/callback?code=oauth_code_test&state=${encodeURIComponent(oauthState)}`,
-        },
-        {
-          cookie: "better-auth.session_token=session_token_test",
-        },
-      ),
-      deps,
-    );
-
-    expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({
-      ok: true,
-      status: "connected",
-    });
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://auth.openai.test/oauth/token",
-      expect.objectContaining({
-        method: "POST",
-      }),
-    );
-    expect(deps.convex.upsertOpenAiOauthKey).toHaveBeenCalledWith(
-      expect.objectContaining({
-        orgId: "org_test",
-        userId: "user_test",
-      }),
-    );
-    fetchMock.mockRestore();
-  });
-
-  it("redirects successful direct OpenAI callbacks back into the dashboard", async () => {
-    const deps = createDeps();
-    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          access_token: "access_test",
-          refresh_token: "refresh_test",
-          expires_in: 3600,
-        }),
-        {
-          status: 200,
-          headers: {
-            "content-type": "application/json",
-          },
-        },
-      ),
-    );
-    const oauthState = deps.signOAuthStatePayload(
-      JSON.stringify({
-        kind: "openai_automation_key",
-        org_id: "org_test",
-        user_id: "user_test",
-        return_to: "/settings",
-        verifier: "verifier_test",
-        issued_at: Date.now(),
-      }),
-    );
-
-    const response = await handleOpenAiCallbackRequest(
-      new Request(
-        `http://127.0.0.1/api/automations/openai/callback?code=oauth_code_test&state=${encodeURIComponent(oauthState)}`,
-      ),
-      deps,
-    );
-
-    expect(response.status).toBe(302);
-    expect(response.headers.get("location")).toBe(
-      "http://127.0.0.1:3000/settings?ai_key_status=connected&ai_key_provider=openai&ai_key_mode=subscription_token",
-    );
-    fetchMock.mockRestore();
-  });
-
   it("dispatches the migrated automation family in-process", async () => {
     const deps = createDeps();
 
@@ -701,22 +515,12 @@ describe("start-owned automation api handlers", () => {
       ),
       deps,
     );
-    const connectHandled = await dispatchStartOwnedAutomationApiRequest(
-      new Request("http://127.0.0.1/api/automations/openai/connect", {
-        headers: {
-          accept: "application/json",
-          cookie: "better-auth.session_token=session_token_test",
-        },
-      }),
-      deps,
-    );
     const unhandled = await dispatchStartOwnedAutomationApiRequest(
       new Request("http://127.0.0.1/api/oauth/integrations/google/connect", { method: "POST" }),
       deps,
     );
 
     expect(handled?.status).toBe(200);
-    expect(connectHandled?.status).toBe(200);
     expect(unhandled).toBeNull();
   });
 });

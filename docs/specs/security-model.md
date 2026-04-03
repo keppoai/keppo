@@ -77,7 +77,6 @@
 - User-managed BYOK and `subscription_token` credentials are hard-deleted when removed; non-secret metadata needed for auditability is copied into the delete audit event payload before the row is deleted.
 - Dyad Gateway master credentials (`KEPPO_LLM_GATEWAY_MASTER_KEY`) stay in API runtime only; dashboard clients, Convex public functions, and sandbox env never receive that management bearer token.
 - OpenAI `subscription_token` automation keys are stored as encrypted refreshable OAuth credential envelopes; refresh occurs in API runtime before dispatch, and sandbox runs receive only run-scoped auth material.
-- OpenAI localhost callback setup uses a signed OAuth `state` plus a user-run loopback listener; only the API runtime exchanges the returned code and stores refreshable credentials.
 - Dispatch decrypts key material only inside API runtime for active run provisioning; dashboard receives hints only (`key_hint`).
 - `_decryptForTestsOnly` remains internal-only and requires an explicit local/test flag before use; every successful invocation emits an audit-friendly warning.
 - Automation run attribution uses automation identity as MCP actor and does not rely on shared service-account secrets.

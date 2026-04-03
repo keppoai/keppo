@@ -205,16 +205,6 @@ const automationQuestionsInputSchema = z.object({
   betterAuthCookie: optionalBetterAuthCookieSchema,
 });
 
-const openAiConnectInputSchema = z.object({
-  return_to: z.string().min(1),
-  betterAuthCookie: optionalBetterAuthCookieSchema,
-});
-
-const completeOpenAiOauthInputSchema = z.object({
-  callback_url: z.string().min(1),
-  betterAuthCookie: optionalBetterAuthCookieSchema,
-});
-
 const workspaceMcpTestInputSchema = z.object({
   workspaceId: z.string().min(1),
   betterAuthCookie: optionalBetterAuthCookieSchema,
@@ -258,8 +248,6 @@ export type BillingSubscriptionUndoCancelInput = z.infer<
 export type BillingSubscriptionPendingInput = z.infer<typeof billingSubscriptionPendingInputSchema>;
 export type AutomationPromptInput = z.infer<typeof automationPromptInputSchema>;
 export type AutomationQuestionsInput = z.infer<typeof automationQuestionsInputSchema>;
-export type OpenAiConnectInput = z.infer<typeof openAiConnectInputSchema>;
-export type CompleteOpenAiOauthInput = z.infer<typeof completeOpenAiOauthInputSchema>;
 export type WorkspaceMcpTestInput = z.infer<typeof workspaceMcpTestInputSchema>;
 export type OAuthProviderConnectInput = z.infer<typeof oauthProviderConnectInputSchema>;
 export type PushSubscribeInput = z.infer<typeof pushSubscribeInputSchema>;
@@ -604,27 +592,6 @@ const generateAutomationQuestionsServerFn = createServerFn({ method: "POST" })
       ),
   );
 
-const openAiConnectServerFn = createServerFn({ method: "POST" })
-  .inputValidator(openAiConnectInputSchema)
-  .handler(async ({ data }) => {
-    const search = new URLSearchParams({ return_to: data.return_to }).toString();
-    return await getJson<JsonRecord>(
-      `/api/automations/openai/connect?${search}`,
-      normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
-    );
-  });
-
-const completeOpenAiOauthServerFn = createServerFn({ method: "POST" })
-  .inputValidator(completeOpenAiOauthInputSchema)
-  .handler(
-    async ({ data }) =>
-      await postJson<JsonRecord>(
-        "/api/automations/openai/complete",
-        { callback_url: data.callback_url },
-        normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
-      ),
-  );
-
 const workspaceMcpTestServerFn = createServerFn({ method: "POST" })
   .inputValidator(workspaceMcpTestInputSchema)
   .handler(async ({ data }) => {
@@ -845,26 +812,6 @@ export const generateAutomationQuestions = async (
     })) as ApiResult<JsonRecord>,
   );
 };
-
-export const getOpenAiConnectMetadata = async (data: OpenAiConnectInput): Promise<JsonRecord> =>
-  unwrapApiResult(
-    (await openAiConnectServerFn({
-      data: {
-        ...data,
-        betterAuthCookie: normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
-      },
-    })) as ApiResult<JsonRecord>,
-  );
-
-export const completeOpenAiOauth = async (data: CompleteOpenAiOauthInput): Promise<JsonRecord> =>
-  unwrapApiResult(
-    (await completeOpenAiOauthServerFn({
-      data: {
-        ...data,
-        betterAuthCookie: normalizeOptionalBetterAuthCookie(data.betterAuthCookie),
-      },
-    })) as ApiResult<JsonRecord>,
-  );
 
 export const testWorkspaceMcp = async (
   data: WorkspaceMcpTestInput,

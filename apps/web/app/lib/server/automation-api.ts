@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import OpenAI from "openai";
 import {
   automationMermaidJsonSchema,
@@ -34,18 +33,7 @@ import {
   toAutomationRouteError,
   type AutomationRouteErrorCode,
 } from "@keppo/shared/automations";
-import {
-  isJsonRecord,
-  parseJsonValue,
-  tryParseJsonValue,
-} from "@keppo/shared/providers/boundaries/json";
-import {
-  parseJsonPayload,
-  readBetterAuthSessionToken,
-  safeReturnToPath,
-  signOAuthStatePayload,
-  verifyAndDecodeOAuthStatePayload,
-} from "./api-runtime/app-helpers.ts";
+import { parseJsonPayload, readBetterAuthSessionToken } from "./api-runtime/app-helpers.ts";
 import { createDurableRateLimiter } from "./api-runtime/rate-limit.ts";
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { getEnv } from "./api-runtime/env.ts";
@@ -54,27 +42,6 @@ type ApiSessionIdentity = {
   userId: string;
   orgId: string;
   role: UserRole;
-};
-
-type OpenAiOauthState = {
-  kind: "openai_automation_key";
-  org_id: string;
-  user_id: string;
-  return_to: string;
-  verifier: string;
-  issued_at: number;
-};
-
-type StoredOpenAiOauthCredentials = {
-  access_token: string;
-  refresh_token: string;
-  expires_at: string;
-  scopes: string[];
-  email: string | null;
-  account_id: string | null;
-  id_token: string | null;
-  token_type: string | null;
-  last_refresh: string | null;
 };
 
 type StartOwnedAutomationApiConvex = Pick<
@@ -90,7 +57,6 @@ type StartOwnedAutomationApiConvex = Pick<
   | "releaseApiDedupeKey"
   | "resolveApiSessionFromToken"
   | "setApiDedupePayload"
-  | "upsertOpenAiOauthKey"
 >;
 
 type StartOwnedAutomationApiDeps = {
@@ -129,18 +95,8 @@ type StartOwnedAutomationApiDeps = {
   getEnv: typeof getEnv;
   parseJsonPayload: typeof parseJsonPayload;
   readBetterAuthSessionToken: typeof readBetterAuthSessionToken;
-  safeReturnToPath: typeof safeReturnToPath;
-  signOAuthStatePayload: typeof signOAuthStatePayload;
-  verifyAndDecodeOAuthStatePayload: typeof verifyAndDecodeOAuthStatePayload;
 };
 
-const OPENAI_OAUTH_ALLOWED_ROLES = new Set<UserRole>(["owner", "admin"]);
-const OPENAI_AUTOMATION_CONNECT_PATH = "/api/automations/openai/connect";
-const OPENAI_AUTOMATION_CALLBACK_PATH = "/api/automations/openai/callback";
-const OPENAI_OAUTH_SCOPE = ["openid", "profile", "email", "offline_access"].join(" ");
-const OPENAI_OAUTH_ORIGINATOR = "pi";
-const OPENAI_OAUTH_STATE_TTL_MS = 15 * 60_000;
-const OPENAI_LOCALHOST_REDIRECT_URI = "http://localhost:1455/auth/callback";
 const AUTOMATION_QUESTION_RATE_LIMIT_WINDOW_MS = 60_000;
 const AUTOMATION_QUESTION_BILLING = {
   stage: "questions",
@@ -149,15 +105,6 @@ const AUTOMATION_QUESTION_BILLING = {
   summary:
     "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
 } as const;
-const OPENAI_LOCALHOST_CALLBACK_COMMAND =
-  `node --input-type=module --eval 'import http from "node:http";` +
-  `const PORT=1455,HOST="127.0.0.1",SUCCESS="<!doctype html><html><body><p>Callback captured. Return to Keppo and paste the full localhost callback URL.</p></body></html>";` +
-  `http.createServer((req,res)=>{try{const url=new URL(req.url||"/",\`http://\${HOST}:\${PORT}\`);` +
-  `if(url.pathname!=="/auth/callback"){res.statusCode=404;res.end("Not found");return}` +
-  `const fullUrl=\`http://\${HOST}:\${PORT}\${url.pathname}\${url.search}\`;` +
-  `process.stdout.write("\\nCaptured localhost callback URL:\\n"+fullUrl+"\\n\\nPaste that full URL into Keppo and then press Ctrl+C here.\\n");` +
-  `res.statusCode=200;res.setHeader("Content-Type","text/html; charset=utf-8");res.end(SUCCESS)}` +
-  `catch{res.statusCode=500;res.end("Internal error")}}).listen(PORT,HOST,()=>process.stdout.write(\`Listening for OpenAI OAuth callback on http://\${HOST}:\${PORT}/auth/callback\\n\`));'`;
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
@@ -184,9 +131,6 @@ const getDefaultDeps = (): StartOwnedAutomationApiDeps => ({
   getEnv,
   parseJsonPayload,
   readBetterAuthSessionToken,
-  safeReturnToPath,
-  signOAuthStatePayload,
-  verifyAndDecodeOAuthStatePayload,
 });
 
 const getAutomationQuestionRateLimiter = (convex: StartOwnedAutomationApiConvex) => {
@@ -220,10 +164,6 @@ const withSecurityHeaders = (request: Request, init?: ResponseInit): ResponseIni
 
 const jsonResponse = (request: Request, payload: unknown, status = 200): Response => {
   return Response.json(payload, withSecurityHeaders(request, { status }));
-};
-
-const canManageOpenAiOauthKey = (sessionIdentity: ApiSessionIdentity): boolean => {
-  return OPENAI_OAUTH_ALLOWED_ROLES.has(sessionIdentity.role);
 };
 
 const errorToMessage = (error: unknown): string => {
@@ -432,276 +372,6 @@ const parseUntrustedClarificationAnswersPayload = (
   }
 
   return answers;
-};
-
-const parseOpenAiOauthCompletePayload = (
-  value: unknown,
-): {
-  callback_url: string;
-} => {
-  const body = value as Record<string, unknown>;
-  const callbackUrl = typeof body.callback_url === "string" ? body.callback_url.trim() : "";
-  if (callbackUrl.length === 0) {
-    throw createAutomationRouteError("invalid_payload", "callback_url is required");
-  }
-  return {
-    callback_url: callbackUrl,
-  };
-};
-
-const parseJsonRecordOrThrow = (raw: string, message: string): Record<string, unknown> => {
-  const parsed = parseJsonValue(raw, { message });
-  if (!isJsonRecord(parsed)) {
-    throw new Error(message);
-  }
-  return parsed;
-};
-
-const parseOpenAiOauthState = (
-  stateRaw: string,
-  deps: StartOwnedAutomationApiDeps,
-): OpenAiOauthState => {
-  try {
-    const parsed = parseJsonRecordOrThrow(stateRaw, "Invalid OpenAI OAuth state payload.");
-    if (
-      parsed.kind !== "openai_automation_key" ||
-      typeof parsed.org_id !== "string" ||
-      typeof parsed.user_id !== "string" ||
-      typeof parsed.return_to !== "string" ||
-      typeof parsed.verifier !== "string" ||
-      typeof parsed.issued_at !== "number"
-    ) {
-      throw new Error("Invalid OpenAI OAuth state payload.");
-    }
-    if (Date.now() - parsed.issued_at > OPENAI_OAUTH_STATE_TTL_MS) {
-      throw createAutomationRouteError(
-        "automation_route_failed",
-        "OpenAI OAuth state has expired.",
-      );
-    }
-    return parsed as OpenAiOauthState;
-  } catch (error) {
-    if (error instanceof Error && error.message === "OpenAI OAuth state has expired.") {
-      throw error;
-    }
-    void deps;
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "Invalid OpenAI OAuth state payload.",
-    );
-  }
-};
-
-const toBase64Url = (value: Buffer): string =>
-  value.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/u, "");
-
-const buildPkceChallenge = (verifier: string): string =>
-  createHash("sha256").update(verifier, "utf8").digest("base64url");
-
-const resolveOpenAiOauthAuthUrl = (deps: StartOwnedAutomationApiDeps): string =>
-  deps.getEnv().OPENAI_OAUTH_AUTH_URL ?? "https://auth.openai.com/oauth/authorize";
-
-const resolveOpenAiOauthTokenUrl = (deps: StartOwnedAutomationApiDeps): string =>
-  deps.getEnv().OPENAI_OAUTH_TOKEN_URL ?? "https://auth.openai.com/oauth/token";
-
-const resolveOpenAiOauthClientId = (deps: StartOwnedAutomationApiDeps): string => {
-  const clientId = deps.getEnv().OPENAI_OAUTH_CLIENT_ID;
-  if (!clientId) {
-    throw createAutomationRouteError("missing_env", "Missing OPENAI_OAUTH_CLIENT_ID.");
-  }
-  return clientId;
-};
-
-const resolveOpenAiOauthRedirectUri = (
-  requestUrl: string,
-  deps: StartOwnedAutomationApiDeps,
-): string => {
-  const explicit = deps.getEnv().OPENAI_OAUTH_REDIRECT_URI;
-  if (explicit) {
-    return explicit;
-  }
-  void requestUrl;
-  return OPENAI_LOCALHOST_REDIRECT_URI;
-};
-
-const resolveDashboardOrigin = (requestUrl: string, deps: StartOwnedAutomationApiDeps): string => {
-  return deps.getEnv().KEPPO_DASHBOARD_ORIGIN ?? new URL(requestUrl).origin;
-};
-
-const buildDashboardRedirectUrl = (
-  requestUrl: string,
-  returnTo: string,
-  params: Record<string, string>,
-  deps: StartOwnedAutomationApiDeps,
-): string => {
-  const url = new URL(deps.safeReturnToPath(returnTo), resolveDashboardOrigin(requestUrl, deps));
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-  return url.toString();
-};
-
-const buildOpenAiOauthAuthorizationUrl = (params: {
-  requestUrl: string;
-  verifier: string;
-  signedState: string;
-  deps: StartOwnedAutomationApiDeps;
-}): string => {
-  const authUrl = new URL(resolveOpenAiOauthAuthUrl(params.deps));
-  authUrl.searchParams.set("response_type", "code");
-  authUrl.searchParams.set("client_id", resolveOpenAiOauthClientId(params.deps));
-  authUrl.searchParams.set(
-    "redirect_uri",
-    resolveOpenAiOauthRedirectUri(params.requestUrl, params.deps),
-  );
-  authUrl.searchParams.set("scope", OPENAI_OAUTH_SCOPE);
-  authUrl.searchParams.set("code_challenge", buildPkceChallenge(params.verifier));
-  authUrl.searchParams.set("code_challenge_method", "S256");
-  authUrl.searchParams.set("state", params.signedState);
-  authUrl.searchParams.set("id_token_add_organizations", "true");
-  authUrl.searchParams.set("codex_cli_simplified_flow", "true");
-  authUrl.searchParams.set("originator", OPENAI_OAUTH_ORIGINATOR);
-  return authUrl.toString();
-};
-
-const parseOpenAiOauthCallbackInput = (value: string): { code: string; state: string } => {
-  const trimmed = value.trim();
-  if (!trimmed) {
-    throw createAutomationRouteError("invalid_payload", "callback_url is required");
-  }
-  let parsedUrl: URL | null = null;
-  try {
-    parsedUrl = new URL(trimmed);
-  } catch {
-    parsedUrl = null;
-  }
-  const code = parsedUrl?.searchParams.get("code")?.trim() ?? "";
-  const state = parsedUrl?.searchParams.get("state")?.trim() ?? "";
-  const error = parsedUrl?.searchParams.get("error")?.trim() ?? "";
-  const errorDescription = parsedUrl?.searchParams.get("error_description")?.trim() ?? "";
-  if (error) {
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      errorDescription.length > 0 ? errorDescription : `OpenAI OAuth failed with ${error}.`,
-    );
-  }
-  if (!code || !state) {
-    throw createAutomationRouteError(
-      "invalid_payload",
-      "callback_url must include code and state query params",
-    );
-  }
-  return { code, state };
-};
-
-const asNullableString = (value: unknown): string | null =>
-  typeof value === "string" && value.trim().length > 0 ? value : null;
-
-const extractOpenAiEmail = (idToken: string | null): string | null => {
-  if (!idToken) {
-    return null;
-  }
-  const parts = idToken.split(".");
-  if (parts.length < 2) {
-    return null;
-  }
-  try {
-    const padded = parts[1]!.padEnd(Math.ceil(parts[1]!.length / 4) * 4, "=");
-    const decoded = Buffer.from(padded.replace(/-/g, "+").replace(/_/g, "/"), "base64").toString(
-      "utf8",
-    );
-    const parsed = parseJsonValue(decoded);
-    if (!isJsonRecord(parsed)) {
-      return null;
-    }
-    return asNullableString(parsed.email);
-  } catch {
-    return null;
-  }
-};
-
-const exchangeOpenAiOauthToken = async (params: {
-  code: string;
-  codeVerifier: string;
-  redirectUri: string;
-  deps: StartOwnedAutomationApiDeps;
-}): Promise<StoredOpenAiOauthCredentials> => {
-  const body = new URLSearchParams({
-    grant_type: "authorization_code",
-    code: params.code,
-    redirect_uri: params.redirectUri,
-    code_verifier: params.codeVerifier,
-    client_id: resolveOpenAiOauthClientId(params.deps),
-  });
-  const response = await fetch(resolveOpenAiOauthTokenUrl(params.deps), {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-    },
-    body,
-  });
-  const text = await response.text();
-  const parsed = tryParseJsonValue(text);
-  if (!response.ok || !isJsonRecord(parsed)) {
-    const detail = text.trim();
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      detail.length > 0
-        ? `OpenAI OAuth token exchange failed with status ${response.status}: ${detail}`
-        : `OpenAI OAuth token exchange failed with status ${response.status}.`,
-    );
-  }
-  const accessToken = asNullableString(parsed.access_token);
-  const refreshToken = asNullableString(parsed.refresh_token);
-  const expiresIn =
-    typeof parsed.expires_in === "number" && Number.isFinite(parsed.expires_in)
-      ? parsed.expires_in
-      : null;
-  if (!accessToken || !refreshToken || !expiresIn) {
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "OpenAI OAuth token exchange returned incomplete credentials.",
-    );
-  }
-  const idToken = asNullableString(parsed.id_token);
-  const scope =
-    typeof parsed.scope === "string" && parsed.scope.trim().length > 0
-      ? parsed.scope.trim().split(/\s+/u)
-      : [];
-  return {
-    access_token: accessToken,
-    refresh_token: refreshToken,
-    expires_at: new Date(Date.now() + expiresIn * 1000).toISOString(),
-    scopes: scope,
-    email: extractOpenAiEmail(idToken),
-    account_id: null,
-    id_token: idToken,
-    token_type: asNullableString(parsed.token_type),
-    last_refresh: new Date().toISOString(),
-  };
-};
-
-const completeOpenAiOauthCredentialUpsert = async (params: {
-  convex: Pick<StartOwnedAutomationApiConvex, "upsertOpenAiOauthKey">;
-  orgId: string;
-  userId: string;
-  code: string;
-  verifier: string;
-  redirectUri: string;
-  deps: StartOwnedAutomationApiDeps;
-}) => {
-  const credentials = await exchangeOpenAiOauthToken({
-    code: params.code,
-    codeVerifier: params.verifier,
-    redirectUri: params.redirectUri,
-    deps: params.deps,
-  });
-  await params.convex.upsertOpenAiOauthKey({
-    orgId: params.orgId,
-    userId: params.userId,
-    credentials,
-  });
 };
 
 const readResponseOutputText = (response: unknown): string => {
@@ -1257,220 +927,6 @@ export const handleGenerateAutomationPromptRequest = async (
   }
 };
 
-export const handleOpenAiConnectRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  const sessionIdentity = await resolveSessionFromRequest(request, deps);
-  if (!sessionIdentity) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.unauthorized,
-      },
-      401,
-    );
-  }
-  if (!canManageOpenAiOauthKey(sessionIdentity)) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
-      },
-      403,
-    );
-  }
-
-  const creditBalance = await deps.convex.getAiCreditBalance({
-    orgId: sessionIdentity.orgId,
-  });
-  if (creditBalance.bundled_runtime_enabled) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
-      },
-      403,
-    );
-  }
-
-  const verifier = toBase64Url(randomBytes(32));
-  const statePayload: OpenAiOauthState = {
-    kind: "openai_automation_key",
-    org_id: sessionIdentity.orgId,
-    user_id: sessionIdentity.userId,
-    return_to: deps.safeReturnToPath(
-      new URL(request.url).searchParams.get("return_to") ?? "/settings",
-    ),
-    verifier,
-    issued_at: Date.now(),
-  };
-  const authUrl = buildOpenAiOauthAuthorizationUrl({
-    requestUrl: request.url,
-    verifier,
-    signedState: deps.signOAuthStatePayload(JSON.stringify(statePayload)),
-    deps,
-  });
-  const acceptHeader = request.headers.get("accept") ?? "";
-  if (acceptHeader.includes("application/json")) {
-    return jsonResponse(request, {
-      ok: true,
-      oauth_start_url: authUrl,
-      localhost_callback_command: OPENAI_LOCALHOST_CALLBACK_COMMAND,
-      localhost_redirect_uri: resolveOpenAiOauthRedirectUri(request.url, deps),
-    });
-  }
-  return new Response(
-    null,
-    withSecurityHeaders(request, {
-      status: 302,
-      headers: { Location: authUrl },
-    }),
-  );
-};
-
-export const handleCompleteOpenAiOauthRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  const sessionIdentity = await resolveSessionFromRequest(request, deps);
-  if (!sessionIdentity) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.unauthorized,
-      },
-      401,
-    );
-  }
-  if (!canManageOpenAiOauthKey(sessionIdentity)) {
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
-      },
-      403,
-    );
-  }
-
-  try {
-    const payload = parseOpenAiOauthCompletePayload(deps.parseJsonPayload(await request.text()));
-    const parsed = parseOpenAiOauthCallbackInput(payload.callback_url);
-    const decodedState = deps.verifyAndDecodeOAuthStatePayload(parsed.state);
-    if ("reason" in decodedState) {
-      throw createAutomationRouteError("automation_route_failed", "Invalid OpenAI OAuth state.");
-    }
-    const state = parseOpenAiOauthState(decodedState.payloadRaw, deps);
-    if (state.org_id !== sessionIdentity.orgId || state.user_id !== sessionIdentity.userId) {
-      throw createAutomationRouteError(
-        "automation_route_failed",
-        "OpenAI OAuth state does not match the current session.",
-      );
-    }
-    await completeOpenAiOauthCredentialUpsert({
-      convex: deps.convex,
-      orgId: state.org_id,
-      userId: state.user_id,
-      code: parsed.code,
-      verifier: state.verifier,
-      redirectUri: resolveOpenAiOauthRedirectUri(request.url, deps),
-      deps,
-    });
-    return jsonResponse(request, {
-      ok: true,
-      status: "connected",
-    });
-  } catch (error) {
-    const payloadError = mapInvalidPayloadError(error);
-    if (payloadError) {
-      return jsonResponse(request, payloadError, 400);
-    }
-    const { code, message } = extractAutomationRouteError(error);
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.dispatchFailed,
-        error: message,
-        ...(code ? { error_code: code } : {}),
-      },
-      400,
-    );
-  }
-};
-
-export const handleOpenAiCallbackRequest = async (
-  request: Request,
-  deps = getDefaultDeps(),
-): Promise<Response> => {
-  const url = new URL(request.url);
-  const decodedState = deps.verifyAndDecodeOAuthStatePayload(url.searchParams.get("state"));
-  let returnTo = "/settings";
-  try {
-    if ("reason" in decodedState) {
-      throw createAutomationRouteError("automation_route_failed", "Invalid OpenAI OAuth state.");
-    }
-    const state = parseOpenAiOauthState(decodedState.payloadRaw, deps);
-    returnTo = state.return_to;
-    const code = url.searchParams.get("code")?.trim() ?? "";
-    if (!code) {
-      throw createAutomationRouteError("automation_route_failed", "Missing OpenAI OAuth code.");
-    }
-    await completeOpenAiOauthCredentialUpsert({
-      convex: deps.convex,
-      orgId: state.org_id,
-      userId: state.user_id,
-      code,
-      verifier: state.verifier,
-      redirectUri: resolveOpenAiOauthRedirectUri(request.url, deps),
-      deps,
-    });
-    return new Response(
-      null,
-      withSecurityHeaders(request, {
-        status: 302,
-        headers: {
-          Location: buildDashboardRedirectUrl(
-            request.url,
-            returnTo,
-            {
-              ai_key_status: "connected",
-              ai_key_provider: "openai",
-              ai_key_mode: "subscription_token",
-            },
-            deps,
-          ),
-        },
-      }),
-    );
-  } catch (error) {
-    const { message } = extractAutomationRouteError(error);
-    return new Response(
-      null,
-      withSecurityHeaders(request, {
-        status: 302,
-        headers: {
-          Location: buildDashboardRedirectUrl(
-            request.url,
-            returnTo,
-            {
-              ai_key_status: "error",
-              ai_key_provider: "openai",
-              ai_key_error: message,
-            },
-            deps,
-          ),
-        },
-      }),
-    );
-  }
-};
-
 export const dispatchStartOwnedAutomationApiRequest = async (
   request: Request,
   deps = getDefaultDeps(),
@@ -1482,15 +938,6 @@ export const dispatchStartOwnedAutomationApiRequest = async (
   }
   if (request.method === "POST" && pathname === "/api/automations/generate-prompt") {
     return await handleGenerateAutomationPromptRequest(request, deps);
-  }
-  if (request.method === "GET" && pathname === OPENAI_AUTOMATION_CONNECT_PATH) {
-    return await handleOpenAiConnectRequest(request, deps);
-  }
-  if (request.method === "GET" && pathname === OPENAI_AUTOMATION_CALLBACK_PATH) {
-    return await handleOpenAiCallbackRequest(request, deps);
-  }
-  if (request.method === "POST" && pathname === "/api/automations/openai/complete") {
-    return await handleCompleteOpenAiOauthRequest(request, deps);
   }
 
   return null;

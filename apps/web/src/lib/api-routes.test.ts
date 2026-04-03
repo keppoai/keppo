@@ -16,9 +16,6 @@ describe("start-owned api paths", () => {
     expect(isStartOwnedApiPath("/api/billing/credits/checkout")).toBe(true);
     expect(isStartOwnedApiPath("/api/automations/generate-questions")).toBe(true);
     expect(isStartOwnedApiPath("/api/automations/generate-prompt")).toBe(true);
-    expect(isStartOwnedApiPath("/api/automations/openai/connect")).toBe(true);
-    expect(isStartOwnedApiPath("/api/automations/openai/complete")).toBe(true);
-    expect(isStartOwnedApiPath("/api/automations/openai/callback")).toBe(true);
     expect(isStartOwnedApiPath("/api/mcp/test")).toBe(true);
     expect(isStartOwnedApiPath("/api/oauth/integrations/google/connect")).toBe(true);
     expect(isStartOwnedApiPath("/api/notifications/push/subscribe")).toBe(true);

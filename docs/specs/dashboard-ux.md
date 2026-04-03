@@ -334,11 +334,8 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - when hosted bundled runtime is enabled, the page hides self-managed API-key entry, explains that Keppo manages runtime credentials automatically, and shows any bundled credential rows as billing-managed records.
   - when hosted bundled runtime is unavailable, the page falls back to the self-managed AI key manager:
     - list stored active/inactive keys with provider/mode/hint and update time; user-removed BYOK and `subscription_token` credentials disappear after deletion instead of lingering as inactive rows.
-    - add/update key flow (`provider`, `key_mode`, secret input) via `org_ai_keys:upsertOrgAiKey`.
-    - OpenAI `subscription_token` mode uses the direct localhost callback flow:
-      - primary CTA issues `GET /api/automations/openai/connect` and opens the ChatGPT authorize URL in a new tab,
-      - UI presents the localhost callback command, the signed authorize URL, and the expected redirect URI,
-      - connect metadata stays visible until a live `openai_oauth` key appears in the org key list or the operator clears the flow.
+    - add/update key flow (`provider`, secret input) creates BYOK credentials via `org_ai_keys:upsertOrgAiKey`.
+    - legacy OpenAI `subscription_token` credentials can remain visible for existing orgs but cannot be created from the dashboard anymore.
     - remove flow via `org_ai_keys:deleteOrgAiKey`; bundled keys remain billing-managed and cannot be removed from the dashboard.
     - inline usage summary of which providers are currently running in bundled or self-managed mode based on present org billing and key state, rather than storing per-automation mode selections.
 - Settings page includes AI credit panel:
