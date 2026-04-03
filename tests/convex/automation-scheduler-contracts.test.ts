@@ -146,6 +146,7 @@ describe("automation scheduler contract boundaries", () => {
 
   it("derives the local E2E dispatch URL from the route-owning worker port when namespace is set", async () => {
     vi.useFakeTimers();
+    vi.stubEnv("KEPPO_E2E_MODE", "true");
     vi.stubEnv("KEPPO_E2E_PORT_BASE", "9900");
     vi.stubEnv("KEPPO_E2E_PORT_BLOCK_SIZE", "20");
     const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));

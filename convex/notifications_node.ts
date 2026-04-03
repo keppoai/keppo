@@ -80,8 +80,7 @@ const resolveInternalAuthHeader = (namespace?: string): string | null => {
   const secret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
-    process.env.VERCEL_CRON_SECRET ??
-    namespaceSecret;
+    process.env.VERCEL_CRON_SECRET;
   if (!secret) {
     return null;
   }
