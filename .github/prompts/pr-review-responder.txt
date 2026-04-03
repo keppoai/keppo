@@ -2,7 +2,7 @@
 
 Process cleanup safety: do not use broad process-kill commands such as `pkill -f`, `killall`, or regex/name-based cleanup that could match the agent runner or unrelated services. If cleanup is required, terminate only the specific PIDs you started explicitly.
 
-CI FAILURES ARE YOUR TOP PRIORITY. If the context includes failing GitHub Actions checks (test failures, E2E failures, lint errors, type errors, build failures, or any other check failures), you MUST investigate and fix them. Use `gh` read-only commands to fetch workflow run logs and identify the root cause. Fix the underlying application or test code — do not skip, disable, or mark tests as expected-fail unless the test itself is fundamentally broken and unfixable.
+CI FAILURES ARE YOUR TOP PRIORITY. Investigate every failing GitHub Actions check in the context. For non-E2E failures (lint, typecheck, build, unit/integration tests, workflow errors, and similar), you MUST investigate and fix them. For E2E failures, first determine whether the failure is plausibly caused by this PR by comparing the failure to the PR diff, `changedFiles` in the context, and the failing spec/log details you gather with read-only `gh` commands. If an E2E failure is clearly unrelated to the PR, do NOT make speculative code changes just to chase it. Instead, leave it unfixed for this pass and call it out explicitly in `summaryComment` with the failing check/spec name and a brief reason it appears unrelated. Only PR-related E2E failures are mandatory fixes.
 
 Failure diagnosis requirements: when a failing check involves infrastructure, runtime instability, process death, timeouts, port binding failures, browser disconnects, or messages like `Killed`, `ENOMEM`, `ENOSPC`, `ECONNREFUSED`, `fetch failed`, or similar symptoms, you must diagnose the cause with concrete evidence before deciding the issue is flaky or environmental. Check the relevant local and CI signals that are available in the workspace/runner, including:
 - process exit cause and surrounding logs
@@ -15,7 +15,7 @@ Failure diagnosis requirements: when a failing check involves infrastructure, ru
 Do not stop at "Convex died", "Playwright flaked", or similar summaries. Your notes, TODOs, and final summary must state the most likely cause, the evidence you gathered, and whether the fix is code, test harness, runner-resource, or configuration related.
 
 TODO LIST — Do this first, before any other work:
-Read `{{PR_CONTEXT_PATH}}` and `{{PR_CONTEXT_SUMMARY_PATH}}`, then write a `TODOS.md` file in the repo root listing every task you need to complete. Include an item for each: CI failure to investigate, review thread to address, `trustedReviews`/`trustedIssueComments` feedback item, code change needed, `pnpm check` run, E2E verification (if applicable), self-review of PR context, and writing `{{PR_ACTIONS_PATH}}`. Use GitHub Flavored Markdown checkboxes (`- [ ] task`). Update the file to mark each item done (`- [x] task`) as you complete it. Do NOT skip ahead — work through the list sequentially.
+Read `{{PR_CONTEXT_PATH}}` and `{{PR_CONTEXT_SUMMARY_PATH}}`, then write a `TODOS.md` file in the repo root listing every task you need to complete. Include an item for each: CI failure to investigate, review thread to address, `trustedReviews`/`trustedIssueComments` feedback item, code change needed, `pnpm check` run, E2E verification (if applicable), self-review of PR context, and writing `{{PR_ACTIONS_PATH}}`. If you classify an E2E failure as unrelated to the PR, include a TODO item to document that decision in `summaryComment` instead of creating a code-fix item for it. Use GitHub Flavored Markdown checkboxes (`- [ ] task`). Update the file to mark each item done (`- [x] task`) as you complete it. Do NOT skip ahead — work through the list sequentially.
 
 MANDATORY GATE before writing `{{PR_ACTIONS_PATH}}`:
 Re-read `TODOS.md`. If any item is still `- [ ]`, stop and complete it before proceeding. Once every item is `- [x]`, you MUST write `{{PR_ACTIONS_PATH}}` — skipping it is not an option and will fail the workflow. After writing `{{PR_ACTIONS_PATH}}`, delete `TODOS.md`.
@@ -33,9 +33,9 @@ Each `threadActions` entry MUST match exactly one of these three shapes:
 - reply_and_resolve: `{"threadId":"<id>","action":"reply_and_resolve","commentId":123,"body":"markdown reply"}` — `commentId` and `body` required.
 - reply_only: `{"threadId":"<id>","action":"reply_only","commentId":123,"body":"markdown reply"}` — `commentId` and `body` required.
 
-If there are no threads to act on and no CI issues and no review/comment feedback, write `{"summaryComment":"No action needed.","threadActions":[]}`.
+If there are no threads to act on and no CI issues and no review/comment feedback, write `{"summaryComment":"No action needed.","threadActions":[]}`. If the only remaining CI failures are E2E failures you determined are unrelated to the PR, write a non-empty `summaryComment` that names those failures and explains why this pass intentionally left them alone.
 
-The context file also includes `trustedReviews` (top-level PR review bodies, e.g. "Changes Requested" reviews with body text) and `trustedIssueComments` (top-level PR conversation comments). These do not have thread IDs so they cannot be resolved via `threadActions`. Instead, address their feedback through code changes and mention what you did in the `summaryComment`.
+The context file also includes `trustedReviews` (top-level PR review bodies, e.g. "Changes Requested" reviews with body text), `trustedIssueComments` (top-level PR conversation comments), and `changedFiles` (the PR file scope). The reviews/comments do not have thread IDs so they cannot be resolved via `threadActions`. Instead, address their feedback through code changes and mention what you did in the `summaryComment`.
 
 Requirements:
 1. Work on the checked-out PR head branch only.
@@ -43,14 +43,16 @@ Requirements:
 3. Consult `docs/rules/product-principles.md` before deciding whether trusted review comments are valid, invalid, or ambiguous.
 4. If code changes are needed, make them locally and create a local git commit using a Conventional Commit message.
 5. **`pnpm check` MUST pass before you finish.** After all code changes are complete, run `pnpm check`. If it fails, fix every error and re-run until it exits 0. There are no exceptions — "pre-existing" errors, errors in files you didn't touch, and errors that look hard are still your responsibility. If `pnpm check` is not green when you stop, the run is a failure. Do not write `{{PR_ACTIONS_PATH}}` until `pnpm check` passes.
-6. **E2E verification after fixing E2E failures:** If the CI context includes failing E2E tests and you made code changes to fix them, the required local E2E verification run MUST pass before you finish:
+6. **E2E verification after fixing PR-related E2E failures:** If the CI context includes failing E2E tests and you made code changes to fix PR-related E2E failures, the required local E2E verification run MUST pass before you finish:
    - **12 or fewer failing E2E specs:** Run all of the specific failing test files using `PLAYWRIGHT_ARGS='<space-separated spec paths>' pnpm run test:e2e:base` (e.g. `PLAYWRIGHT_ARGS='tests/e2e/specs/auth/login.spec.ts tests/e2e/specs/actions/pending-to-approved.spec.ts' pnpm run test:e2e:base`). Do not finish until that run exits 0.
    - **More than 12 failing E2E specs:** Run the smoke suite with `pnpm run test:e2e:smoke` to validate broad stability instead of running every failing spec individually. Do not finish until that run exits 0.
    - **Do NOT run the full E2E suite** (`pnpm run test:e2e`). It takes 25+ minutes locally and is only meant for CI with sharding.
+   - Do not run local E2E retries for failures you classified as unrelated to the PR.
    - If the local E2E retry fails because the stack dies or becomes unreachable, inspect the failure before trying speculative code changes. Gather concrete diagnostics such as service logs, `df`, memory/process state, and port-listener state for the expected local services so you can distinguish resource exhaustion from an application bug or harness bug.
 7. Use `resolve` when code changes fully address a trusted thread without a reply.
 8. `resolve` actions must omit both `commentId` and `body`.
 9. `reply_and_resolve` and `reply_only` must include the thread's workflow-provided `replyCommentId` and a non-empty `body`.
 10. Use `reply_and_resolve` when a trusted thread needs an explanation before resolution.
 11. Use `reply_only` when a trusted thread should stay open for human attention.
-12. Include the optional `demo` field only when your PR-fix changes introduce significant UI or product-facing behavior changes that need a reviewer demo. When `demo` is present, `videoPath` must be a relative repo path under `ux-artifacts/video-demos/` and the file must exist by the time you finish.
+12. When you classify any E2E failure as unrelated, `summaryComment` must explicitly name the failing check or spec and briefly explain why it appears outside the PR's scope.
+13. Include the optional `demo` field only when your PR-fix changes introduce significant UI or product-facing behavior changes that need a reviewer demo. When `demo` is present, `videoPath` must be a relative repo path under `ux-artifacts/video-demos/` and the file must exist by the time you finish.
