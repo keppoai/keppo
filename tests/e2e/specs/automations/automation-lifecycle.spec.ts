@@ -115,34 +115,36 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
   await admin.appendRunLog(runId, 'tool keppo.search_tools({"q":"important unread"})', "stderr", {
     eventType: "tool_call",
     eventData: {
-      tool_name: "keppo.search_tools",
-      args: { q: "important unread" },
+      tool_name: "search_tools",
+      args: { query: "important unread" },
     },
   });
   await admin.appendRunLog(runId, "keppo.search_tools(...) success in 32ms:", "stderr", {
     eventType: "tool_call",
     eventData: {
-      tool_name: "keppo.search_tools",
+      tool_name: "search_tools",
       status: "success",
       duration_ms: 32,
       is_result: true,
-    },
-  });
-  await admin.appendRunLog(
-    runId,
-    '{"items":[{"title":"Inbox delta"},{"title":"Blocked thread"}]}',
-    "stdout",
-    {
-      eventType: "output",
-      eventData: {
-        text: '{"items":[{"title":"Inbox delta"},{"title":"Blocked thread"}]}',
-        format: "json",
-        parsed: {
-          items: [{ title: "Inbox delta" }, { title: "Blocked thread" }],
-        },
+      result: {
+        count: 2,
+        results: [
+          {
+            name: "gmail.listUnread",
+            provider: "google",
+            capability: "read",
+            description: "List unread Gmail threads.",
+          },
+          {
+            name: "gmail.listImportant",
+            provider: "google",
+            capability: "read",
+            description: "List important Gmail threads.",
+          },
+        ],
       },
     },
-  );
+  });
   await admin.appendRunLog(
     runId,
     `tool execute_code(${JSON.stringify({
@@ -168,24 +170,13 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
       status: "success",
       duration_ms: 120,
       is_result: true,
-    },
-  });
-  await admin.appendRunLog(
-    runId,
-    '{"summary":"Inbox delta","blockers":["Blocked thread"]}',
-    "stdout",
-    {
-      eventType: "output",
-      eventData: {
-        text: '{"summary":"Inbox delta","blockers":["Blocked thread"]}',
-        format: "json",
-        parsed: {
-          summary: "Inbox delta",
-          blockers: ["Blocked thread"],
-        },
+      result_text: '{"summary":"Inbox delta","blockers":["Blocked thread"]}',
+      result: {
+        summary: "Inbox delta",
+        blockers: ["Blocked thread"],
       },
     },
-  );
+  });
   await admin.finishRun(runId, "running");
   await admin.finishRun(runId, "failed");
 
@@ -195,15 +186,21 @@ test("automation lifecycle", async ({ app, auth, pages, page }) => {
   await pages.automations.expectLogViewerState(/Run kicked off from automation lifecycle e2e\./i);
   await expect(page.getByText("Thinking", { exact: true })).toHaveCount(1);
   await expect(page.getByText("2 blocks")).toBeVisible();
-  await expect(page.getByText("keppo.search_tools")).toBeVisible();
+  await expect(page.getByText("Search tools", { exact: true })).toBeVisible();
+  await expect(page.getByText("important unread")).toBeVisible();
+  await expect(page.getByText("2 matches: gmail.listUnread, gmail.listImportant")).toBeVisible();
+  await expect(page.getByText("List unread Gmail threads.")).toHaveCount(0);
+  await page.getByRole("button", { name: "Show details" }).click();
+  await expect(page.getByText("gmail.listUnread", { exact: true })).toBeVisible();
+  await expect(page.getByText("List unread Gmail threads.")).toBeVisible();
   await expect(page.getByText("Execute code", { exact: true })).toBeVisible();
   await expect(page.getByText(executeCodeDescription)).toBeVisible();
   await page.getByRole("button", { name: "Show code" }).click();
   await expect(page.getByText("const report = {")).toBeVisible();
   await expect(page.getByText('blockers: ["Blocked thread"],')).toBeVisible();
-  await expect(page.getByText("items")).toBeVisible();
+  await expect(page.getByText("summary", { exact: true })).toBeVisible();
   await page.screenshot({
-    path: "ux-artifacts/automation-run-chat-grouped.png",
+    path: "ux-artifacts/automation-run-chat-grouped-search-tools.png",
     fullPage: true,
     timeout: 20_000,
   });

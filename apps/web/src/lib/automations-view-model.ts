@@ -1394,6 +1394,32 @@ const mergeToolCallResult = (
   return appendDebugLine(previous, line);
 };
 
+const mergeToolCallStart = (
+  previous: RunEventToolCall,
+  current: RunEventToolCall,
+  line: AutomationRunLogLine,
+): RunEventToolCall => {
+  if (previous.args === undefined && current.args !== undefined) {
+    previous.args = current.args;
+  }
+  if (previous.status === undefined && current.status !== undefined) {
+    previous.status = current.status;
+  }
+  if (previous.durationMs === undefined && current.durationMs !== undefined) {
+    previous.durationMs = current.durationMs;
+  }
+  if (previous.result === undefined && current.result !== undefined) {
+    previous.result = current.result;
+  }
+  if (previous.resultText === undefined && current.resultText !== undefined) {
+    previous.resultText = current.resultText;
+  }
+  if (previous.resultFormat === undefined && current.resultFormat !== undefined) {
+    previous.resultFormat = current.resultFormat;
+  }
+  return appendDebugLine(previous, line);
+};
+
 export const toRunEvents = (lines: AutomationRunLogLine[]): RunEvent[] => {
   const events: RunEvent[] = [];
 
@@ -1410,6 +1436,20 @@ export const toRunEvents = (lines: AutomationRunLogLine[]): RunEvent[] => {
           break;
         }
       }
+      continue;
+    }
+
+    if (
+      event.type === "tool_call" &&
+      previous?.type === "tool_call" &&
+      previous.toolName === event.toolName &&
+      previous.status === undefined &&
+      previous.result === undefined &&
+      event.status === undefined &&
+      event.result === undefined &&
+      event.awaitingResult !== true
+    ) {
+      mergeToolCallStart(previous, event, line);
       continue;
     }
 

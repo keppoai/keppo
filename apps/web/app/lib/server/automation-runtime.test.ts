@@ -1234,6 +1234,145 @@ describe("start-owned automation runtime handlers", () => {
     });
   });
 
+  it("classifies Codex mcp lifecycle lines for search_tools and execute_code as tool events", async () => {
+    const deps = createDeps();
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_dispatch_test",
+        automation_id: "automation_dispatch_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_dispatch_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Daily triage",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_dispatch_test", dispatch_token: "dispatch_token_test" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    const callbacks =
+      deps.sandboxProvider.dispatch.mock.calls[0]?.[0]?.runtime?.callbacks ??
+      ({} as Record<string, string>);
+    const logResponse = await dispatchStartOwnedAutomationRuntimeRequest(
+      withJson(callbacks.log_url.replace("http://127.0.0.1", ""), {
+        automation_run_id: "arun_dispatch_test",
+        lines: [
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+            content: "mcp: keppo/search_tools started",
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+            content: "mcp: keppo/search_tools (completed)",
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+            content: "mcp: keppo/execute_code started",
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stderr,
+            content: "mcp: keppo/execute_code (completed)",
+          },
+        ],
+      }),
+      deps,
+    );
+
+    expect(logResponse?.status).toBe(200);
+    expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automationRunId: "arun_dispatch_test",
+        lines: expect.arrayContaining([
+          expect.objectContaining({
+            content: "mcp: keppo/search_tools started",
+            eventType: "tool_call",
+            eventData: {
+              tool_name: "search_tools",
+              source: "mcp_lifecycle",
+            },
+          }),
+          expect.objectContaining({
+            content: "mcp: keppo/search_tools (completed)",
+            eventType: "tool_call",
+            eventData: {
+              tool_name: "search_tools",
+              status: "success",
+              is_result: true,
+              source: "mcp_lifecycle",
+            },
+          }),
+          expect.objectContaining({
+            content: "mcp: keppo/execute_code started",
+            eventType: "tool_call",
+            eventData: {
+              tool_name: "execute_code",
+              source: "mcp_lifecycle",
+            },
+          }),
+          expect.objectContaining({
+            content: "mcp: keppo/execute_code (completed)",
+            eventType: "tool_call",
+            eventData: {
+              tool_name: "execute_code",
+              status: "success",
+              is_result: true,
+              source: "mcp_lifecycle",
+            },
+          }),
+        ]),
+      }),
+    );
+  });
+
   it("claims only the Start-owned internal automation runtime paths", async () => {
     const deps = createDeps();
 

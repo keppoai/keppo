@@ -5,6 +5,7 @@ import {
   ChevronRightIcon,
   Code2Icon,
   InfoIcon,
+  SearchIcon,
   Settings2Icon,
   TerminalIcon,
   WrenchIcon,
@@ -29,6 +30,7 @@ const formatTimestamp = (ts: string): string => {
 };
 
 const EXECUTE_CODE_SUMMARY_FALLBACK = "Executed code";
+const SEARCH_TOOLS_SUMMARY_FALLBACK = "Search tools";
 const EXECUTE_CODE_TOKEN_PATTERN =
   /\/\*[\s\S]*?\*\/|\/\/[^\n\r]*|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[\s\S])*?`|\b(?:async|await|break|case|catch|class|const|continue|default|else|export|extends|false|finally|for|from|function|if|import|let|new|null|return|switch|this|throw|true|try|undefined|var|while)\b|\b\d+(?:\.\d+)?\b/gs;
 
@@ -94,6 +96,103 @@ const getExecuteCodePayload = (
     summary: description || EXECUTE_CODE_SUMMARY_FALLBACK,
     code: code.length > 0 ? code : null,
   };
+};
+
+type SearchToolsResultPreview = {
+  name: string;
+  provider: string | null;
+  capability: string | null;
+  description: string | null;
+  requiresApproval: boolean | null;
+  riskLevel: string | null;
+  actionType: string | null;
+};
+
+const isSearchToolsToolName = (toolName: string): boolean =>
+  toolName === "search_tools" || toolName.endsWith(".search_tools");
+
+const getSearchToolsQuery = (args: Record<string, unknown> | undefined): string => {
+  if (!args) {
+    return "";
+  }
+  if (typeof args.query === "string" && args.query.trim().length > 0) {
+    return args.query.trim();
+  }
+  if (typeof args.q === "string" && args.q.trim().length > 0) {
+    return args.q.trim();
+  }
+  return "";
+};
+
+const toSearchToolsResultPreview = (value: unknown): SearchToolsResultPreview | null => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const entry = value as Record<string, unknown>;
+  const name =
+    typeof entry.name === "string" && entry.name.trim().length > 0
+      ? entry.name.trim()
+      : typeof entry.title === "string" && entry.title.trim().length > 0
+        ? entry.title.trim()
+        : "";
+  if (!name) {
+    return null;
+  }
+  return {
+    name,
+    provider: typeof entry.provider === "string" ? entry.provider : null,
+    capability: typeof entry.capability === "string" ? entry.capability : null,
+    description: typeof entry.description === "string" ? entry.description : null,
+    requiresApproval: typeof entry.requires_approval === "boolean" ? entry.requires_approval : null,
+    riskLevel: typeof entry.risk_level === "string" ? entry.risk_level : null,
+    actionType: typeof entry.action_type === "string" ? entry.action_type : null,
+  };
+};
+
+const getSearchToolsPayload = (
+  event: Extract<RunEvent, { type: "tool_call" }>,
+): {
+  query: string;
+  provider: string | null;
+  capability: string | null;
+  limit: number | null;
+  results: SearchToolsResultPreview[];
+} | null => {
+  if (!isSearchToolsToolName(event.toolName)) {
+    return null;
+  }
+  const args = event.args;
+  const query = getSearchToolsQuery(args);
+  const provider = typeof args?.provider === "string" ? args.provider : null;
+  const capability = typeof args?.capability === "string" ? args.capability : null;
+  const limit = typeof args?.limit === "number" ? args.limit : null;
+  const resultRecord =
+    event.result && typeof event.result === "object" && !Array.isArray(event.result)
+      ? (event.result as Record<string, unknown>)
+      : null;
+  const rawResults = Array.isArray(resultRecord?.results)
+    ? resultRecord.results
+    : Array.isArray(resultRecord?.items)
+      ? resultRecord.items
+      : [];
+  return {
+    query,
+    provider,
+    capability,
+    limit,
+    results: rawResults
+      .map(toSearchToolsResultPreview)
+      .filter((entry): entry is SearchToolsResultPreview => entry !== null),
+  };
+};
+
+const formatSearchToolsPreview = (results: SearchToolsResultPreview[]): string => {
+  if (results.length === 0) {
+    return "No matching tools returned.";
+  }
+  const names = results.slice(0, 3).map((result) => result.name);
+  const suffix = results.length > 3 ? `, +${results.length - 3} more` : "";
+  return `${results.length} match${results.length === 1 ? "" : "es"}: ${names.join(", ")}${suffix}`;
 };
 
 const summarizeJsonNode = (value: unknown): string => {
@@ -511,6 +610,143 @@ const ToolCallBubble = ({
   );
 };
 
+const SearchToolsBubble = ({
+  event,
+  isLatest,
+}: {
+  event: Extract<RunEvent, { type: "tool_call" }>;
+  isLatest?: boolean;
+}) => {
+  const payload = getSearchToolsPayload(event);
+  const [isOpen, setIsOpen] = useState(false);
+  if (!payload) {
+    return null;
+  }
+
+  const isError = event.status === "error";
+
+  return (
+    <BubbleFrame
+      event={event}
+      isLatest={isLatest}
+      icon={<SearchIcon className="size-4 text-sky-700 dark:text-sky-400" />}
+      title="Search tools"
+      className={isError ? "border-l-4 border-l-destructive/80" : "border-l-4 border-l-sky-400/75"}
+      titleClassName={isError ? "text-destructive" : "text-sky-950 dark:text-sky-100"}
+      meta={
+        <>
+          {event.durationMs !== undefined ? (
+            <Badge variant="outline" className="text-[10px]">
+              {event.durationMs}ms
+            </Badge>
+          ) : null}
+          {event.status ? (
+            <Badge variant={isError ? "destructive" : "default"} className="text-[10px] capitalize">
+              {event.status}
+            </Badge>
+          ) : null}
+        </>
+      }
+    >
+      <Collapsible
+        open={isOpen}
+        onOpenChange={setIsOpen}
+        className="rounded-xl border border-black/8 bg-muted/18 px-3 py-2.5 dark:border-white/8"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <SectionLabel>Query</SectionLabel>
+            <p className="mt-1 break-words font-mono text-sm">
+              {payload.query || SEARCH_TOOLS_SUMMARY_FALLBACK}
+            </p>
+            <p className="text-muted-foreground mt-1 text-xs">
+              {formatSearchToolsPreview(payload.results)}
+            </p>
+            {payload.provider || payload.capability || payload.limit !== null ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {payload.provider ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    provider: {payload.provider}
+                  </Badge>
+                ) : null}
+                {payload.capability ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    capability: {payload.capability}
+                  </Badge>
+                ) : null}
+                {payload.limit !== null ? (
+                  <Badge variant="outline" className="text-[10px]">
+                    limit: {payload.limit}
+                  </Badge>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+
+          <CollapsibleTrigger className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 text-xs font-medium">
+            <ChevronRightIcon className="run-collapsible-chevron size-3" />
+            {isOpen ? "Hide details" : "Show details"}
+          </CollapsibleTrigger>
+        </div>
+
+        <CollapsibleContent className="data-[state=closed]:hidden data-[state=open]:block">
+          <div className="mt-3 space-y-3">
+            {payload.results.length > 0 ? (
+              <div>
+                <SectionLabel>Matches</SectionLabel>
+                <div className="mt-2 space-y-2">
+                  {payload.results.map((result) => (
+                    <div
+                      key={`${event.seq}-${result.name}`}
+                      className="bg-muted/35 rounded-lg px-3 py-2.5"
+                    >
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-mono text-xs font-semibold">{result.name}</span>
+                        {result.provider ? (
+                          <Badge variant="secondary" className="text-[10px]">
+                            {result.provider}
+                          </Badge>
+                        ) : null}
+                        {result.capability ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            {result.capability}
+                          </Badge>
+                        ) : null}
+                        {result.actionType ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            {result.actionType}
+                          </Badge>
+                        ) : null}
+                        {result.riskLevel ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            risk: {result.riskLevel}
+                          </Badge>
+                        ) : null}
+                        {result.requiresApproval !== null ? (
+                          <Badge variant="outline" className="text-[10px]">
+                            {result.requiresApproval ? "approval required" : "no approval"}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      {result.description ? (
+                        <p className="text-muted-foreground mt-2 text-sm leading-6">
+                          {result.description}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <ToolCallResultSection event={event} />
+            )}
+          </div>
+        </CollapsibleContent>
+      </Collapsible>
+    </BubbleFrame>
+  );
+};
+
 const ExecuteCodeBubble = ({
   event,
   isLatest,
@@ -665,6 +901,9 @@ export function RunChatBubble({ event, isLatest = false }: RunChatBubbleProps) {
     case "thinking":
       return <ThinkingBubble event={event} isLatest={isLatest} />;
     case "tool_call":
+      if (isSearchToolsToolName(event.toolName)) {
+        return <SearchToolsBubble event={event} isLatest={isLatest} />;
+      }
       if (event.toolName === "execute_code") {
         return <ExecuteCodeBubble event={event} isLatest={isLatest} />;
       }
