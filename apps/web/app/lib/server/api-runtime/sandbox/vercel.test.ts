@@ -98,8 +98,14 @@ describe("VercelSandboxProvider", () => {
           KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
           KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
           KEPPO_SESSION_ARTIFACT_CALLBACK_URL: baseConfig.runtime.callbacks.session_artifact_url,
+          KEPPO_TIMEOUT_GRACE_MS: "5000",
         }),
       }),
+    );
+    const writtenEntrypoint = writeFiles.mock.calls[0]?.[0]?.[0];
+    expect(writtenEntrypoint?.path).toBe("/vercel/sandbox/keppo-automation-runner.mjs");
+    expect(Buffer.from(writtenEntrypoint?.content ?? "").toString("utf8")).toContain(
+      'child.kill("SIGTERM");',
     );
     expect(updateNetworkPolicy).toHaveBeenCalledTimes(1);
     expect(writeFiles).toHaveBeenCalledTimes(1);

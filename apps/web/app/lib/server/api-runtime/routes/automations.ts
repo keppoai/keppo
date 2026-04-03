@@ -560,7 +560,7 @@ export const buildRunnerCommand = (params: {
     ? ` --config 'model_provider="${CODEX_CUSTOM_OPENAI_PROVIDER_ID}"'`
     : "";
   const codexCommand = `codex exec --json --skip-git-repo-check${automationApprovalBypassFlag}${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
-  return `${codexCommand}; ${buildCodexSessionArtifactUploadCommand()}`;
+  return buildManagedCodexRunnerCommand(codexCommand);
 };
 
 export const buildAutomationRunnerPrompt = (prompt: string): string => {
@@ -646,12 +646,68 @@ const buildCodexSessionArtifactUploadScript = (): string => {
 
 const buildCodexSessionArtifactUploadCommand = (): string => {
   return [
-    "runner_exit=$?",
-    'if [ -n "${KEPPO_SESSION_ARTIFACT_CALLBACK_URL:-}" ]; then',
+    '_keppo_runner_callback_url="${KEPPO_SESSION_ARTIFACT_CALLBACK_URL:-}"',
+    'if [ -n "$_keppo_runner_callback_url" ]; then',
     `  node -e ${shellQuote(buildCodexSessionArtifactUploadScript())} || true`,
     "fi",
-    "exit $runner_exit",
-  ].join("; ");
+  ].join("\n");
+};
+
+const buildManagedCodexRunnerCommand = (codexCommand: string): string => {
+  return [
+    "{",
+    "  _keppo_upload_session_artifact() {",
+    buildCodexSessionArtifactUploadCommand()
+      .split("\n")
+      .map((line) => `    ${line}`)
+      .join("\n"),
+    "  }",
+    "",
+    '  _keppo_runner_child_pid=""',
+    '  _keppo_runner_stopping="0"',
+    '  _keppo_runner_grace_ms="${KEPPO_TIMEOUT_GRACE_MS:-5000}"',
+    '  case "$_keppo_runner_grace_ms" in',
+    '    ""|*[!0-9]*) _keppo_runner_grace_ms=5000 ;;',
+    "  esac",
+    "  _keppo_runner_grace_seconds=$(((_keppo_runner_grace_ms + 999) / 1000))",
+    '  if [ "$_keppo_runner_grace_seconds" -lt 1 ]; then',
+    "    _keppo_runner_grace_seconds=1",
+    "  fi",
+    "",
+    "  _keppo_wait_for_runner_exit() {",
+    '    if [ -z "$_keppo_runner_child_pid" ]; then',
+    "      return 0",
+    "    fi",
+    '    _keppo_runner_remaining="$_keppo_runner_grace_seconds"',
+    '    while [ "$_keppo_runner_remaining" -gt 0 ] && kill -0 "$_keppo_runner_child_pid" 2>/dev/null; do',
+    "      sleep 1",
+    "      _keppo_runner_remaining=$((_keppo_runner_remaining - 1))",
+    "    done",
+    '    wait "$_keppo_runner_child_pid" >/dev/null 2>&1 || true',
+    "  }",
+    "",
+    "  _keppo_on_term() {",
+    '    if [ "$_keppo_runner_stopping" = "1" ]; then',
+    "      return",
+    "    fi",
+    '    _keppo_runner_stopping="1"',
+    '    if [ -n "$_keppo_runner_child_pid" ]; then',
+    '      kill -TERM "$_keppo_runner_child_pid" 2>/dev/null || true',
+    "      _keppo_wait_for_runner_exit",
+    "    fi",
+    "    _keppo_upload_session_artifact",
+    "    exit 143",
+    "  }",
+    "",
+    "  trap '_keppo_on_term' TERM INT",
+    `  sh -lc ${shellQuote(codexCommand)} &`,
+    '  _keppo_runner_child_pid="$!"',
+    '  wait "$_keppo_runner_child_pid"',
+    '  _keppo_runner_exit="$?"',
+    "  _keppo_upload_session_artifact",
+    '  exit "$_keppo_runner_exit"',
+    "}",
+  ].join("\n");
 };
 
 const shouldUseCodexCustomOpenAiProvider = (params: {

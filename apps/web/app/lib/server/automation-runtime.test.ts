@@ -286,10 +286,11 @@ describe("start-owned automation runtime handlers", () => {
       },
     });
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
+    expect(dispatchArg.runtime.command).toContain("trap '_keppo_on_term' TERM INT");
     expect(dispatchArg.runtime.callbacks.log_url).toContain("/internal/automations/log?");
     expect(dispatchArg.runtime.callbacks.complete_url).toContain("/internal/automations/complete?");
     expect(dispatchArg.runtime.callbacks.session_artifact_url).toContain(
@@ -528,9 +529,10 @@ describe("start-owned automation runtime handlers", () => {
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.network_access).toBe("mcp_and_web");
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
+    expect(dispatchArg.runtime.command).not.toContain('sandbox_mode="workspace-write"');
   });
 
   it("dispatches bundled runs through the gateway and deducts runtime credits", async () => {
@@ -629,8 +631,9 @@ describe("start-owned automation runtime handlers", () => {
       OPENAI_BASE_URL: "https://gateway.keppo.test",
     });
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider=\"keppo_openai_api\"' --model 'gpt-5.2'",
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
+    expect(dispatchArg.runtime.command).toContain('model_provider="keppo_openai_api"');
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
   });
 

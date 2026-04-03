@@ -28,7 +28,7 @@ type UnikraftClientLike = Pick<
 
 const DEFAULT_LOG_POLL_INTERVAL_MS = 1_000;
 const DEFAULT_LOG_LIMIT_BYTES = 16_384;
-const DEFAULT_DRAIN_TIMEOUT_MS = 2_000;
+const DEFAULT_DRAIN_TIMEOUT_MS = 5_000;
 const INSTANCE_STATE_POLL_INTERVAL = 5;
 const MONITOR_FAILURE_MESSAGE =
   "The remote sandbox stopped unexpectedly before the automation completed.";
@@ -251,6 +251,7 @@ export class UnikraftSandboxProvider implements SandboxProvider {
         KEPPO_COMPLETE_CALLBACK_URL: config.runtime.callbacks.complete_url,
         KEPPO_SESSION_ARTIFACT_CALLBACK_URL: config.runtime.callbacks.session_artifact_url,
         KEPPO_TIMEOUT_MS: String(config.timeout_ms),
+        KEPPO_TIMEOUT_GRACE_MS: String(DEFAULT_DRAIN_TIMEOUT_MS),
       },
       autostart: true,
       restart_policy: "never",

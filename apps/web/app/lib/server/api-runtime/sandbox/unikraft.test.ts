@@ -96,6 +96,7 @@ describe("UnikraftSandboxProvider", () => {
           KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
           KEPPO_SESSION_ARTIFACT_CALLBACK_URL: baseConfig.runtime.callbacks.session_artifact_url,
           KEPPO_TIMEOUT_MS: "50",
+          KEPPO_TIMEOUT_GRACE_MS: "5000",
         }),
       }),
     );
@@ -141,7 +142,7 @@ describe("UnikraftSandboxProvider", () => {
 
     await provider.terminate("inst_cancelled");
 
-    expect(stopInstance).toHaveBeenCalledWith("inst_cancelled", { drainTimeoutMs: 2_000 });
+    expect(stopInstance).toHaveBeenCalledWith("inst_cancelled", { drainTimeoutMs: 5_000 });
     expect(deleteInstance).toHaveBeenCalledWith("inst_cancelled");
     expect(fetchFn).toHaveBeenCalledWith(
       baseConfig.runtime.callbacks.complete_url,
@@ -198,7 +199,7 @@ describe("UnikraftSandboxProvider", () => {
       },
       { timeout: 2_500 },
     );
-    expect(stopInstance).toHaveBeenCalledWith("inst_timeout", { drainTimeoutMs: 2_000 });
+    expect(stopInstance).toHaveBeenCalledWith("inst_timeout", { drainTimeoutMs: 5_000 });
     expect(deleteInstance).toHaveBeenCalledWith("inst_timeout");
   });
 
@@ -235,7 +236,7 @@ describe("UnikraftSandboxProvider", () => {
         }),
       );
     });
-    expect(stopInstance).toHaveBeenCalledWith("inst_error", { drainTimeoutMs: 2_000 });
+    expect(stopInstance).toHaveBeenCalledWith("inst_error", { drainTimeoutMs: 5_000 });
     expect(deleteInstance).toHaveBeenCalledWith("inst_error");
   });
 });

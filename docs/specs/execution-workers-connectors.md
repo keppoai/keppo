@@ -95,12 +95,14 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - builds or reuses the local sandbox image from `apps/web/app/lib/server/api-runtime/sandbox/Dockerfile`,
   - launches each automation run in a real detached Docker container instead of a host subprocess,
   - rewrites loopback MCP/callback targets (`localhost`, `127.0.0.1`, `::1`) to `host.docker.internal` for in-container reachability,
+  - uses a soft-stop grace window before force-removing timed-out or terminated containers so the in-sandbox runner wrapper can attempt a final Codex session-artifact upload,
   - streams container stdout/stderr back through the existing signed log callback and posts terminal completion from the api-runtime host after `docker wait`,
   - stores `sandbox_id` as the Start-owned runtime sandbox handle used for later container termination.
 - Production `vercel` sandbox provider behavior:
   - creates a Vercel Sandbox VM with separate bootstrap/runtime stages,
   - keeps bootstrap env minimal and restricted to package-registry networking while installing the requested runner CLI (`@openai/codex@0.118.0` for Codex runs, `@anthropic-ai/claude-code` for Claude runs),
   - launches an in-sandbox Node wrapper that executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
+  - escalates timeouts and terminate requests from `SIGTERM` to `SIGKILL` only after a short grace window so the runner shell can upload the latest Codex session artifact before the VM is stopped,
   - maps the saved automation `network_access` mode into both sandbox egress policy and runner-native tool restrictions (Codex uses `--config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'` for `mcp_only` and otherwise relies on the default `codex exec` network-enabled behavior for `mcp_and_web`; Claude Code adds `--disallowed-tools WebFetch,WebSearch` for `mcp_only` and otherwise relies on the default tool set),
   - stores `sandbox_id` as an opaque sandbox-handle that includes the detached command identifier so terminate requests can signal the runner process before stopping the VM,
   - when Deployment Protection is enabled in `preview` or `staging`, uses `VERCEL_AUTOMATION_BYPASS_SECRET` for Convex dispatch/terminate requests and sandbox-origin callback traffic, and appends the same bypass token to sandbox MCP URLs because the runner CLI can only consume the MCP endpoint as a URL; `production` does not inject or propagate that bypass secret,
@@ -111,6 +113,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - reuses the same automation sandbox image contract as Docker, so the guest entrypoint reads `KEPPO_RUNNER_COMMAND` and launches the requested runner inside the MicroVM; image-based Codex runs inherit the same pinned `@openai/codex@0.118.0` install as the local Docker sandbox image,
   - polls instance logs through the Unikraft REST API and forwards bounded stdout batches to `/internal/automations/log`,
   - posts terminal completion from the host after the instance reaches a terminal state or is cancelled/timed out,
+  - uses the Unikraft drain-timeout stop path before deletion so timed-out or cancelled runs get a last chance to upload the newest Codex session artifact from inside the guest,
   - deletes the instance on completion, timeout, or cancellation instead of relying on persistent VM state,
   - does not enforce instance-level egress policy; `mcp_only` versus `mcp_and_web` continues to be enforced at the runner/tooling layer.
 - Code Mode `unikraft` sandbox behavior:
@@ -130,8 +133,9 @@ These guarantees are unchanged by the queue migration; only execution transport 
 - Callback/log contract:
   - log/complete callback URLs are HMAC-signed and include run-scoped expiry metadata.
   - ChatGPT Codex automation runs invoke `codex exec --json` so live sandbox stdout is a structured JSONL event stream rather than only human-oriented stderr text.
+  - Codex runner commands are wrapped in a shell that traps graceful termination, asks the child runner to stop, waits briefly, and then attempts a final upload of the newest Codex session file before exiting.
   - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`; Codex `--json` records are classified into the existing structured event types (`system`, `thinking`, `tool_call`, `output`, `error`) before persistence.
-  - `/internal/automations/session-artifact` accepts a signed upload of the newest Codex session file from `$HOME/.codex/sessions/**/*.json|jsonl`, stores it in private Convex storage, and records only metadata plus a short system log line in the run timeline.
+  - `/internal/automations/session-artifact` accepts a signed upload of the newest Codex session file from `$HOME/.codex/sessions/**/*.json|jsonl`, stores it in private Convex storage, and records only metadata plus a short system log line in the run timeline. Normal exits and graceful timeout/termination paths both use this same callback.
   - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`, retries transient persistence failures with exponential backoff before surfacing a typed `complete_failed` response, and logs the failed terminal write with the run id and intended terminal status when retries are exhausted.
   - automation-backed MCP sessions expose one additional internal tool, `record_outcome`, which is unavailable to normal MCP clients and records a single final outcome on the owning automation run.
   - `record_outcome` writes are exactly-once at the run level: the first valid call wins, duplicate calls fail, and terminal lifecycle updates synthesize a fallback outcome that matches the final terminal status when no valid outcome was recorded before the run ended. If a run later finishes in a failure state after an earlier success outcome was recorded, the terminal failure replaces that stale success with a fallback failure outcome.

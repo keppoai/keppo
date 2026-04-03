@@ -21,6 +21,7 @@ type TrackedContainer = {
 const DOCKER_IMAGE_TAG = "keppo-automation-sandbox:local-v2";
 const DOCKER_HOST_ALIAS = "host.docker.internal";
 const DOCKER_HOST_GATEWAY = `${DOCKER_HOST_ALIAS}:host-gateway`;
+const TERMINATION_GRACE_MS = 5_000;
 
 const resolveRepoRootPath = (): string => {
   let current = resolve(process.cwd());
@@ -282,6 +283,26 @@ const removeContainer = async (spawnFn: SpawnFn, containerName: string): Promise
   }
 };
 
+const stopContainer = async (spawnFn: SpawnFn, containerName: string): Promise<void> => {
+  const timeoutSeconds = Math.max(1, Math.ceil(TERMINATION_GRACE_MS / 1_000));
+  const result = await runDockerCommand(spawnFn, [
+    "stop",
+    "-t",
+    String(timeoutSeconds),
+    containerName,
+  ]).catch(() => null);
+  if (!result) {
+    return;
+  }
+  if (
+    result.code !== 0 &&
+    !result.stderr.includes("No such container") &&
+    !result.stderr.includes("is already in progress")
+  ) {
+    throw new Error(result.stderr.trim() || result.stdout.trim() || "Failed to stop container");
+  }
+};
+
 const monitorContainerLifecycle = async (
   spawnFn: SpawnFn,
   sandboxId: string,
@@ -298,7 +319,9 @@ const monitorContainerLifecycle = async (
   const timeout = setTimeout(
     () => {
       timedOutSandboxes.add(sandboxId);
-      void removeContainer(spawnFn, containerName).catch(() => undefined);
+      void stopContainer(spawnFn, containerName).catch(() =>
+        removeContainer(spawnFn, containerName).catch(() => undefined),
+      );
     },
     Math.max(1, config.timeout_ms),
   );
@@ -399,6 +422,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       KEPPO_COMPLETE_CALLBACK_URL: dockerConfig.runtime.callbacks.complete_url,
       KEPPO_SESSION_ARTIFACT_CALLBACK_URL: dockerConfig.runtime.callbacks.session_artifact_url,
       KEPPO_TIMEOUT_MS: String(Math.max(1, dockerConfig.timeout_ms)),
+      KEPPO_TIMEOUT_GRACE_MS: String(TERMINATION_GRACE_MS),
     };
 
     const command = composeDockerCommand(dockerConfig);
@@ -438,6 +462,8 @@ export class DockerSandboxProvider implements SandboxProvider {
       return;
     }
     cancelledSandboxes.add(sandbox_id);
-    await removeContainer(this.spawnFn, tracked.containerName).catch(() => undefined);
+    await stopContainer(this.spawnFn, tracked.containerName).catch(() =>
+      removeContainer(this.spawnFn, tracked.containerName).catch(() => undefined),
+    );
   }
 }

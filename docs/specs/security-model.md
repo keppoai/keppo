@@ -69,7 +69,8 @@
   - PKCE verifiers for managed OAuth flows stay in server-side storage keyed by the signed state correlation ID; they are not embedded in readable front-channel state.
   - Server-side OAuth connect state for org-scoped integrations also stores the initiating user binding, and callback completion revalidates that same user still has owner/admin integration-management rights before shared credentials are written.
 - Stuck-run safety:
-  - sandbox provider enforces hard timeout.
+  - sandbox providers enforce timeout with a short graceful-stop window first, then escalate to a hard stop if the runner does not exit.
+  - the in-sandbox Codex runner wrapper uses that grace window to attempt a final private session-artifact upload before the provider completes timeout teardown.
   - Convex reaper cron (`automation_scheduler:reapStaleRuns`) marks stale runs `timed_out` and requests sandbox termination.
 
 ### Automation credential and key protection
