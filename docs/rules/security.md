@@ -58,6 +58,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 - Treat forwarded IP headers as untrusted unless `KEPPO_TRUSTED_PROXY` enables a supported proxy mode.
 - Validate redirect hops and resolved addresses for constrained outbound networking.
 - Block loopback, private, link-local, and metadata targets for untrusted outbound requests unless an explicit local-only mode allows them.
+- User-registered push subscription endpoints are untrusted outbound destinations: require `https`, resolve DNS on registration and delivery, and block loopback, private, link-local, metadata, and other internal addresses fail-closed.
 - The Docker sandbox provider is local-dev only. Both automation and code-mode sandbox factories must throw at construction time when `docker` mode is selected outside a local-dev environment (`NODE_ENV=development|test` or `KEPPO_E2E_MODE=true`). Production deployments must use the `vercel` or `unikraft` sandbox provider.
 - Sandboxes should receive the minimum env and network access needed to bootstrap and execute.
 - Sandbox and MCP failure payloads must stay short, typed, and redacted. Return stable error codes and generic operator-safe reasons to clients; keep verbose sandbox internals and raw startup traces out of client-visible responses.

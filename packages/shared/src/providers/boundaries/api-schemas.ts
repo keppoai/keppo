@@ -277,7 +277,13 @@ export const internalNotificationsDeliverRequestSchema = z
 
 export const pushSubscriptionSchema = z
   .object({
-    endpoint: z.string().trim().min(1),
+    endpoint: z.url().refine((value) => {
+      try {
+        return new URL(value).protocol === "https:";
+      } catch {
+        return false;
+      }
+    }, "Push subscription endpoint must use https."),
     keys: z
       .object({
         p256dh: z.string().trim().min(1),

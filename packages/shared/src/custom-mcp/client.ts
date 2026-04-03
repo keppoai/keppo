@@ -6,17 +6,16 @@ import {
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { createErrorTextSignals, hasAllWords, hasAnyWord } from "../provider-sdk/error-signals.js";
+import {
+  BLOCKED_HOSTNAMES,
+  isBlockedIpAddress,
+  isLoopbackAddress,
+  normalizeHostname,
+} from "../network-address-policy.js";
 import type { CustomMcpCallResult, DiscoveryResult, RemoteToolDefinition } from "./types.js";
 
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 15_000;
 const DEFAULT_CALL_TIMEOUT_MS = 30_000;
-const BLOCKED_HOSTNAMES = new Set([
-  "localhost",
-  "metadata",
-  "metadata.google.internal",
-  "metadata.google.internal.",
-]);
-
 type MappedContentItem = {
   type: string;
   text?: string;
@@ -92,112 +91,13 @@ const inInsecureLocalMode = (): boolean =>
   process.env.KEPPO_ALLOW_INSECURE_CUSTOM_MCP_HTTP === "true" ||
   process.env.KEPPO_E2E_MODE === "true";
 
-const toIPv4Octets = (ip: string): number[] | null => {
-  const parts = ip.split(".");
-  if (parts.length !== 4) {
-    return null;
-  }
-  const octets: number[] = [];
-  for (const part of parts) {
-    if (!/^\d{1,3}$/.test(part)) {
-      return null;
-    }
-    const value = Number.parseInt(part, 10);
-    if (!Number.isInteger(value) || value < 0 || value > 255) {
-      return null;
-    }
-    octets.push(value);
-  }
-  return octets;
-};
-
-const isLoopbackAddress = (address: string): boolean => {
-  if (isIP(address) === 4) {
-    const octets = toIPv4Octets(address);
-    return (octets?.[0] ?? -1) === 127;
-  }
-  const normalized = address.trim().toLowerCase();
-  return normalized === "::1" || normalized === "0:0:0:0:0:0:0:1";
-};
-
-const isBlockedIPv4 = (address: string): boolean => {
-  const octets = toIPv4Octets(address);
-  if (!octets) {
-    return true;
-  }
-  const a = octets[0] ?? -1;
-  const b = octets[1] ?? -1;
-  if (a === 0 || a === 10 || a === 127) {
-    return true;
-  }
-  if (a === 169 && b === 254) {
-    return true;
-  }
-  if (a === 172 && b >= 16 && b <= 31) {
-    return true;
-  }
-  if (a === 192 && b === 168) {
-    return true;
-  }
-  if (a === 100 && b >= 64 && b <= 127) {
-    return true;
-  }
-  if (a === 198 && (b === 18 || b === 19)) {
-    return true;
-  }
-  return a >= 224;
-};
-
-const isBlockedIPv6 = (address: string): boolean => {
-  const normalized = address.trim().toLowerCase();
-  if (normalized === "::" || normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") {
-    return true;
-  }
-
-  const mappedIPv4Match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(normalized);
-  if (mappedIPv4Match) {
-    return isBlockedIPv4(mappedIPv4Match[1] ?? "");
-  }
-
-  const noPrefix = normalized.startsWith("::") ? normalized.slice(2) : normalized;
-  const firstSegment = (noPrefix.split(":")[0] ?? "").trim();
-  if (!firstSegment) {
-    return true;
-  }
-  if (firstSegment.startsWith("fc") || firstSegment.startsWith("fd")) {
-    return true;
-  }
-  if (
-    firstSegment.startsWith("fe8") ||
-    firstSegment.startsWith("fe9") ||
-    firstSegment.startsWith("fea") ||
-    firstSegment.startsWith("feb")
-  ) {
-    return true;
-  }
-  return false;
-};
-
-const isBlockedIpAddress = (address: string): boolean => {
-  const version = isIP(address);
-  if (version === 4) {
-    return isBlockedIPv4(address);
-  }
-  if (version === 6) {
-    return isBlockedIPv6(address);
-  }
-  return true;
-};
-
-const normalizeHost = (hostname: string): string => hostname.trim().toLowerCase();
-
 const assertProtocolAllowed = (target: URL): void => {
   if (target.protocol === "https:") {
     return;
   }
 
   const localMode = inInsecureLocalMode();
-  const host = normalizeHost(target.hostname);
+  const host = normalizeHostname(target.hostname);
   const loopbackHost = host === "localhost" || isLoopbackAddress(host);
   if (target.protocol === "http:" && localMode && loopbackHost) {
     return;
@@ -221,7 +121,7 @@ const assertAddressAllowed = (address: string, context: string): void => {
 const assertTargetAllowed = async (target: URL, context: string): Promise<void> => {
   assertProtocolAllowed(target);
 
-  const hostname = normalizeHost(target.hostname);
+  const hostname = normalizeHostname(target.hostname);
   if (BLOCKED_HOSTNAMES.has(hostname) && !(inInsecureLocalMode() && hostname === "localhost")) {
     throw new CustomMcpNetworkPolicyError(
       `custom_mcp.network_blocked: ${context} hostname ${hostname} is blocked.`,

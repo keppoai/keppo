@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { PushEndpointBlockedError } from "../../app/lib/server/api-runtime/push";
 import {
   dispatchStartOwnedInternalApiRequest,
   handleBuildVersionRequest,
@@ -95,6 +96,7 @@ const createDeps = () => {
       return match?.[1]?.split(".")[0] ?? null;
     },
     sendInviteEmail: vi.fn().mockResolvedValue({ success: true }),
+    validatePushSubscriptionEndpoint: vi.fn().mockResolvedValue(undefined),
   };
 };
 
@@ -206,6 +208,43 @@ describe("start-owned internal api handlers", () => {
       destination: "https://push.test/subscriptions/abc",
       pushSubscription: expect.any(String),
     });
+    expect(deps.validatePushSubscriptionEndpoint).toHaveBeenCalledWith(
+      "https://push.test/subscriptions/abc",
+    );
+  });
+
+  it("rejects blocked push subscription endpoints before registration", async () => {
+    const deps = createDeps();
+    deps.validatePushSubscriptionEndpoint.mockRejectedValue(
+      new PushEndpointBlockedError("Push subscription endpoint resolves to a blocked address."),
+    );
+
+    const response = await handlePushSubscribeRequest(
+      withJson(
+        "/api/notifications/push/subscribe",
+        {
+          subscription: {
+            endpoint: "https://push.attacker.test/subscriptions/abc",
+            keys: {
+              p256dh: "key",
+              auth: "auth",
+            },
+          },
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      error_code: "notifications.push.registration_failed",
+      error: "Push subscription endpoint is not allowed.",
+    });
+    expect(deps.convex.registerPushEndpointForUser).not.toHaveBeenCalled();
   });
 
   it("returns workspace credential status from the authenticated workspace context", async () => {

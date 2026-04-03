@@ -324,6 +324,67 @@ describe("start-owned operational route handlers", () => {
     expect(deps.convex.markNotificationEventSent).toHaveBeenCalledWith("evt_123");
   });
 
+  it("disables push endpoints that fail outbound network policy revalidation", async () => {
+    const deps = createDeps();
+    deps.convex.getNotificationDeliveryEvent.mockResolvedValue({
+      event: {
+        id: "evt_push_123",
+        org_id: "org_123",
+        channel: "push",
+        title: "Approval required",
+        body: "A queued action needs review.",
+        cta_url: "/approvals",
+        cta_label: "Review approvals",
+        metadata: null,
+        status: "pending",
+        endpoint_id: "endpoint_123",
+        event_type: "approval_needed",
+      },
+      endpoint: {
+        id: "endpoint_123",
+        type: "push",
+        destination: "https://push.attacker.test/subscription",
+        push_subscription: JSON.stringify({
+          endpoint: "https://push.attacker.test/subscription",
+          keys: {
+            auth: "auth",
+            p256dh: "p256dh",
+          },
+        }),
+        enabled: true,
+      },
+    });
+    deps.sendPushNotification.mockResolvedValue({
+      success: false,
+      error: "Push subscription endpoint is not allowed.",
+      retryable: false,
+      subscriptionInvalid: true,
+    });
+
+    const response = await handleInternalNotificationsDeliverRequest(
+      withJson(
+        "/internal/notifications/deliver",
+        {
+          eventIds: ["evt_push_123"],
+        },
+        {
+          authorization: "Bearer secret_token",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    expect(deps.convex.disableNotificationEndpoint).toHaveBeenCalledWith("endpoint_123");
+    expect(deps.convex.markNotificationEventFailed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventId: "evt_push_123",
+        error: "Push subscription endpoint is not allowed.",
+        retryable: false,
+      }),
+    );
+  });
+
   it("dispatches only the migrated Start-owned operational paths", async () => {
     const deps = createDeps();
 

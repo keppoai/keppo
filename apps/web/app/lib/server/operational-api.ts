@@ -599,7 +599,7 @@ export const handleInternalNotificationsDeliverRequest = async (
         continue;
       }
 
-      if (result.subscriptionExpired) {
+      if (result.subscriptionExpired || result.subscriptionInvalid) {
         await deps.convex.disableNotificationEndpoint(endpoint.id);
       }
 
