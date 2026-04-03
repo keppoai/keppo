@@ -312,8 +312,9 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
     - `system`: inline operational updates with info icon; adjacent status lines can collapse into one system block, but structured automation-outcome system events stay isolated and render as dedicated success/failure outcome cards.
     - `automation_config`: grouped runtime settings chips/cards for contiguous config lines, with collapsible raw object fallback for bundled config payloads.
     - `thinking`: left-aligned grouped block with brain icon; adjacent reasoning fragments stay in one calm bubble and preserve paragraph boundaries.
+    - `search_tools`: dedicated first-class card for Code Mode tool discovery that shows the captured search query inline, summarizes top matching tools in the collapsed state, and keeps the full result list behind a disclosure that is closed by default.
     - `execute_code`: dedicated first-class card for Code Mode execution that surfaces the model-generated 1-2 sentence description inline, falls back to generic `Executed code` copy for historical runs without that field, and keeps the raw JavaScript behind an explicit expandable syntax-highlighted code block.
-    - `tool_call`: card with tool name, collapsible args JSON tree, attached result payload, duration badge, and success/error status; structured result output should bind to the initiating tool call instead of rendering as a detached bubble.
+    - `tool_call`: generic card with tool name, collapsible args JSON tree, attached result payload, duration badge, and success/error status; structured result output should bind to the initiating tool call instead of rendering as a detached bubble.
     - `output`: emphasized bubble with terminal icon; contiguous plain-text output lines merge together, while JSON output renders as a compact tree with collapsed nested branches by default.
     - `error`: red-tinted bubble with alert icon and optional error code badge.
     - `raw`: monospace fallback for legacy runs without structured event data.
@@ -322,7 +323,8 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Structured log events:
   - `automation_run_logs` table includes optional `event_type` and `event_data` fields.
   - event types: `system`, `automation_config`, `thinking`, `tool_call`, `output`, `error`.
-  - log ingestion classifies raw sandbox output into structured events via pattern matching.
+  - log ingestion classifies raw sandbox output into structured events via pattern matching, including Codex `mcp: keppo/search_tools started`, `mcp: keppo/search_tools (completed)`, `mcp: keppo/execute_code started`, and `mcp: keppo/execute_code (completed)` lifecycle lines.
+  - when an automation-authenticated MCP request executes `search_tools` or `execute_code`, the MCP route also appends narrow structured `tool_call` logs with the actual request payload and result summary so grouped timeline cards can show operator-useful details even though raw Codex lifecycle lines do not contain them.
   - legacy runs without event fields fall back to `raw` type rendering in the chat UI.
 - Log viewer behavior:
   - hot mode streams `automation_runs:getAutomationRunLogs` via Convex reactivity with optional scroll lock.

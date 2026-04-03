@@ -23,6 +23,7 @@ const createWorkspaceAuth = (options?: {
 const createDeps = () => {
   const convex = {
     authenticateCredential: vi.fn(),
+    appendAutomationRunLog: vi.fn(),
     closeRunBySession: vi.fn(),
     createRun: vi.fn(),
     getRunBySession: vi.fn(),
@@ -627,6 +628,90 @@ describe("createMcpRouteDispatcher", () => {
       },
       credentialId: "cred_test",
     });
+  });
+
+  it("writes automation-only search_tools query and result logs for grouped timelines", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(
+      createWorkspaceAuth({ automationRunId: "arun_test" }),
+    );
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.seedToolIndex.mockResolvedValue({ inserted: 0, updated: 0, total: 0 });
+    convex.getWorkspaceCodeModeContext.mockResolvedValue({
+      available_providers: ["google"],
+    });
+    convex.searchTools.mockResolvedValue([
+      {
+        name: "gmail.listUnread",
+        provider: "google",
+        capability: "read",
+        risk_level: "low",
+        requires_approval: false,
+        description: "List unread Gmail threads.",
+        action_type: "read",
+        input_schema: { type: "object" },
+        type_stub: "type gmail_listUnread = {}",
+      },
+    ]);
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "search_tools", {
+        query: "unread gmail",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+
+    expect(response.status).toBe(200);
+    expect(convex.appendAutomationRunLog).toHaveBeenNthCalledWith(1, {
+      automationRunId: "arun_test",
+      level: "system",
+      content: "search_tools query: unread gmail",
+      eventType: "tool_call",
+      eventData: {
+        tool_name: "search_tools",
+        args: {
+          query: "unread gmail",
+        },
+        source: "mcp_route",
+      },
+    });
+    expect(convex.appendAutomationRunLog).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        automationRunId: "arun_test",
+        level: "system",
+        content: "search_tools returned 1 match",
+        eventType: "tool_call",
+        eventData: expect.objectContaining({
+          tool_name: "search_tools",
+          status: "success",
+          duration_ms: expect.any(Number),
+          is_result: true,
+          result: {
+            count: 1,
+            results: [
+              {
+                name: "gmail.listUnread",
+                provider: "google",
+                capability: "read",
+                risk_level: "low",
+                requires_approval: false,
+                action_type: "read",
+                description: "List unread Gmail threads.",
+              },
+            ],
+          },
+          source: "mcp_route",
+        }),
+      }),
+    );
   });
 
   it("logs sanitized search_tools failures without raw secret-bearing messages", async () => {

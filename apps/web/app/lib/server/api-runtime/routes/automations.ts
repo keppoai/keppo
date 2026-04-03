@@ -75,6 +75,9 @@ export type ParsedLogLine = {
 
 const TOOL_CALL_PATTERN = /^tool\s+([\w.]+)\((.*)\)$/s;
 const TOOL_RESULT_PATTERN = /^([\w.]+)\(.*\)\s+(success|error)\s+in\s+(\d+)ms:/;
+const MCP_TOOL_START_PATTERN = /^mcp:\s+keppo\/(search_tools|execute_code)\s+started$/;
+const MCP_TOOL_RESULT_PATTERN =
+  /^mcp:\s+keppo\/(search_tools|execute_code)\s+\((completed|failed)\)$/;
 const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 const CONFIG_KEY_PATTERN = new RegExp(
   `^(${AUTOMATION_RUN_CONFIG_KEYS.map((key) => escapeRegExp(key)).join("|")}):\\s*(.+)$`,
@@ -851,6 +854,30 @@ const classifyLogLine = (level: AutomationRunLogLevel, content: string): Classif
         status: resultMatch[2] as "success" | "error",
         duration_ms: parseInt(resultMatch[3], 10),
         is_result: true,
+      },
+    };
+  }
+
+  const mcpToolStartMatch = trimmed.match(MCP_TOOL_START_PATTERN);
+  if (mcpToolStartMatch?.[1]) {
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.toolCall,
+      event_data: {
+        tool_name: mcpToolStartMatch[1],
+        source: "mcp_lifecycle",
+      },
+    };
+  }
+
+  const mcpToolResultMatch = trimmed.match(MCP_TOOL_RESULT_PATTERN);
+  if (mcpToolResultMatch?.[1] && mcpToolResultMatch?.[2]) {
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.toolCall,
+      event_data: {
+        tool_name: mcpToolResultMatch[1],
+        status: mcpToolResultMatch[2] === "completed" ? "success" : "error",
+        is_result: true,
+        source: "mcp_lifecycle",
       },
     };
   }

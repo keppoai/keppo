@@ -69,4 +69,47 @@ describe("RunChatBubble", () => {
 
     expect(screen.getByText("Executed code")).toBeInTheDocument();
   });
+
+  it("renders search_tools as a collapsed dedicated results card", async () => {
+    const user = userEvent.setup();
+    render(
+      <RunChatBubble
+        event={createToolCallEvent({
+          toolName: "search_tools",
+          args: {
+            query: "unread gmail",
+          },
+          result: {
+            count: 2,
+            results: [
+              {
+                name: "gmail.listUnread",
+                provider: "google",
+                capability: "read",
+                description: "List unread Gmail threads.",
+              },
+              {
+                name: "gmail.getProfile",
+                provider: "google",
+                capability: "read",
+                description: "Read the Gmail account profile.",
+              },
+            ],
+          },
+          resultFormat: "json",
+        })}
+      />,
+    );
+
+    expect(screen.getByText("Search tools")).toBeInTheDocument();
+    expect(screen.getByText("unread gmail")).toBeInTheDocument();
+    expect(screen.getByText("2 matches: gmail.listUnread, gmail.getProfile")).toBeInTheDocument();
+    expect(screen.queryByText("List unread Gmail threads.")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Show details" }));
+
+    expect(screen.getByText("gmail.listUnread")).toBeVisible();
+    expect(screen.getByText("List unread Gmail threads.")).toBeVisible();
+    expect(screen.getByText("gmail.getProfile")).toBeVisible();
+  });
 });

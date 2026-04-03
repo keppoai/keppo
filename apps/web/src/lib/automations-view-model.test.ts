@@ -408,6 +408,153 @@ describe("run log view model", () => {
     });
   });
 
+  it("merges automation-source tool payloads with Codex mcp lifecycle lines", () => {
+    const events = toRunEvents([
+      {
+        seq: 1,
+        level: "system",
+        content: "search_tools query: unread gmail",
+        timestamp: "2026-03-07T00:00:00.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "search_tools",
+          args: { query: "unread gmail" },
+          source: "mcp_route",
+        },
+      },
+      {
+        seq: 2,
+        level: "stderr",
+        content: "mcp: keppo/search_tools started",
+        timestamp: "2026-03-07T00:00:01.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "search_tools",
+          source: "mcp_lifecycle",
+        },
+      },
+      {
+        seq: 3,
+        level: "system",
+        content: "search_tools returned 1 match",
+        timestamp: "2026-03-07T00:00:02.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "search_tools",
+          status: "success",
+          is_result: true,
+          result: {
+            count: 1,
+            results: [
+              {
+                name: "gmail.listUnread",
+                provider: "google",
+                capability: "read",
+                description: "List unread Gmail threads.",
+              },
+            ],
+          },
+          source: "mcp_route",
+        },
+      },
+      {
+        seq: 4,
+        level: "stderr",
+        content: "mcp: keppo/search_tools (completed)",
+        timestamp: "2026-03-07T00:00:03.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "search_tools",
+          status: "success",
+          is_result: true,
+          source: "mcp_lifecycle",
+        },
+      },
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "tool_call",
+      toolName: "search_tools",
+      args: { query: "unread gmail" },
+      status: "success",
+      result: {
+        count: 1,
+        results: [
+          {
+            name: "gmail.listUnread",
+            provider: "google",
+            capability: "read",
+            description: "List unread Gmail threads.",
+          },
+        ],
+      },
+      lastSeq: 4,
+    });
+    expect(events[0]?.debugLines).toHaveLength(4);
+  });
+
+  it("parses execute_code result text emitted from automation-source logs", () => {
+    const events = toRunEvents([
+      {
+        seq: 1,
+        level: "system",
+        content: "Read unread Gmail threads and summarize them.",
+        timestamp: "2026-03-07T00:00:00.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "execute_code",
+          args: {
+            description: "Read unread Gmail threads and summarize them.",
+            code: "console.log('hi')",
+          },
+          source: "mcp_route",
+        },
+      },
+      {
+        seq: 2,
+        level: "system",
+        content: "Read unread Gmail threads and summarize them.",
+        timestamp: "2026-03-07T00:00:01.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "execute_code",
+          status: "success",
+          is_result: true,
+          result_text: '{"unreadCount":3,"subjects":["Ops","Design"]}',
+          source: "mcp_route",
+        },
+      },
+      {
+        seq: 3,
+        level: "stderr",
+        content: "mcp: keppo/execute_code (completed)",
+        timestamp: "2026-03-07T00:00:02.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "execute_code",
+          status: "success",
+          is_result: true,
+          source: "mcp_lifecycle",
+        },
+      },
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "tool_call",
+      toolName: "execute_code",
+      status: "success",
+      result: {
+        unreadCount: 3,
+        subjects: ["Ops", "Design"],
+      },
+      resultText: '{"unreadCount":3,"subjects":["Ops","Design"]}',
+      resultFormat: "json",
+      lastSeq: 3,
+    });
+  });
+
   it("keeps automation outcome system events separate from generic system notes", () => {
     const events = toRunEvents([
       {

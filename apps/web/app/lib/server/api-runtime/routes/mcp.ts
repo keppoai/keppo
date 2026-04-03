@@ -5,6 +5,7 @@ import {
   createCodeModeStructuredExecutionError,
   parseCodeModeStructuredExecutionError,
 } from "@keppo/shared/code-mode/structured-execution-error";
+import type { ToolSearchResult } from "@keppo/shared/code-mode/tool-search-types";
 import {
   ACTION_STATUS,
   CLIENT_TYPE,
@@ -23,6 +24,7 @@ import {
   parseMcpSessionHeader,
   parseMcpWorkspaceParams,
 } from "@keppo/shared/providers/boundaries/error-boundary";
+import { parseJsonValue } from "@keppo/shared/providers/boundaries/json";
 import {
   createWorkerExecutionError,
   parseWorkerExecutionErrorCode,
@@ -51,6 +53,7 @@ type McpRoutesDeps = {
   convex: Pick<
     ConvexInternalClient,
     | "authenticateCredential"
+    | "appendAutomationRunLog"
     | "closeRunBySession"
     | "createRun"
     | "getRunBySession"
@@ -711,6 +714,60 @@ const buildToolErrorResult = (message: string): CallToolResult => ({
   isError: true,
 });
 
+const appendAutomationToolLog = async (
+  deps: Pick<McpRoutesDeps, "convex">,
+  params: {
+    automationRunId: string | null | undefined;
+    content: string;
+    eventData: Record<string, unknown>;
+  },
+): Promise<void> => {
+  if (!params.automationRunId) {
+    return;
+  }
+  try {
+    await deps.convex.appendAutomationRunLog({
+      automationRunId: params.automationRunId,
+      level: "system",
+      content: params.content,
+      eventType: "tool_call",
+      eventData: params.eventData,
+    });
+  } catch {
+    // Automation-specific grouped-timeline enrichment is best-effort.
+  }
+};
+
+const summarizeSearchToolResultsForAutomationLog = (
+  results: ToolSearchResult[],
+): Array<Record<string, unknown>> => {
+  return results.map((entry) => ({
+    name: entry.name,
+    provider: entry.provider,
+    capability: entry.capability,
+    risk_level: entry.risk_level,
+    requires_approval: entry.requires_approval,
+    action_type: entry.action_type,
+    description: entry.description,
+  }));
+};
+
+const parseAutomationToolResultText = (value: string): unknown => {
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0 ||
+    (!(trimmed.startsWith("{") && trimmed.endsWith("}")) &&
+      !(trimmed.startsWith("[") && trimmed.endsWith("]")))
+  ) {
+    return value;
+  }
+  try {
+    return parseJsonValue(trimmed);
+  } catch {
+    return value;
+  }
+};
+
 const resolveToolInputSchema = async (toolName: string): Promise<McpToolInputSchema> => {
   const predefined = MCP_TOOL_INPUT_SCHEMAS[toolName];
   if (predefined) {
@@ -929,6 +986,16 @@ const createMcpServer = (
         try {
           await deps.convex.seedToolIndex();
           const parsed = parseSearchToolsArgs(toolArgs);
+          const startedAt = Date.now();
+          await appendAutomationToolLog(deps, {
+            automationRunId: handlerContext.automationRunId ?? undefined,
+            content: `search_tools query: ${parsed.query}`,
+            eventData: {
+              tool_name: "search_tools",
+              args: parsed,
+              source: "mcp_route",
+            },
+          });
           const workspaceContext = await deps.convex.getWorkspaceCodeModeContext(
             handlerContext.workspaceId,
           );
@@ -937,6 +1004,7 @@ const createMcpServer = (
           const filtered = results.filter((entry) =>
             availableProviders.has(entry.provider as CanonicalProviderId),
           );
+          const summarizedResults = summarizeSearchToolResultsForAutomationLog(filtered);
 
           deps.logger.info("mcp.search_tools.completed", {
             route: MCP_ROUTE_PATH,
@@ -951,6 +1019,22 @@ const createMcpServer = (
             provider_filter: parsed.provider ?? null,
             capability_filter: parsed.capability ?? null,
             limit: parsed.limit ?? null,
+          });
+
+          await appendAutomationToolLog(deps, {
+            automationRunId: handlerContext.automationRunId ?? undefined,
+            content: `search_tools returned ${summarizedResults.length} match${summarizedResults.length === 1 ? "" : "es"}`,
+            eventData: {
+              tool_name: "search_tools",
+              status: "success",
+              duration_ms: Date.now() - startedAt,
+              is_result: true,
+              result: {
+                count: summarizedResults.length,
+                results: summarizedResults,
+              },
+              source: "mcp_route",
+            },
           });
 
           return buildStructuredToolResult({ results: filtered });
@@ -1022,6 +1106,19 @@ const createMcpServer = (
             generateCodeModeSDK,
           } = codeMode;
           const { code, description } = parseExecuteCodeArgs(toolArgs);
+          const startedAt = Date.now();
+          await appendAutomationToolLog(deps, {
+            automationRunId: handlerContext.automationRunId ?? undefined,
+            content: description,
+            eventData: {
+              tool_name: "execute_code",
+              args: {
+                description,
+                code,
+              },
+              source: "mcp_route",
+            },
+          });
           await deps.convex.seedToolIndex();
           const workspaceContext = await deps.convex.getWorkspaceCodeModeContext(
             handlerContext.workspaceId,
@@ -1359,6 +1456,7 @@ const createMcpServer = (
           if (lines.length === 0) {
             lines.push("(no output)");
           }
+          const resultText = lines.join("\n");
 
           deps.logger.info("mcp.execute_code.completed", {
             route: MCP_ROUTE_PATH,
@@ -1372,8 +1470,22 @@ const createMcpServer = (
             log_lines: lines.length,
           });
 
+          await appendAutomationToolLog(deps, {
+            automationRunId: handlerContext.automationRunId ?? undefined,
+            content: description,
+            eventData: {
+              tool_name: "execute_code",
+              status: "success",
+              duration_ms: Date.now() - startedAt,
+              is_result: true,
+              result_text: resultText,
+              result: parseAutomationToolResultText(resultText),
+              source: "mcp_route",
+            },
+          });
+
           return {
-            content: [{ type: "text", text: lines.join("\n") }],
+            content: [{ type: "text", text: resultText }],
           };
         } catch (error) {
           const rawMessage = error instanceof Error ? error.message : undefined;
