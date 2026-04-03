@@ -257,7 +257,7 @@ export const loadFindings = async (dirPath) => {
   return { findings, malformed };
 };
 
-export const ensureLabel = async ({ apiBaseUrl, repo, token, label, description }) => {
+export const ensureLabel = async ({ apiBaseUrl, repo, token, label, description, color = "d73a4a" }) => {
   const response = await fetch(`${apiBaseUrl}/repos/${repo}/labels/${encodeURIComponent(label)}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -285,7 +285,7 @@ export const ensureLabel = async ({ apiBaseUrl, repo, token, label, description 
     },
     body: JSON.stringify({
       name: label,
-      color: "d73a4a",
+      color,
       description,
     }),
   });
@@ -366,9 +366,9 @@ export const createRepositoryIssue = async ({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      title: `[${finding.severity.toUpperCase()}] ${safeTitle}`,
+      title: safeTitle,
       body,
-      labels: [BUG_LABEL],
+      labels: [BUG_LABEL, `severity:${finding.severity}`],
     }),
   });
 
@@ -735,13 +735,31 @@ export const main = async () => {
     throw new Error(operatorAlerts.join("\n"));
   }
 
-  await ensureLabel({
-    apiBaseUrl,
-    repo,
-    token,
-    label: BUG_LABEL,
-    description: "Bug found by the nightly bug-finder:recent workflow",
-  });
+  await Promise.all([
+    ensureLabel({
+      apiBaseUrl,
+      repo,
+      token,
+      label: BUG_LABEL,
+      description: "Bug found by the nightly bug-finder:recent workflow",
+    }),
+    ensureLabel({
+      apiBaseUrl,
+      repo,
+      token,
+      label: "severity:critical",
+      color: "b60205",
+      description: "Critical severity — data loss, security, or crash",
+    }),
+    ensureLabel({
+      apiBaseUrl,
+      repo,
+      token,
+      label: "severity:high",
+      color: "d93f0b",
+      description: "High severity — broken functionality or degraded UX",
+    }),
+  ]);
   const { issues: existing, reachedPageCap } = await fetchExistingIssues({ apiBaseUrl, repo, token });
   const existingByDedupKey = new Map(
     existing
@@ -760,7 +778,7 @@ export const main = async () => {
   const failed = [];
 
   for (const finding of findings) {
-    const titleKey = normalizeTitle(`[${finding.severity.toUpperCase()}] ${sanitizeMentions(finding.title)}`);
+    const titleKey = normalizeTitle(sanitizeMentions(finding.title));
     const dedupKey = normalizeDedupKey(finding.dedupKey);
     const duplicate = existingByDedupKey.get(dedupKey) || existingByTitle.get(titleKey);
     if (duplicate) {
