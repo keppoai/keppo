@@ -53,8 +53,10 @@ type InternalToolCallReference = {
 };
 
 type InternalActionCreationResult = {
+  idempotencyReplayed: boolean;
   action: {
     id: string;
+    status?: ActionStatus | undefined;
   };
 };
 
@@ -260,6 +262,26 @@ export const createInternalToolCallHandler = (deps: InternalToolHandlerDeps) => 
           },
         },
       });
+
+      if (created.idempotencyReplayed) {
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.completed,
+          outputRedacted: {
+            status: "idempotent_replay",
+            action_id: created.action.id,
+            action_status: created.action.status ?? "unknown",
+          },
+          startedAt,
+        });
+
+        return {
+          status: "idempotent_replay",
+          action_id: created.action.id,
+          action_status: created.action.status ?? "unknown",
+          next_tool: "keppo.wait_for_action",
+        };
+      }
 
       await deps.finalizeToolCallRecord(ctx, {
         toolCallId: toolCall.id,

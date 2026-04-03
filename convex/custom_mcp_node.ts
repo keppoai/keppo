@@ -60,7 +60,6 @@ const refs = {
   getOrgBillingForWorkspace: makeFunctionReference<"query">("billing:getOrgBillingForWorkspace"),
   beginToolCall: makeFunctionReference<"mutation">("billing:beginToolCall"),
   finishToolCall: makeFunctionReference<"mutation">("billing:finishToolCall"),
-  findActionByIdempotency: makeFunctionReference<"query">("mcp:findActionByIdempotency"),
   createActionFromDecision: makeFunctionReference<"mutation">("mcp:createActionFromDecision"),
   getActionState: makeFunctionReference<"query">("mcp:getActionState"),
   getToolCall: makeFunctionReference<"query">("mcp:getToolCall"),
@@ -493,29 +492,6 @@ export const executeCustomToolCall = internalAction({
         };
         const idempotencyKey = stableIdempotencyKey(args.toolName, normalizedPayload);
 
-        const existingAction = await ctx.runQuery(refs.findActionByIdempotency, {
-          workspaceId: args.workspaceId,
-          idempotencyKey,
-        });
-        const existingActionRecord = toRecord(existingAction);
-        if (typeof existingActionRecord.id === "string") {
-          await finalizeToolCall(ctx, {
-            toolCallId,
-            status: TOOL_CALL_STATUS.completed,
-            output: {
-              status: TOOL_CALL_RESULT_STATUS.idempotentReplay,
-              action_id: existingActionRecord.id,
-              action_status: existingActionRecord.status,
-            },
-            startedAtMs,
-          });
-          return {
-            status: TOOL_CALL_RESULT_STATUS.idempotentReplay,
-            action_id: existingActionRecord.id,
-            action_status: existingActionRecord.status,
-          };
-        }
-
         const created = await ctx.runMutation(refs.createActionFromDecision, {
           runId: args.runId,
           toolCallId,
@@ -545,7 +521,27 @@ export const executeCustomToolCall = internalAction({
           },
         });
 
-        const actionId = toRecord(toRecord(created).action).id;
+        const createdRecord = toRecord(created);
+        const createdActionRecord = toRecord(createdRecord.action);
+        if (createdRecord.idempotencyReplayed === true) {
+          await finalizeToolCall(ctx, {
+            toolCallId,
+            status: TOOL_CALL_STATUS.completed,
+            output: {
+              status: TOOL_CALL_RESULT_STATUS.idempotentReplay,
+              action_id: createdActionRecord.id,
+              action_status: createdActionRecord.status,
+            },
+            startedAtMs,
+          });
+          return {
+            status: TOOL_CALL_RESULT_STATUS.idempotentReplay,
+            action_id: createdActionRecord.id,
+            action_status: createdActionRecord.status,
+          };
+        }
+
+        const actionId = createdActionRecord.id;
         if (typeof actionId !== "string" || actionId.length === 0) {
           throw createWorkerExecutionError(
             "execution_failed",
