@@ -156,6 +156,8 @@ jobs:
         if: ${{ matrix.shard == 1 }}
         env:
           KEPPO_E2E_OPENAI_RESPONSES_FAKE: "1"
+          PLAYWRIGHT_BLOB_OUTPUT_DIR: blob-report-codex
+          PLAYWRIGHT_JSON_OUTPUT_NAME: e2e-report-codex-regression.json
         run: >-
           pnpm run test:e2e:ci:timed --
           tests/e2e/specs/automations/codex-mcp-decode-repro.spec.ts
@@ -169,6 +171,7 @@ jobs:
           if-no-files-found: ignore
           path: |
             blob-report
+            blob-report-codex
             test-results
             playwright-report
             tests/e2e/.runtime
@@ -212,6 +215,7 @@ jobs:
         run: |
           mkdir -p merged-blob-report
           find shard-artifacts -path '*/blob-report/*.zip' -exec cp {} merged-blob-report/ \;
+          find shard-artifacts -path '*/blob-report-codex/*.zip' -exec cp {} merged-blob-report/ \;
 
       - name: Merge Playwright Reports
         if: always()
