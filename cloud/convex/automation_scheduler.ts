@@ -83,8 +83,13 @@ const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
 const DEFAULT_COLD_LOG_SCAN_LIMIT = 500;
 const DISPATCH_RETRY_DELAY_MS = 1_000;
+const DISPATCH_RUN_NOT_FOUND_MAX_RETRIES = 5;
+const DISPATCH_RETRY_MAX_DELAY_MS = 30_000;
 const textEncoder = new TextEncoder();
 const DISPATCH_TOKEN_FALLBACK_DERIVATION_INFO = "keppo:dispatch-token:v1";
+
+const getDispatchRetryDelayMs = (retryAttempt: number): number =>
+  Math.min(DISPATCH_RETRY_DELAY_MS * 2 ** Math.max(0, retryAttempt), DISPATCH_RETRY_MAX_DELAY_MS);
 
 const bytesToHex = (bytes: Uint8Array): string =>
   Array.from(bytes)
@@ -517,6 +522,7 @@ export const dispatchAutomationRun = internalAction({
     http_status: v.union(v.number(), v.null()),
   }),
   handler: async (ctx, args) => {
+    const retryAttempt = Math.max(0, args.retryAttempt ?? 0);
     const dispatchAuditContext = await ctx.runQuery(
       refs.getDispatchAuditContext,
       buildGetDispatchAuditContextArgs(args.runId),
@@ -615,10 +621,29 @@ export const dispatchAutomationRun = internalAction({
           }
           await emitDispatchFailureAudit(errorMessage, "dispatch_action_http");
           if (issued.reused_existing_token) {
+            if (retryAttempt >= DISPATCH_RUN_NOT_FOUND_MAX_RETRIES) {
+              const terminalErrorMessage = `Dispatch endpoint did not recognize this run after ${retryAttempt + 1} attempts.`;
+              await emitDispatchFailureAudit(
+                terminalErrorMessage,
+                "dispatch_action_http_retry_exhausted",
+              );
+              await ctx
+                .runMutation(refs.updateAutomationRunStatus, {
+                  automation_run_id: args.runId,
+                  status: AUTOMATION_RUN_STATUS.cancelled,
+                  error_message: `Dispatch failed: ${terminalErrorMessage}`,
+                })
+                .catch(() => undefined);
+              return {
+                dispatched: false,
+                status: AUTOMATION_DISPATCH_ACTION_STATUS.dispatchHttpError,
+                http_status: response.status,
+              };
+            }
             await ctx.scheduler.runAfter(
-              DISPATCH_RETRY_DELAY_MS,
+              getDispatchRetryDelayMs(retryAttempt),
               refs.dispatchAutomationRun,
-              buildDispatchAutomationRunArgs(args.runId, args.namespace),
+              buildDispatchAutomationRunArgs(args.runId, args.namespace, retryAttempt + 1),
             );
             return {
               dispatched: false,

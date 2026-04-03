@@ -151,6 +151,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - Internal Convex scheduler args use camelCase `runId`; external transport, audit, and persistence payloads keep existing snake_case `automation_run_id` where that field is already part of the public or stored contract.
   - Scheduler changes must update both the base `convex/` wrapper and the `cloud/convex/` overlay in the same change because cloud overlays can replace the live implementation even when the local tree looks correct.
   - `automation_scheduler:dispatchAutomationRun` and `automation_scheduler:terminateAutomationRun` return canonical typed status enums (`*_url_missing`, `*_http_error`, `*_request_failed`, terminal success) plus optional `http_status` when transport returns non-2xx.
+  - Reused dispatch-token `404 run_not_found` responses retry on a bounded exponential backoff budget and must transition the run to a terminal failure once that budget is exhausted; scheduler retry-safe paths must never leave pending runs in unbounded redispatch loops.
 - Scheduler/reaper/event processors run with bounded per-tick scan limits (indexed `.take(limit)` reads) to avoid unbounded cross-tenant `.collect()` scans.
 - Log archival/expiry scans read from bounded `automation_runs` status+ended indexes (`by_status_ended`) with configurable scan limits.
 - Metered-billing flush candidate selection is bounded to indexed Pro-tier subscription batches (`subscriptions.by_tier`) before usage-meter joins.

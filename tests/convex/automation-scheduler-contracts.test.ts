@@ -120,6 +120,11 @@ describe("automation scheduler contract boundaries", () => {
       runId: "run_123",
       namespace: "ns.1",
     });
+    expect(buildDispatchAutomationRunArgs("run_123", "ns.1", 2)).toEqual({
+      runId: "run_123",
+      namespace: "ns.1",
+      retryAttempt: 2,
+    });
     expect(buildTerminateAutomationRunArgs("run_456")).toEqual({ runId: "run_456" });
   });
 
@@ -487,6 +492,76 @@ describe("automation scheduler contract boundaries", () => {
     });
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(latestContext?.run.status).toBe(AUTOMATION_RUN_STATUS.pending);
+  });
+
+  it("cancels a pending run after bounded reused-token 404 retries are exhausted", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv(
+      "KEPPO_AUTOMATION_DISPATCH_URL",
+      "http://scheduler.test/internal/automations/dispatch",
+    );
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(JSON.stringify({ ok: false, status: "run_not_found" }), {
+          status: 404,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_bounded_retry_404",
+      email: "convex-scheduler-bounded-retry-404@example.com",
+      name: "Convex Scheduler Bounded Retry 404",
+    });
+    const authUserId = await getAuthUserIdByEmail(
+      t,
+      "convex-scheduler-bounded-retry-404@example.com",
+    );
+    const authT = t.withIdentity({
+      subject: authUserId,
+      email: "convex-scheduler-bounded-retry-404@example.com",
+      name: "Convex Scheduler Bounded Retry 404",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+    const run = await authT.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: RUN_TRIGGER_TYPE.manual,
+    });
+    const dispatchToken = "dispatch_token_bounded_retry_404";
+    const dispatchTokenHash = createHash("sha256").update(dispatchToken, "utf8").digest("hex");
+
+    await t.mutation(refs.issueAutomationRunDispatchToken, {
+      automation_run_id: run.id,
+      dispatch_token: dispatchToken,
+      dispatch_token_hash: dispatchTokenHash,
+      dispatch_token_issued_at: new Date().toISOString(),
+    });
+
+    const result = await t.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+    });
+    await t.finishAllScheduledFunctions(() => {
+      vi.runAllTimers();
+    });
+    const latestContext = await t.query(refs.getAutomationRunDispatchContext, {
+      automation_run_id: run.id,
+    });
+
+    expect(result).toMatchObject({
+      dispatched: false,
+      status: "dispatch_http_error",
+      http_status: 404,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(latestContext?.run.status).toBe(AUTOMATION_RUN_STATUS.cancelled);
+    expect(latestContext?.run.error_message).toBe(
+      "Dispatch failed: Dispatch endpoint did not recognize this run after 6 attempts.",
+    );
   });
 
   it("cancels a pending run when a fresh dispatch token gets a 404 run_not_found response", async () => {
