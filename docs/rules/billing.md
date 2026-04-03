@@ -27,6 +27,7 @@
 - Automation sandbox dispatch must derive its runtime timeout from the org tier's `automation_limits.max_run_duration_ms` when a subscription tier is available; `KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS` is a fallback for contexts that do not resolve a tier and must not silently undercut paid-tier entitlements.
 - Usage-threshold notifications should be emitted from canonical usage-meter state, not guessed in the UI.
 - Automation run top-ups extend the effective run, tool-call, and total tool-time limits for paid tiers only. Run and tool-call deductions consume the oldest active purchased package first; purchased tool time is additive for the active package lifetime and disappears on expiry.
+- Effective automation run capacity must stay stable after each purchased-run deduction. When deriving the current period cap from the cached remaining-balance ledger, include already-consumed overage runs so the limit does not shrink mid-period.
 - Normal top-up reads should use the cached org-level ledger; reserve per-purchase scans for write-side recomputation or missing-ledger fallback paths.
 
 ## Credits and seats
