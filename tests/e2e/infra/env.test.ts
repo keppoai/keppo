@@ -54,19 +54,19 @@ describe("buildWorkerEnv", () => {
     expect(env.base.KEPPO_E2E_MODE).toBe("true");
     expect(env.base.KEPPO_URL).toBe("http://localhost:9903");
     expect(env.base.KEPPO_API_INTERNAL_BASE_URL).toBe("http://localhost:9903");
-    expect(env.base.KEPPO_CRON_SECRET).toBe("e2e-cron-token-0");
+    expect(env.base.KEPPO_CRON_SECRET).toBe("keppo-e2e-cron-secret");
     expect(env.fakeGateway.HOST).toBe("0.0.0.0");
     expect(env.base.VITE_KEPPO_URL).toBe("http://localhost:9903");
     expect(env.dashboard.VITE_KEPPO_URL).toBe("http://localhost:9903");
   });
 
-  it("uses the worker-scoped cron secret even when an ambient shared secret is present", () => {
+  it("preserves an explicit shared cron secret override", () => {
     vi.stubEnv("KEPPO_CRON_SECRET", "shared-cron-secret");
 
     const env = buildWorkerEnv(params);
 
-    expect(env.base.KEPPO_CRON_SECRET).toBe("e2e-cron-token-0");
-    expect(env.base.KEPPO_LOCAL_QUEUE_CONSUMER_AUTH_HEADER).toBe("Bearer e2e-cron-token-0");
+    expect(env.base.KEPPO_CRON_SECRET).toBe("shared-cron-secret");
+    expect(env.base.KEPPO_LOCAL_QUEUE_CONSUMER_AUTH_HEADER).toBe("Bearer shared-cron-secret");
   });
 
   it("enables the fake OpenAI responses path only when requested", () => {

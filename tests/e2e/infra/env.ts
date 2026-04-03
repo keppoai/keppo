@@ -56,9 +56,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
   const queueBrokerBase = `http://127.0.0.1:${params.ports.queueBroker}`;
   const useFakeOpenAiResponses = process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1";
   const convexSiteUrl = process.env.KEPPO_CONVEX_SITE_URL ?? toLocalConvexSiteUrl(params.convexUrl);
-  // Worker-scoped E2E runtimes must accept the same namespace token that local Convex
-  // dispatch uses for internal automation and queue routes.
-  const cronToken = `e2e-cron-token-${params.workerIndex}`;
+  const cronToken = readUsableTestEnv(process.env.KEPPO_CRON_SECRET) ?? "keppo-e2e-cron-secret";
   const externalAllowlist = new Set(
     (process.env.KEPPO_EXTERNAL_FETCH_ALLOWLIST ?? "")
       .split(",")

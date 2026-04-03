@@ -156,35 +156,12 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     await expect(page.getByLabel("API key")).toHaveCount(0);
   } else {
     await page.getByLabel("Provider").selectOption("openai");
+    await page.getByLabel("Mode").selectOption("byok");
     await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-openai");
     await clickElement(page.getByRole("button", { name: "Save Key" }));
-    await expect
-      .poll(
-        async () => {
-          if ((await page.getByText("Hosted mode keeps credentials managed").count()) > 0) {
-            return "hosted";
-          }
-          if (
-            (await page
-              .locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]')
-              .count()) > 0
-          ) {
-            return "self-managed";
-          }
-          return null;
-        },
-        { timeout: 30_000, intervals: [500, 1_000, 2_000] },
-      )
-      .not.toBeNull();
-
-    if ((await page.getByText("Hosted mode keeps credentials managed").count()) > 0) {
-      await expect(page.getByText("Hosted mode keeps credentials managed")).toBeVisible();
-      await expect(page.getByLabel("API key")).toHaveCount(0);
-    } else {
-      await expect(
-        page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
-      ).toContainText("Active");
-    }
+    await expect(
+      page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
+    ).toContainText("Active");
   }
   const createdRun = (await admin.createAutomationRun(
     createdAutomation.created.automation.id,
