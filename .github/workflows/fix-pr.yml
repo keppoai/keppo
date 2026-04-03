@@ -349,6 +349,18 @@ jobs:
           permission-issues: write
           permission-pull-requests: write
 
+      - name: Create GitHub App token for post-agent PR head repo operations
+        if: always() && steps.pr-info.outputs.should_continue == 'true'
+        id: post-agent-head-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.event.pull_request.head.repo.owner.login }}
+          repositories: ${{ github.event.pull_request.head.repo.name }}
+          permission-contents: write
+          permission-workflows: write
+
       - name: Refresh workflow base revision
         if: always() && steps.pr-info.outputs.should_continue == 'true'
         # Rehydrate trusted helper scripts after the agent runs so privileged
@@ -361,6 +373,14 @@ jobs:
           path: ${{ env.WORKFLOW_BASE_PATH }}
           fetch-depth: 1
           persist-credentials: false
+
+      - name: Refresh push remote for post-agent pushes
+        if: always() && steps.pr-info.outputs.should_continue == 'true'
+        run: |
+          git remote set-url --push origin "https://x-access-token:${PR_HEAD_APP_TOKEN}@github.com/${{ steps.pr-info.outputs.head_repo }}.git"
+          echo "Refreshed post-agent pushurl to ${{ steps.pr-info.outputs.head_repo }}"
+        env:
+          PR_HEAD_APP_TOKEN: ${{ steps.post-agent-head-app-token.outputs.token }}
 
       - name: Upload session logs
         if: always() && steps.pr-info.outputs.should_continue == 'true'
