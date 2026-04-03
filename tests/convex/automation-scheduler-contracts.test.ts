@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { makeFunctionReference } from "convex/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { components } from "../../convex/_generated/api";
-import { AUTOMATION_RUN_STATUS, RUN_STATUS, RUN_TRIGGER_TYPE } from "../../convex/domain_constants";
+import {
+  AUTOMATION_RUN_STATUS,
+  RUN_STATUS,
+  RUN_TRIGGER_TYPE,
+  USER_ROLE,
+} from "../../convex/domain_constants";
 import { AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS } from "../../packages/shared/src/automations";
 import { listPollingAutomationTriggers } from "../../packages/shared/src/providers/automation-trigger-registry";
 import {
@@ -37,6 +42,68 @@ const refs = {
     "automation_scheduler:terminateAutomationRun",
   ),
   reapStaleRuns: makeFunctionReference<"mutation">("automation_scheduler:reapStaleRuns"),
+};
+
+const getAuthUserIdByEmail = async (
+  t: ReturnType<typeof createConvexTestHarness>,
+  email: string,
+): Promise<string> => {
+  const authUserId = await t.run(async (ctx) => {
+    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "email", value: email }],
+    })) as { _id?: string } | null;
+    return user?._id ?? null;
+  });
+  expect(authUserId).toBeTruthy();
+  return authUserId!;
+};
+
+const createOrgMember = async (
+  t: ReturnType<typeof createConvexTestHarness>,
+  orgId: string,
+  params: {
+    email: string;
+    name: string;
+    role: (typeof USER_ROLE)[keyof typeof USER_ROLE];
+  },
+) => {
+  const now = Date.now();
+  await t.run(async (ctx) => {
+    await ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "user",
+        data: {
+          name: params.name,
+          email: params.email,
+          emailVerified: true,
+          image: null,
+          createdAt: now,
+          updatedAt: now,
+        },
+      },
+    });
+  });
+  const authUserId = await getAuthUserIdByEmail(t, params.email);
+  await t.run(async (ctx) => {
+    await ctx.runMutation(components.betterAuth.adapter.create, {
+      input: {
+        model: "member",
+        data: {
+          organizationId: orgId,
+          userId: authUserId,
+          role: params.role,
+          createdAt: now,
+        },
+      },
+    });
+  });
+  return t.withIdentity({
+    subject: authUserId,
+    email: params.email,
+    name: params.name,
+    activeOrganizationId: orgId,
+  });
 };
 
 describe("automation scheduler contract boundaries", () => {
@@ -145,6 +212,46 @@ describe("automation scheduler contract boundaries", () => {
     });
     const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(dispatchHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
+  });
+
+  it("rejects manual runs from viewer and approver members before creating a run", async () => {
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_manage_guard_owner",
+      email: "convex-scheduler-manage-guard-owner@example.com",
+      name: "Convex Scheduler Manage Guard Owner",
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+    const viewerT = await createOrgMember(t, orgId, {
+      email: "convex-scheduler-manage-guard-viewer@example.com",
+      name: "Convex Scheduler Manage Guard Viewer",
+      role: USER_ROLE.viewer,
+    });
+    const approverT = await createOrgMember(t, orgId, {
+      email: "convex-scheduler-manage-guard-approver@example.com",
+      name: "Convex Scheduler Manage Guard Approver",
+      role: USER_ROLE.approver,
+    });
+
+    await expect(
+      viewerT.mutation(refs.triggerAutomationRunManual, {
+        automation_id: fixture.automationId,
+      }),
+    ).rejects.toThrow("Forbidden");
+    await expect(
+      approverT.mutation(refs.triggerAutomationRunManual, {
+        automation_id: fixture.automationId,
+      }),
+    ).rejects.toThrow("Forbidden");
+
+    const runs = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("automation_runs")
+        .withIndex("by_automation", (q) => q.eq("automation_id", fixture.automationId))
+        .collect();
+    });
+
+    expect(runs).toHaveLength(0);
   });
 
   it("reuses a recent dispatch token instead of overwriting an in-flight pending run token", async () => {

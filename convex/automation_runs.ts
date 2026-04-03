@@ -70,6 +70,8 @@ const refs = {
   dispatchAutomationRun: automationSchedulerRefs.dispatchAutomationRun,
 };
 
+const MANUAL_AUTOMATION_TRIGGER_ROLES = [USER_ROLE.owner, USER_ROLE.admin] as const;
+
 const zeroAutomationRunTopupBalance = {
   purchased_runs_balance: 0,
   purchased_tool_calls_balance: 0,
@@ -286,7 +288,11 @@ const toAutomationRunView = (
   };
 };
 
-const requireAutomation = async (ctx: QueryCtx | MutationCtx, automationId: string) => {
+const requireAutomation = async (
+  ctx: QueryCtx | MutationCtx,
+  automationId: string,
+  allowedRoles?: readonly (typeof MANUAL_AUTOMATION_TRIGGER_ROLES)[number][],
+) => {
   const automation = await ctx.db
     .query("automations")
     .withIndex("by_custom_id", (q) => q.eq("id", automationId))
@@ -294,7 +300,7 @@ const requireAutomation = async (ctx: QueryCtx | MutationCtx, automationId: stri
   if (!automation) {
     throw new Error("AutomationNotFound");
   }
-  const auth = await requireWorkspaceRole(ctx, automation.workspace_id);
+  const auth = await requireWorkspaceRole(ctx, automation.workspace_id, allowedRoles);
   if (auth.orgId !== automation.org_id) {
     throw new Error("Forbidden");
   }
@@ -1472,7 +1478,11 @@ export const triggerAutomationRunManual = mutation({
   },
   returns: automationRunViewValidator,
   handler: async (ctx, args) => {
-    const { automation } = await requireAutomation(ctx, args.automation_id);
+    const { automation } = await requireAutomation(
+      ctx,
+      args.automation_id,
+      MANUAL_AUTOMATION_TRIGGER_ROLES,
+    );
     if (automation.status !== AUTOMATION_STATUS.active) {
       throw new Error("AutomationPaused");
     }
