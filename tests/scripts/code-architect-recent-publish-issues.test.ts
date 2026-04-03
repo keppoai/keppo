@@ -5,6 +5,8 @@ import {
   ensureLabel,
   isRepositoryIssue,
   parseFindingMarkdown,
+  partitionFindingsBySeverity,
+  normalizeSeverityFilter,
   sanitizeMentions,
 } from "../../scripts/code-architect-recent/publish-issues.mjs";
 
@@ -181,5 +183,18 @@ describe("scripts/code-architect-recent/publish-issues.mjs", () => {
     expect(sanitizeMentions("@ops please loop in @team/platform")).toBe(
       "@\u200bops please loop in @\u200bteam/platform",
     );
+  });
+
+  it("normalizes the severity filter and preserves filtered architecture findings for audit reporting", () => {
+    const findings = [
+      { severity: "critical", title: "Critical architecture risk" },
+      { severity: "high", title: "High architecture risk" },
+    ];
+
+    expect(normalizeSeverityFilter(" Critical ")).toBe("critical");
+    expect(partitionFindingsBySeverity(findings, " Critical ")).toEqual({
+      filtered: [{ severity: "high", title: "High architecture risk" }],
+      findingsToPublish: [{ severity: "critical", title: "Critical architecture risk" }],
+    });
   });
 });
