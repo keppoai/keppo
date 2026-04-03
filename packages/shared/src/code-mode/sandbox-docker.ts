@@ -10,7 +10,7 @@ import {
   CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE,
 } from "./structured-execution-error.js";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 const HOST_WORKSPACE_PREFIX = "keppo-code-mode-";
 const HOST_WORKSPACE_ROOT = join(process.cwd(), ".tmp", "code-mode-sandbox");
 const CONTAINER_WORKDIR = "/workspace";
