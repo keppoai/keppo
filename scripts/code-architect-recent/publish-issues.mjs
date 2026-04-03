@@ -157,9 +157,9 @@ const parseAffectedFiles = (raw) =>
     .map((line) => line.slice(2).trim())
     .filter(Boolean);
 
-const sanitizeMentions = (value) => value.replaceAll("@", "@\u200b");
+export const sanitizeMentions = (value) => value.replaceAll("@", "@\u200b");
 
-const buildDedupMarker = (dedupKey) => {
+export const buildDedupMarker = (dedupKey) => {
   const normalizedKey = normalizeDedupKey(dedupKey);
   const digest = crypto
     .createHash("sha256")
@@ -176,14 +176,14 @@ const readDedupMarker = (issueBody) => {
   return match ? match[1] : null;
 };
 
-const isRepositoryIssue = (issue) =>
+export const isRepositoryIssue = (issue) =>
   Boolean(issue) &&
   typeof issue === "object" &&
   typeof issue.number === "number" &&
   typeof issue.state === "string" &&
   !("pull_request" in issue);
 
-const parseFindingMarkdown = (raw, filePath) => {
+export const parseFindingMarkdown = (raw, filePath) => {
   const titleMatch = raw.match(/^#\s+(.+)$/m);
   if (!titleMatch) {
     return {
@@ -292,12 +292,12 @@ const loadFindings = async (dirPath) => {
   return { findings, malformed };
 };
 
-const ensureLabel = async ({
+export const ensureLabel = async ({
   apiBaseUrl,
   repo,
   token,
   label,
-  color,
+  color = "d73a4a",
   description,
 }) => {
   const response = await fetch(
@@ -388,7 +388,7 @@ const fetchExistingIssues = async ({ apiBaseUrl, repo, token }) => {
   };
 };
 
-const createRepositoryIssue = async ({
+export const createRepositoryIssue = async ({
   apiBaseUrl,
   repo,
   token,
@@ -418,9 +418,9 @@ const createRepositoryIssue = async ({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      title: `[${finding.severity.toUpperCase()}] ${safeTitle}`,
+      title: safeTitle,
       body,
-      labels: [ARCHITECTURE_LABEL],
+      labels: [ARCHITECTURE_LABEL, `severity:${finding.severity}`],
     }),
   });
 
@@ -807,15 +807,35 @@ const main = async () => {
     throw new Error(operatorAlerts.join("\n"));
   }
 
-  await ensureLabel({
-    apiBaseUrl,
-    repo,
-    token,
-    label: ARCHITECTURE_LABEL,
-    color: "0e8a16",
-    description:
-      "Architecture improvement found by the nightly code-architect:recent workflow",
-  });
+  await Promise.all([
+    ensureLabel({
+      apiBaseUrl,
+      repo,
+      token,
+      label: ARCHITECTURE_LABEL,
+      color: "0e8a16",
+      description:
+        "Architecture improvement found by the nightly code-architect:recent workflow",
+    }),
+    ensureLabel({
+      apiBaseUrl,
+      repo,
+      token,
+      label: "severity:critical",
+      color: "b60205",
+      description:
+        "Critical severity — highest-priority issue requiring immediate attention",
+    }),
+    ensureLabel({
+      apiBaseUrl,
+      repo,
+      token,
+      label: "severity:high",
+      color: "d93f0b",
+      description:
+        "High severity — significant issue requiring prompt attention",
+    }),
+  ]);
   const { issues: existing, reachedPageCap } = await fetchExistingIssues({
     apiBaseUrl,
     repo,
@@ -838,9 +858,7 @@ const main = async () => {
   const failed = [];
 
   for (const finding of findings) {
-    const titleKey = normalizeTitle(
-      `[${finding.severity.toUpperCase()}] ${sanitizeMentions(finding.title)}`,
-    );
+    const titleKey = normalizeTitle(sanitizeMentions(finding.title));
     const dedupKey = normalizeDedupKey(finding.dedupKey);
     const duplicate =
       existingByDedupKey.get(dedupKey) || existingByTitle.get(titleKey);
