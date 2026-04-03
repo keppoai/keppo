@@ -832,6 +832,147 @@ describe("start-owned billing api", () => {
     expect(deps.convex.upsertSubscriptionForOrg).not.toHaveBeenCalled();
   });
 
+  it("fails closed when checkout completion cannot resolve a paid tier from Stripe", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+
+    const deps = createDeps();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_session_missing_price",
+      object: "event",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_missing_price",
+          object: "checkout.session",
+          payment_status: "paid",
+          metadata: {
+            org_id: "org_test",
+            tier: "enterprise",
+          },
+          client_reference_id: "org_test",
+          customer: "cus_test",
+          subscription: "sub_missing_price",
+        },
+      },
+    });
+    deps.getStripeClient = () =>
+      ({
+        webhooks: {
+          constructEvent: vi.fn(() => JSON.parse(rawBody)),
+        },
+        subscriptions: {
+          retrieve: vi.fn(async () => ({
+            id: "sub_missing_price",
+            status: "active",
+            customer: "cus_test",
+            current_period_start: 1_772_323_200,
+            current_period_end: 1_775_001_600,
+            items: {
+              data: [{}],
+            },
+          })),
+        },
+      }) as unknown as ReturnType<NonNullable<typeof deps.getStripeClient>>;
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/webhooks/stripe-billing", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": signStripePayload(rawBody),
+        },
+        body: rawBody,
+      }),
+      deps,
+    );
+
+    expect(response?.status).toBe(500);
+    await expect(response?.json()).resolves.toEqual({
+      error: {
+        code: "webhook_processing_failed",
+        message: "Stripe subscription price does not match a known Keppo tier.",
+      },
+    });
+    expect(consoleError).toHaveBeenCalledWith("billing.webhook.subscription_tier_unresolved", {
+      eventType: "checkout.session.completed",
+      stripeEventId: "evt_checkout_session_missing_price",
+      stripeSubscriptionId: "sub_missing_price",
+      orgId: "org_test",
+      priceId: null,
+    });
+    expect(deps.convex.upsertSubscriptionForOrg).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when subscription updates omit the Stripe price id", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+
+    const deps = createDeps();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(deps.convex.getSubscriptionByStripeSubscription).mockResolvedValueOnce({
+      id: "subrow_1",
+      org_id: "org_test",
+      tier: "starter",
+      status: "active",
+      current_period_start: "2026-02-01T00:00:00.000Z",
+      current_period_end: "2026-03-01T00:00:00.000Z",
+      stripe_subscription_id: "sub_missing_price_update",
+      stripe_customer_id: "cus_test",
+      created_at: "2026-02-01T00:00:00.000Z",
+      updated_at: "2026-02-01T00:00:00.000Z",
+    });
+    const rawBody = JSON.stringify({
+      id: "evt_subscription_updated_missing_price",
+      object: "event",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_missing_price_update",
+          object: "subscription",
+          status: "active",
+          customer: "cus_test",
+          current_period_start: 1_772_323_200,
+          current_period_end: 1_775_001_600,
+          items: {
+            data: [{}],
+          },
+        },
+      },
+    });
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/webhooks/stripe-billing", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": signStripePayload(rawBody),
+        },
+        body: rawBody,
+      }),
+      deps,
+    );
+
+    expect(response?.status).toBe(500);
+    await expect(response?.json()).resolves.toEqual({
+      error: {
+        code: "webhook_processing_failed",
+        message: "Stripe subscription price does not match a known Keppo tier.",
+      },
+    });
+    expect(consoleError).toHaveBeenCalledWith("billing.webhook.subscription_tier_unresolved", {
+      eventType: "customer.subscription.updated",
+      stripeEventId: "evt_subscription_updated_missing_price",
+      stripeSubscriptionId: "sub_missing_price_update",
+      orgId: "org_test",
+      priceId: null,
+    });
+    expect(deps.convex.setSubscriptionStatusByStripeSubscription).not.toHaveBeenCalled();
+  });
+
   it("revokes bundled access after subscription deletion", async () => {
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
     vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");

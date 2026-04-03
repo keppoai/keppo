@@ -12,6 +12,7 @@
 - Validate `successUrl`, `cancelUrl`, and `returnUrl` against `KEPPO_DASHBOARD_ORIGIN` before calling Stripe.
 - Stripe webhook handlers must verify signatures before mutating subscription, AI credit, or automation run top-up state.
 - Billing webhooks and one-time purchase fulfillment must be idempotent.
+- Stripe subscription webhooks must fail closed when the recurring subscription price ID is missing or does not map to a configured paid tier; never substitute `free` for an unknown Stripe plan.
 - Stripe subscription period persistence and Stripe-driven plan-change mutations must read still-supported Stripe period fields. For managed-payments subscriptions, use subscription-level periods only when both timestamps are present; otherwise prefer a complete subscription-item period and fail closed instead of substituting `Date.now()` when timestamps are missing.
 - Operators should monitor the `billing.webhook.subscription_period_missing` log key. Repeated occurrences mean Stripe retries will stay stuck until the payload contract or webhook handling is corrected.
 - Reject malformed Stripe metadata before mutating AI credit or automation run top-up state; never write `NaN`, zero, or invalid tier values into billing records.
