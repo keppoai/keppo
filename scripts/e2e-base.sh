@@ -23,14 +23,11 @@ dashboard_port="$(( ${KEPPO_E2E_PORT_BASE:-9900} + 3 ))"
 export KEPPO_API_INTERNAL_BASE_URL="http://127.0.0.1:${dashboard_port}"
 export KEPPO_FAKE_EXTERNAL_BASE_URL="http://127.0.0.1:${KEPPO_E2E_FAKE_EXTERNAL_PORT:-9901}"
 if [ "${KEPPO_E2E_OPENAI_RESPONSES_FAKE:-}" = "1" ]; then
-  export KEPPO_E2E_OPENAI_BASE_URL="${KEPPO_E2E_OPENAI_BASE_URL:-${KEPPO_FAKE_EXTERNAL_BASE_URL}}"
   export KEPPO_LLM_GATEWAY_URL=""
+elif [ "${KEPPO_LLM_GATEWAY_URL+x}" = "x" ]; then
+  export KEPPO_LLM_GATEWAY_URL
 else
-  if [ "${KEPPO_LLM_GATEWAY_URL+x}" = "x" ]; then
-    export KEPPO_LLM_GATEWAY_URL
-  else
-    export KEPPO_LLM_GATEWAY_URL="${KEPPO_FAKE_EXTERNAL_BASE_URL}"
-  fi
+  export KEPPO_LLM_GATEWAY_URL="${KEPPO_FAKE_EXTERNAL_BASE_URL}"
 fi
 export GMAIL_API_BASE_URL="${KEPPO_FAKE_EXTERNAL_BASE_URL}/gmail/v1"
 export KEPPO_FAKE_GMAIL_ACCESS_TOKEN="fake_gmail_access_token"

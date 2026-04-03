@@ -583,7 +583,7 @@ const resolveCodexHomeDir = (providerMode: AutomationSandboxProviderMode): strin
 
 const CODEX_CUSTOM_OPENAI_PROVIDER_ID = "keppo_openai_api";
 
-export const shouldUseCodexCustomOpenAiProvider = (params: {
+const shouldUseCodexCustomOpenAiProvider = (params: {
   aiModelProvider?: AiModelProvider;
   aiKeyMode?: AiKeyMode;
   credentialKind?: AiKeyCredentialKind;

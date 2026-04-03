@@ -109,9 +109,8 @@ const resolveNamespaceApiBase = (namespace?: string): string | null => {
     Number.isInteger(basePort) && basePort >= 1024 ? basePort : DEFAULT_E2E_PORT_BASE;
   const safeBlockSize =
     Number.isInteger(blockSize) && blockSize >= 5 ? blockSize : DEFAULT_E2E_PORT_BLOCK_SIZE;
-  // The E2E stack serves internal automation routes from the dashboard app port.
-  const appPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_DASHBOARD_PORT_OFFSET;
-  return `http://127.0.0.1:${appPort}`;
+  const dashboardPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_DASHBOARD_PORT_OFFSET;
+  return `http://127.0.0.1:${dashboardPort}`;
 };
 
 const resolveNamespaceCronSecret = (namespace?: string): string | null => {
@@ -171,11 +170,14 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
 
 const resolveInternalAuthHeader = (namespace?: string): string | null => {
   const namespaceSecret = resolveNamespaceCronSecret(namespace);
+  if (namespaceSecret) {
+    return `Bearer ${namespaceSecret}`;
+  }
   const envSecret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
     process.env.VERCEL_CRON_SECRET;
-  const secret = namespaceSecret ?? envSecret;
+  const secret = envSecret;
   if (!secret) {
     return null;
   }
