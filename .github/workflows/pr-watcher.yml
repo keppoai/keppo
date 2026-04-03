@@ -34,6 +34,7 @@ jobs:
     env:
       CONTEXT_OUTPUT_PATH: tmp/pr-watcher/context.json
       CLAUDE_DECISION_PATH: tmp/pr-watcher/decision.json
+      MAX_FIX_PR_THRESHOLD: "5"
     steps:
       - name: Create GitHub App token
         id: app-token
