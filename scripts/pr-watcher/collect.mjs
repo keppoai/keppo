@@ -13,6 +13,8 @@
  *   PR_NUMBER            — pull request number
  *   GITHUB_OUTPUT        — path to $GITHUB_OUTPUT file
  *   CONTEXT_OUTPUT_PATH  — where to write Claude's evaluation context
+ * Optional env:
+ *   MAX_FIX_PR_THRESHOLD — max historical /fix-pr labels before max-auto-fix
  */
 
 import fs from "node:fs";
@@ -22,11 +24,18 @@ const repository = process.env.GITHUB_REPOSITORY;
 const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
 const githubOutputPath = process.env.GITHUB_OUTPUT;
 const contextOutputPath = process.env.CONTEXT_OUTPUT_PATH;
+const maxFixPrThreshold = Number.parseInt(
+  process.env.MAX_FIX_PR_THRESHOLD ?? "3",
+  10,
+);
 
 if (!token) throw new Error("GITHUB_TOKEN is required");
 if (!repository) throw new Error("GITHUB_REPOSITORY is required");
 if (!Number.isFinite(prNumber)) throw new Error("PR_NUMBER is required");
 if (!githubOutputPath) throw new Error("GITHUB_OUTPUT is required");
+if (!Number.isInteger(maxFixPrThreshold) || maxFixPrThreshold < 1) {
+  throw new Error("MAX_FIX_PR_THRESHOLD must be a positive integer when set");
+}
 
 const [owner, repo] = repository.split("/");
 if (!owner || !repo)
@@ -164,7 +173,6 @@ if (prLabels.has("fix-pr:failed")) {
 // events, just enough to determine if we've hit the threshold.
 let fixPrCount = 0;
 let timelinePage = 1;
-const maxFixPrThreshold = 3;
 while (timelinePage <= 10) {
   const sep = `repos/${owner}/${repo}/issues/${prNumber}/timeline`.includes("?") ? "&" : "?";
   const url = `repos/${owner}/${repo}/issues/${prNumber}/timeline${sep}per_page=100&page=${timelinePage}`;
@@ -182,8 +190,10 @@ while (timelinePage <= 10) {
 }
 console.log(`fix-pr attempt count (from timeline): ${fixPrCount}`);
 
-if (fixPrCount >= 3) {
-  console.log("fix-pr count >= 3 — applying pr=max-auto-fix");
+if (fixPrCount >= maxFixPrThreshold) {
+  console.log(
+    `fix-pr count >= ${maxFixPrThreshold} — applying pr=max-auto-fix`,
+  );
   setOutput("action", "label");
   setOutput("label", "pr=max-auto-fix");
   setOutput("reason", `Exceeded max auto-fix attempts (${fixPrCount})`);

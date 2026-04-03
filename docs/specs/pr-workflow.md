@@ -8,7 +8,7 @@ The **PR Watcher** (`pr-watcher.yml`) evaluates every open PR after reviews and 
 |---|---|
 | `pr=ready-to-merge` | All reviews pass, CI green, no unresolved threads. Ready for merge. |
 | `pr=needs-human-review` | Has issues requiring human judgment that an agent cannot resolve. |
-| `pr=max-auto-fix` | Exceeded 3 `/fix-pr` cycles without reaching a clean state. |
+| `pr=max-auto-fix` | Exceeded 5 `/fix-pr` cycles without reaching a clean state. |
 
 ## Architecture: Two-Pass Evaluation
 
@@ -76,7 +76,7 @@ The evaluate script collects these signals into a context file for Claude:
                       | NO
                       v
         +---------------------------+
-        |  2. fix-pr count >= 3?    |---YES---> pr=max-auto-fix
+        |  2. fix-pr count >= 5?    |---YES---> pr=max-auto-fix
         +-------------+-------------+
                       | NO
                       v
@@ -122,10 +122,10 @@ PR Review + CI complete --> re-triggers pr-watcher
     v
 pr-watcher re-evaluates with fresh signals
     |
-    +-- mechanical issues remain + count < 3  --> /fix-pr again
+    +-- mechanical issues remain + count < 5  --> /fix-pr again
     +-- only human issues remain              --> pr=needs-human-review
     +-- all clean                             --> pr=ready-to-merge
-    +-- count hit 3                           --> pr=max-auto-fix
+    +-- count hit 5                           --> pr=max-auto-fix
     +-- fix-pr:failed                         --> pr=needs-human-review
 ```
 
@@ -137,15 +137,15 @@ When both mechanical and human-judgment issues exist, the watcher applies `/fix-
 |---|---|---|---|---|---|---|
 | ready | ready | pass | 0 | 0 | any | `pr=ready-to-merge` |
 | ready | ready | pass | >0 | any | any | `pr=needs-human-review` |
-| ready | ready | fail | any | any | <3 | `/fix-pr` |
-| auto-fix | any | any | any | any | <3 | `/fix-pr` |
-| any | auto-fix | any | any | any | <3 | `/fix-pr` |
+| ready | ready | fail | any | any | <5 | `/fix-pr` |
+| auto-fix | any | any | any | any | <5 | `/fix-pr` |
+| any | auto-fix | any | any | any | <5 | `/fix-pr` |
 | human-review | human-review | pass | any | 0 | any | `pr=needs-human-review` |
-| human-review | any | any | any | >0 | <3 | `/fix-pr` (fix bot issues first) |
-| any | any | any | any | any | >=3 | `pr=max-auto-fix` |
+| human-review | any | any | any | >0 | <5 | `/fix-pr` (fix bot issues first) |
+| any | any | any | any | any | >=5 | `pr=max-auto-fix` |
 | -- | -- | -- | -- | -- | failed | `pr=needs-human-review` |
 
-**Priority order:** `fix-pr:failed` > `count >= 3` > `any auto-fixable` > `human-review only` > `ready-to-merge`
+**Priority order:** `fix-pr:failed` > `count >= 5` > `any auto-fixable` > `human-review only` > `ready-to-merge`
 
 ## Workflow Trigger Mechanics
 
