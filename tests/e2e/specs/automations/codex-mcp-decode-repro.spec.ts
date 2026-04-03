@@ -156,8 +156,13 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     await expect(page.getByLabel("API key")).toHaveCount(0);
   } else {
     await page.getByLabel("Provider").selectOption("openai");
-    await page.getByLabel("Mode").selectOption("byok");
-    await setControlValue(page.getByLabel("API key"), "sk-keppo-e2e-openai");
+    const modeField = page.getByLabel("Mode");
+    if ((await modeField.count()) > 0) {
+      await modeField.selectOption("byok");
+    }
+    const apiKeyField = page.getByLabel("API key");
+    await expect(apiKeyField).toBeVisible();
+    await setControlValue(apiKeyField, "sk-keppo-e2e-openai");
     await clickElement(page.getByRole("button", { name: "Save Key" }));
     await expect(
       page.locator('[data-testid="ai-key-row"][data-ai-key-provider="openai"]'),
