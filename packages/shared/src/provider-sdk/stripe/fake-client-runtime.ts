@@ -231,11 +231,21 @@ const toStripeSubscriptionResult = (
   customerId: string,
   subscription: Record<string, unknown>,
 ): StripeSubscriptionResult => {
+  const currentPeriodStart =
+    typeof subscription.current_period_start === "number"
+      ? subscription.current_period_start
+      : undefined;
+  const currentPeriodEnd =
+    typeof subscription.current_period_end === "number"
+      ? subscription.current_period_end
+      : undefined;
   return {
     id: String(subscription.id ?? ""),
     status: String(subscription.status ?? "active"),
     cancel_at_period_end: Boolean(subscription.cancel_at_period_end ?? false),
     customer: customerId,
+    ...(typeof currentPeriodStart === "number" ? { current_period_start: currentPeriodStart } : {}),
+    ...(typeof currentPeriodEnd === "number" ? { current_period_end: currentPeriodEnd } : {}),
     items: {
       object: "list",
       data:
@@ -243,6 +253,12 @@ const toStripeSubscriptionResult = (
           ? [
               {
                 id: `si_${String(subscription.id ?? "seed")}`,
+                ...(typeof currentPeriodStart === "number"
+                  ? { current_period_start: currentPeriodStart }
+                  : {}),
+                ...(typeof currentPeriodEnd === "number"
+                  ? { current_period_end: currentPeriodEnd }
+                  : {}),
                 price: {
                   id: subscription.priceId,
                 },
@@ -1861,11 +1877,19 @@ export class InMemoryStripeSdk
         throw new Error("customer_not_found");
       }
       const subscriptionId = `sub_create_${state.subscriptionCreateCount}`;
+      const currentPeriodStart = 1_700_000_000 + state.subscriptionCreateCount * 2_592_000;
+      const currentPeriodEnd =
+        currentPeriodStart +
+        (typeof args.trialPeriodDays === "number" && Number.isFinite(args.trialPeriodDays)
+          ? Math.trunc(args.trialPeriodDays) * 86_400
+          : 2_592_000);
       const createdSubscription = {
         id: subscriptionId,
         status: "active",
         plan: "custom",
         cancel_at_period_end: false,
+        current_period_start: currentPeriodStart,
+        current_period_end: currentPeriodEnd,
         priceId: args.priceId,
         quantity: Math.max(1, Number(args.quantity ?? 1)),
         ...(typeof args.trialPeriodDays === "number" && Number.isFinite(args.trialPeriodDays)

@@ -34,6 +34,8 @@ export type StripeFixtureCustomer = Partial<StripeCustomer> & {
     status: string;
     plan: string;
     cancel_at_period_end?: boolean;
+    current_period_start?: number;
+    current_period_end?: number;
     priceId?: string;
     quantity?: number;
   }>;

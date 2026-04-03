@@ -77,6 +77,17 @@ class BillingInputError extends Error {
   }
 }
 
+class BillingRuntimeError extends Error {
+  code: string;
+  status: number;
+
+  constructor(code: string, message: string, status = 500) {
+    super(message);
+    this.code = code;
+    this.status = status;
+  }
+}
+
 const BILLING_WEBHOOK_DEDUPE_TTL_MS = 10 * 60_000;
 // Managed Payments checkout requires a preview Stripe-Version; GA SDK types use a narrower
 // LatestApiVersion union, so we cast. See https://docs.stripe.com/sdks/versioning (current
@@ -536,13 +547,14 @@ const parseInteger = (value: unknown, field: string): number => {
   return value;
 };
 
-const toIsoFromUnix = (value: number | null | undefined): string => {
-  const seconds =
-    typeof value === "number" && Number.isFinite(value) ? value : Math.floor(Date.now() / 1000);
-  return new Date(seconds * 1000).toISOString();
+const toIsoFromUnix = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    throw new Error("Expected a finite Unix timestamp.");
+  }
+  return new Date(value * 1000).toISOString();
 };
 
-const readUnixPeriod = (value: unknown): { start?: number; end?: number } => {
+const readUnixPeriodFields = (value: unknown): { start?: number; end?: number } => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -553,6 +565,90 @@ const readUnixPeriod = (value: unknown): { start?: number; end?: number } => {
       : {}),
     ...(typeof record.current_period_end === "number" ? { end: record.current_period_end } : {}),
   };
+};
+
+const readUnixPeriod = (value: unknown): { start?: number; end?: number } => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  const subscriptionPeriod = readUnixPeriodFields(record);
+  if (typeof subscriptionPeriod.start === "number" && typeof subscriptionPeriod.end === "number") {
+    return subscriptionPeriod;
+  }
+  const items = record.items;
+  if (!items || typeof items !== "object" || Array.isArray(items)) {
+    return subscriptionPeriod;
+  }
+  const data = (items as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    return subscriptionPeriod;
+  }
+  let firstItemPeriod: { start?: number; end?: number } | null = null;
+  for (const item of data) {
+    const itemPeriod = readUnixPeriodFields(item);
+    if (typeof itemPeriod.start === "number" && typeof itemPeriod.end === "number") {
+      return itemPeriod;
+    }
+    if (
+      !firstItemPeriod &&
+      (typeof itemPeriod.start === "number" || typeof itemPeriod.end === "number")
+    ) {
+      firstItemPeriod = itemPeriod;
+    }
+  }
+  if (typeof subscriptionPeriod.start === "number" || typeof subscriptionPeriod.end === "number") {
+    return subscriptionPeriod;
+  }
+  return firstItemPeriod ?? {};
+};
+
+const logMissingSubscriptionPeriod = (
+  logKey: string,
+  context: {
+    eventType?: string;
+    stripeEventId?: string;
+    orgId?: string;
+    subscriptionId: string;
+  },
+): void => {
+  console.error(logKey, context);
+};
+
+const requireUnixPeriod = (
+  value: unknown,
+  context: {
+    eventType: string;
+    stripeEventId: string;
+    orgId?: string;
+    subscriptionId: string;
+  },
+): { start: number; end: number } => {
+  const period = readUnixPeriod(value);
+  if (typeof period.start === "number" && typeof period.end === "number") {
+    return period as { start: number; end: number };
+  }
+  logMissingSubscriptionPeriod("billing.webhook.subscription_period_missing", context);
+  throw new Error("Stripe billing webhook processing failed.");
+};
+
+const requireSubscriptionPeriodForMutation = (
+  value: unknown,
+  context: { action: string; orgId: string; subscriptionId: string },
+): { start: number; end: number } => {
+  const period = readUnixPeriod(value);
+  if (typeof period.start === "number" && typeof period.end === "number") {
+    return period as { start: number; end: number };
+  }
+  logMissingSubscriptionPeriod("billing.subscription_change.subscription_period_missing", {
+    orgId: context.orgId,
+    subscriptionId: context.subscriptionId,
+  });
+  throw new BillingRuntimeError(
+    "billing_subscription_period_unavailable",
+    `Stripe did not return the current billing period needed to ${context.action}. Please try again.`,
+    503,
+  );
 };
 
 let stripeClientCache: {
@@ -1329,9 +1425,12 @@ export const handleBillingSubscriptionChangeRequest = async (
           400,
         );
       }
-      const livePeriod = readUnixPeriod(live);
-      const periodEndForKey =
-        typeof livePeriod.end === "number" ? livePeriod.end : Math.floor(Date.now() / 1000);
+      const livePeriod = requireSubscriptionPeriodForMutation(live, {
+        action: "remove the scheduled cancellation",
+        orgId: resolvedOrg.orgId,
+        subscriptionId: stripeSubscriptionId,
+      });
+      const periodEndForKey = livePeriod.end;
       await stripe.subscriptions.update(
         stripeSubscriptionId,
         { cancel_at_period_end: false },
@@ -1465,9 +1564,12 @@ export const handleBillingSubscriptionChangeRequest = async (
           expand: ["default_payment_method", "items.data.price", "schedule"],
         });
       }
-      const cancelPeriod = readUnixPeriod(liveSubscription);
-      const periodEndForKey =
-        typeof cancelPeriod.end === "number" ? cancelPeriod.end : Math.floor(Date.now() / 1000);
+      const cancelPeriod = requireSubscriptionPeriodForMutation(liveSubscription, {
+        action: "schedule this cancellation",
+        orgId: resolvedOrg.orgId,
+        subscriptionId: stripeSubscriptionId,
+      });
+      const periodEndForKey = cancelPeriod.end;
       await stripe.subscriptions.update(
         stripeSubscriptionId,
         { cancel_at_period_end: true },
@@ -1475,7 +1577,7 @@ export const handleBillingSubscriptionChangeRequest = async (
           idempotencyKey: `keppo-billing-cancel-end-${resolvedOrg.orgId}-${periodEndForKey}`,
         },
       );
-      const periodEnd = typeof cancelPeriod.end === "number" ? cancelPeriod.end : periodEndForKey;
+      const periodEnd = cancelPeriod.end;
       await deps.convex.createAuditEvent({
         orgId: resolvedOrg.orgId,
         actorType: AUDIT_ACTOR_TYPE.user,
@@ -1561,9 +1663,12 @@ export const handleBillingSubscriptionChangeRequest = async (
           400,
         );
       }
-      const upgradePeriod = readUnixPeriod(liveSubscription);
-      const periodEndForKey =
-        typeof upgradePeriod.end === "number" ? upgradePeriod.end : Math.floor(Date.now() / 1000);
+      const upgradePeriod = requireSubscriptionPeriodForMutation(liveSubscription, {
+        action: "upgrade this plan",
+        orgId: resolvedOrg.orgId,
+        subscriptionId: stripeSubscriptionId,
+      });
+      const periodEndForKey = upgradePeriod.end;
       const updated = await stripe.subscriptions.update(
         stripeSubscriptionId,
         {
@@ -1616,15 +1721,13 @@ export const handleBillingSubscriptionChangeRequest = async (
     }
 
     if (TIER_RANK[targetTier] < TIER_RANK[liveTier]) {
-      const downgradePeriod = readUnixPeriod(liveSubscription);
-      const periodStart =
-        typeof downgradePeriod.start === "number"
-          ? downgradePeriod.start
-          : Math.floor(Date.now() / 1000);
-      const periodEnd =
-        typeof downgradePeriod.end === "number"
-          ? downgradePeriod.end
-          : Math.floor(Date.now() / 1000);
+      const downgradePeriod = requireSubscriptionPeriodForMutation(liveSubscription, {
+        action: "schedule this downgrade",
+        orgId: resolvedOrg.orgId,
+        subscriptionId: stripeSubscriptionId,
+      });
+      const periodStart = downgradePeriod.start;
+      const periodEnd = downgradePeriod.end;
       const phases = buildDowngradeSchedulePhases({
         currentPriceId,
         nextPriceId: targetPriceId,
@@ -1694,6 +1797,13 @@ export const handleBillingSubscriptionChangeRequest = async (
   } catch (error) {
     if (error instanceof BillingInputError) {
       return jsonResponse(request, { error: { code: error.code, message: error.message } }, 400);
+    }
+    if (error instanceof BillingRuntimeError) {
+      return jsonResponse(
+        request,
+        { error: { code: error.code, message: error.message } },
+        error.status,
+      );
     }
     console.error("billing.subscription_change.failed", error);
     return jsonResponse(
@@ -2173,7 +2283,12 @@ export const handleStripeBillingWebhookRequest = async (
           try {
             const stripe = resolveStripeClient(deps);
             const subscription = await stripe.subscriptions.retrieve(session.subscription);
-            const period = readUnixPeriod(subscription);
+            const period = requireUnixPeriod(subscription, {
+              eventType: event.type,
+              stripeEventId: event.id,
+              orgId,
+              subscriptionId: subscription.id,
+            });
             const priceId =
               subscription.items.data[0]?.price.id ??
               (typeof session.metadata?.tier === "string"
@@ -2238,9 +2353,14 @@ export const handleStripeBillingWebhookRequest = async (
       }
     } else if (event.type === "customer.subscription.updated") {
       const subscription = event.data.object as Stripe.Subscription;
-      const period = readUnixPeriod(subscription);
-      const tier = toTierFromPriceId(subscription.items.data[0]?.price.id ?? null);
       const existing = await deps.convex.getSubscriptionByStripeSubscription(subscription.id);
+      const period = requireUnixPeriod(subscription, {
+        eventType: event.type,
+        stripeEventId: event.id,
+        subscriptionId: subscription.id,
+        ...(existing?.org_id ? { orgId: existing.org_id } : {}),
+      });
+      const tier = toTierFromPriceId(subscription.items.data[0]?.price.id ?? null);
       const nextStatus = toStripeStatus(subscription.status);
       await deps.convex.setSubscriptionStatusByStripeSubscription({
         stripeSubscriptionId: subscription.id,

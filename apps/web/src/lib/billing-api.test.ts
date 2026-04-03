@@ -605,6 +605,233 @@ describe("start-owned billing api", () => {
     expect(deps.convex.upsertBundledOrgAiKey).toHaveBeenCalledTimes(2);
   });
 
+  it("reads billing periods from subscription items when Stripe omits deprecated subscription period fields", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
+
+    const deps = createDeps();
+    const retrieveSubscription = vi.fn(async () => ({
+      id: "sub_item_periods",
+      status: "active",
+      customer: "cus_test",
+      items: {
+        data: [
+          {
+            current_period_start: 1_772_323_200,
+            current_period_end: 1_775_001_600,
+            price: {
+              id: "price_starter_test",
+            },
+          },
+        ],
+      },
+    }));
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_session_item_periods",
+      object: "event",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_item_periods",
+          object: "checkout.session",
+          payment_status: "paid",
+          metadata: {
+            org_id: "org_test",
+            tier: "starter",
+          },
+          client_reference_id: "org_test",
+          customer: "cus_test",
+          subscription: "sub_item_periods",
+        },
+      },
+    });
+    deps.getStripeClient = () =>
+      ({
+        webhooks: {
+          constructEvent: vi.fn(() => JSON.parse(rawBody)),
+        },
+        subscriptions: {
+          retrieve: retrieveSubscription,
+        },
+      }) as unknown as ReturnType<NonNullable<typeof deps.getStripeClient>>;
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/webhooks/stripe-billing", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": signStripePayload(rawBody),
+        },
+        body: rawBody,
+      }),
+      deps,
+    );
+
+    expect(response?.status).toBe(200);
+    expect(retrieveSubscription).toHaveBeenCalledWith("sub_item_periods");
+    expect(deps.convex.upsertSubscriptionForOrg).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_test",
+        stripeSubscriptionId: "sub_item_periods",
+        currentPeriodStart: "2026-03-01T00:00:00.000Z",
+        currentPeriodEnd: "2026-04-01T00:00:00.000Z",
+      }),
+    );
+  });
+
+  it("prefers a complete item period instead of mixing incomplete subscription and item fields", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
+
+    const deps = createDeps();
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_session_item_period_preferred",
+      object: "event",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_item_period_preferred",
+          object: "checkout.session",
+          payment_status: "paid",
+          metadata: {
+            org_id: "org_test",
+            tier: "starter",
+          },
+          client_reference_id: "org_test",
+          customer: "cus_test",
+          subscription: "sub_item_period_preferred",
+        },
+      },
+    });
+    deps.getStripeClient = () =>
+      ({
+        webhooks: {
+          constructEvent: vi.fn(() => JSON.parse(rawBody)),
+        },
+        subscriptions: {
+          retrieve: vi.fn(async () => ({
+            id: "sub_item_period_preferred",
+            status: "active",
+            customer: "cus_test",
+            current_period_start: 1_772_236_800,
+            items: {
+              data: [
+                {
+                  current_period_start: 1_772_323_200,
+                  current_period_end: 1_775_001_600,
+                  price: {
+                    id: "price_starter_test",
+                  },
+                },
+              ],
+            },
+          })),
+        },
+      }) as unknown as ReturnType<NonNullable<typeof deps.getStripeClient>>;
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/webhooks/stripe-billing", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": signStripePayload(rawBody),
+        },
+        body: rawBody,
+      }),
+      deps,
+    );
+
+    expect(response?.status).toBe(200);
+    expect(deps.convex.upsertSubscriptionForOrg).toHaveBeenCalledWith(
+      expect.objectContaining({
+        currentPeriodStart: "2026-03-01T00:00:00.000Z",
+        currentPeriodEnd: "2026-04-01T00:00:00.000Z",
+      }),
+    );
+  });
+
+  it("fails closed when Stripe subscription webhooks do not include any readable billing period", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
+
+    const deps = createDeps();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const rawBody = JSON.stringify({
+      id: "evt_checkout_session_missing_periods",
+      object: "event",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_missing_periods",
+          object: "checkout.session",
+          payment_status: "paid",
+          metadata: {
+            org_id: "org_test",
+            tier: "starter",
+          },
+          client_reference_id: "org_test",
+          customer: "cus_test",
+          subscription: "sub_missing_periods",
+        },
+      },
+    });
+    deps.getStripeClient = () =>
+      ({
+        webhooks: {
+          constructEvent: vi.fn(() => JSON.parse(rawBody)),
+        },
+        subscriptions: {
+          retrieve: vi.fn(async () => ({
+            id: "sub_missing_periods",
+            status: "active",
+            customer: "cus_test",
+            items: {
+              data: [
+                {
+                  price: {
+                    id: "price_starter_test",
+                  },
+                },
+              ],
+            },
+          })),
+        },
+      }) as unknown as ReturnType<NonNullable<typeof deps.getStripeClient>>;
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/webhooks/stripe-billing", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "stripe-signature": signStripePayload(rawBody),
+        },
+        body: rawBody,
+      }),
+      deps,
+    );
+
+    expect(response?.status).toBe(500);
+    await expect(response?.json()).resolves.toEqual({
+      error: {
+        code: "webhook_processing_failed",
+        message: "Stripe billing webhook processing failed.",
+      },
+    });
+    expect(consoleError).toHaveBeenCalledWith("billing.webhook.subscription_period_missing", {
+      eventType: "checkout.session.completed",
+      stripeEventId: "evt_checkout_session_missing_periods",
+      orgId: "org_test",
+      subscriptionId: "sub_missing_periods",
+    });
+    expect(deps.convex.upsertSubscriptionForOrg).not.toHaveBeenCalled();
+  });
+
   it("revokes bundled access after subscription deletion", async () => {
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
     vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
@@ -1167,6 +1394,63 @@ describe("start-owned billing api", () => {
           requested_target_tier: "free",
         }),
       }),
+    );
+  });
+
+  it("fails closed for subscription changes when Stripe omits the current billing period", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_PRO_PRICE_ID", "price_pro_test");
+    const deps = createDeps();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    deps.getStripeClient = () =>
+      ({
+        subscriptions: {
+          retrieve: vi.fn(async () => ({
+            id: "sub_test",
+            status: "active",
+            cancel_at_period_end: false,
+            default_payment_method: null,
+            items: { data: [{ id: "si_1", price: { id: "price_pro_test" } }] },
+            schedule: null,
+          })),
+          update: vi.fn(),
+        },
+        subscriptionSchedules: {
+          release: vi.fn(),
+        },
+      }) as unknown as ReturnType<NonNullable<typeof deps.getStripeClient>>;
+
+    const response = await dispatchStartOwnedBillingRequest(
+      new Request("http://127.0.0.1/api/billing/subscription/change", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "better-auth.session_token=session_token_test",
+        },
+        body: JSON.stringify({
+          orgId: "org_test",
+          targetTier: "free",
+        }),
+      }),
+      deps,
+    );
+
+    expect(response).not.toBeNull();
+    expect(response!.status).toBe(503);
+    await expect(response!.json()).resolves.toEqual({
+      error: {
+        code: "billing_subscription_period_unavailable",
+        message:
+          "Stripe did not return the current billing period needed to schedule this cancellation. Please try again.",
+      },
+    });
+    expect(consoleError).toHaveBeenCalledWith(
+      "billing.subscription_change.subscription_period_missing",
+      {
+        orgId: "org_test",
+        subscriptionId: "sub_test",
+      },
     );
   });
 
