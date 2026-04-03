@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
+import { PushEndpointBlockedError } from "../../app/lib/server/api-runtime/push";
 import {
   dispatchStartOwnedInternalApiRequest,
   handleBuildVersionRequest,
@@ -215,7 +216,7 @@ describe("start-owned internal api handlers", () => {
   it("rejects blocked push subscription endpoints before registration", async () => {
     const deps = createDeps();
     deps.validatePushSubscriptionEndpoint.mockRejectedValue(
-      new Error("Push subscription endpoint resolves to a blocked address."),
+      new PushEndpointBlockedError("Push subscription endpoint resolves to a blocked address."),
     );
 
     const response = await handlePushSubscribeRequest(

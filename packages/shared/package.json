@@ -73,6 +73,10 @@
       "types": "./dist/network.d.ts",
       "default": "./dist/network.js"
     },
+    "./network-address-policy": {
+      "types": "./dist/network-address-policy.d.ts",
+      "default": "./dist/network-address-policy.js"
+    },
     "./oauth-pkce": {
       "types": "./dist/oauth-pkce.d.ts",
       "default": "./dist/oauth-pkce.js"

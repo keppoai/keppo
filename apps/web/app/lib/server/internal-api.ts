@@ -9,7 +9,7 @@ import { readBetterAuthSessionToken, parseJsonPayload } from "./api-runtime/app-
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { sendInviteEmail } from "./api-runtime/email.ts";
 import { getEnv } from "./api-runtime/env.ts";
-import { validatePushSubscriptionEndpoint } from "./api-runtime/push.ts";
+import { PushEndpointBlockedError, validatePushSubscriptionEndpoint } from "./api-runtime/push.ts";
 import {
   handleBillingCheckoutRequest,
   handleBillingCreditsCheckoutRequest,
@@ -402,7 +402,7 @@ export const handlePushSubscribeRequest = async (
     });
   } catch (error) {
     const message =
-      error instanceof Error && error.message.startsWith("Push subscription endpoint")
+      error instanceof PushEndpointBlockedError
         ? "Push subscription endpoint is not allowed."
         : "Push subscription registration failed.";
     return jsonResponse(

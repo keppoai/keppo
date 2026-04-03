@@ -1,7 +1,14 @@
 import { lookup } from "node:dns/promises";
+import { Agent } from "node:https";
 import { isIP } from "node:net";
 import webpush, { type PushSubscription } from "web-push";
 import { type NotificationPayload as DeliveryNotificationPayload } from "@keppo/shared/notifications";
+import {
+  BLOCKED_HOSTNAMES,
+  isBlockedIpAddress,
+  isLoopbackAddress,
+  normalizeHostname,
+} from "@keppo/shared/network-address-policy";
 import { isJsonRecord, parseJsonValue } from "@keppo/shared/providers/boundaries/json";
 import { getEnv } from "./env.js";
 
@@ -14,12 +21,20 @@ type PushResult = {
 };
 
 let configured = false;
-const BLOCKED_HOSTNAMES = new Set([
-  "localhost",
-  "metadata",
-  "metadata.google.internal",
-  "metadata.google.internal.",
-]);
+
+export class PushEndpointBlockedError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PushEndpointBlockedError";
+  }
+}
+
+export class PushEndpointResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "PushEndpointResolutionError";
+  }
+}
 
 const resolveDashboardOrigin = (): string => {
   const env = getEnv();
@@ -66,104 +81,6 @@ const toPushPayload = (payload: DeliveryNotificationPayload): string => {
   });
 };
 
-const toIPv4Octets = (ip: string): number[] | null => {
-  const parts = ip.split(".");
-  if (parts.length !== 4) {
-    return null;
-  }
-
-  const octets: number[] = [];
-  for (const part of parts) {
-    if (!/^\d{1,3}$/.test(part)) {
-      return null;
-    }
-    const value = Number.parseInt(part, 10);
-    if (!Number.isInteger(value) || value < 0 || value > 255) {
-      return null;
-    }
-    octets.push(value);
-  }
-  return octets;
-};
-
-const isLoopbackAddress = (address: string): boolean => {
-  if (isIP(address) === 4) {
-    const octets = toIPv4Octets(address);
-    return (octets?.[0] ?? -1) === 127;
-  }
-  const normalized = address.trim().toLowerCase();
-  return normalized === "::1" || normalized === "0:0:0:0:0:0:0:1";
-};
-
-const isBlockedIPv4 = (address: string): boolean => {
-  const octets = toIPv4Octets(address);
-  if (!octets) {
-    return true;
-  }
-  const a = octets[0] ?? -1;
-  const b = octets[1] ?? -1;
-  if (a === 0 || a === 10 || a === 127) {
-    return true;
-  }
-  if (a === 169 && b === 254) {
-    return true;
-  }
-  if (a === 172 && b >= 16 && b <= 31) {
-    return true;
-  }
-  if (a === 192 && b === 168) {
-    return true;
-  }
-  if (a === 100 && b >= 64 && b <= 127) {
-    return true;
-  }
-  if (a === 198 && (b === 18 || b === 19)) {
-    return true;
-  }
-  return a >= 224;
-};
-
-const isBlockedIPv6 = (address: string): boolean => {
-  const normalized = address.trim().toLowerCase();
-  if (normalized === "::" || normalized === "::1" || normalized === "0:0:0:0:0:0:0:1") {
-    return true;
-  }
-
-  const mappedIPv4Match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(normalized);
-  if (mappedIPv4Match) {
-    return isBlockedIPv4(mappedIPv4Match[1] ?? "");
-  }
-
-  const noPrefix = normalized.startsWith("::") ? normalized.slice(2) : normalized;
-  const firstSegment = (noPrefix.split(":")[0] ?? "").trim();
-  if (!firstSegment) {
-    return true;
-  }
-  if (firstSegment.startsWith("fc") || firstSegment.startsWith("fd")) {
-    return true;
-  }
-  if (
-    firstSegment.startsWith("fe8") ||
-    firstSegment.startsWith("fe9") ||
-    firstSegment.startsWith("fea") ||
-    firstSegment.startsWith("feb")
-  ) {
-    return true;
-  }
-  return false;
-};
-
-const isBlockedIpAddress = (address: string): boolean => {
-  const version = isIP(address);
-  if (version === 4) {
-    return isBlockedIPv4(address);
-  }
-  if (version === 6) {
-    return isBlockedIPv6(address);
-  }
-  return true;
-};
-
 const toSubscriptionEndpointUrl = (endpoint: string): URL | null => {
   try {
     return new URL(endpoint);
@@ -174,20 +91,26 @@ const toSubscriptionEndpointUrl = (endpoint: string): URL | null => {
 
 const assertAddressAllowed = (address: string): void => {
   if (isLoopbackAddress(address) || isBlockedIpAddress(address)) {
-    throw new Error("Push subscription endpoint resolves to a blocked address.");
+    throw new PushEndpointBlockedError("Push subscription endpoint resolves to a blocked address.");
   }
 };
 
-export const validatePushSubscriptionEndpoint = async (endpoint: string): Promise<void> => {
+const parseAndValidateSubscriptionEndpoint = (endpoint: string): URL => {
   const target = toSubscriptionEndpointUrl(endpoint);
   if (!target || target.protocol !== "https:") {
-    throw new Error("Push subscription endpoint must use https.");
+    throw new PushEndpointBlockedError("Push subscription endpoint must use https.");
   }
 
-  const hostname = target.hostname.trim().toLowerCase();
+  const hostname = normalizeHostname(target.hostname);
   if (!hostname || BLOCKED_HOSTNAMES.has(hostname)) {
-    throw new Error("Push subscription endpoint hostname is not allowed.");
+    throw new PushEndpointBlockedError("Push subscription endpoint hostname is not allowed.");
   }
+  return target;
+};
+
+export const validatePushSubscriptionEndpoint = async (endpoint: string): Promise<void> => {
+  const target = parseAndValidateSubscriptionEndpoint(endpoint);
+  const hostname = normalizeHostname(target.hostname);
 
   if (isIP(hostname)) {
     assertAddressAllowed(hostname);
@@ -201,16 +124,69 @@ export const validatePushSubscriptionEndpoint = async (endpoint: string): Promis
       verbatim: true,
     });
   } catch {
-    throw new Error("Push subscription endpoint hostname could not be resolved.");
+    throw new PushEndpointResolutionError(
+      "Push subscription endpoint hostname could not be resolved.",
+    );
   }
 
   if (resolved.length === 0) {
-    throw new Error("Push subscription endpoint hostname resolved no addresses.");
+    throw new PushEndpointResolutionError(
+      "Push subscription endpoint hostname resolved no addresses.",
+    );
   }
 
   for (const entry of resolved) {
     assertAddressAllowed(entry.address);
   }
+};
+
+const createValidatedPushAgent = (endpoint: string): Agent => {
+  const target = parseAndValidateSubscriptionEndpoint(endpoint);
+  const hostname = normalizeHostname(target.hostname);
+  if (isIP(hostname)) {
+    assertAddressAllowed(hostname);
+  }
+
+  return new Agent({
+    keepAlive: false,
+    lookup(host, options, callback) {
+      lookup(host, options)
+        .then((result) => {
+          const resolved = Array.isArray(result) ? result : [result];
+          if (resolved.length === 0) {
+            callback(
+              new PushEndpointResolutionError(
+                "Push subscription endpoint hostname resolved no addresses.",
+              ),
+              "",
+              0,
+            );
+            return;
+          }
+
+          for (const entry of resolved) {
+            assertAddressAllowed(entry.address);
+          }
+
+          if (Array.isArray(result)) {
+            callback(null, result[0]?.address ?? "", result[0]?.family ?? 0);
+            return;
+          }
+
+          callback(null, result.address, result.family);
+        })
+        .catch((error: unknown) => {
+          const failure =
+            error instanceof PushEndpointBlockedError ||
+            error instanceof PushEndpointResolutionError
+              ? error
+              : new PushEndpointResolutionError(
+                  "Push subscription endpoint hostname could not be resolved.",
+                );
+          callback(failure, "", 0);
+        });
+    },
+  });
 };
 
 export const sendPushNotification = async (
@@ -227,16 +203,25 @@ export const sendPushNotification = async (
   }
 
   try {
-    await validatePushSubscriptionEndpoint(subscription.endpoint);
-    await webpush.sendNotification(subscription, toPushPayload(payload));
+    await webpush.sendNotification(subscription, toPushPayload(payload), {
+      agent: createValidatedPushAgent(subscription.endpoint),
+    });
     return { success: true };
   } catch (error) {
-    if (error instanceof Error && error.message.startsWith("Push subscription endpoint")) {
+    if (error instanceof PushEndpointBlockedError) {
       return {
         success: false,
         error: "Push subscription endpoint is not allowed.",
         retryable: false,
         subscriptionInvalid: true,
+      };
+    }
+
+    if (error instanceof PushEndpointResolutionError) {
+      return {
+        success: false,
+        error: error.message,
+        retryable: true,
       };
     }
 

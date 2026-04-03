@@ -269,10 +269,10 @@ test("push subscribe and unsubscribe flow registers endpoint", async ({
     } | null = null;
 
     const fakeSubscription = {
-      endpoint: "https://push.example.test/subscription",
+      endpoint: "https://example.com/subscription",
       toJSON() {
         return {
-          endpoint: "https://push.example.test/subscription",
+          endpoint: "https://example.com/subscription",
           expirationTime: null,
           keys: {
             p256dh: "fake-p256dh",
@@ -339,7 +339,7 @@ test("push subscribe and unsubscribe flow registers endpoint", async ({
           return await store.findNotificationEndpoint({
             orgId: seeded.orgId,
             type: "push",
-            destination: "https://push.example.test/subscription",
+            destination: "https://example.com/subscription",
           });
         } catch {
           return null;
@@ -349,7 +349,7 @@ test("push subscribe and unsubscribe flow registers endpoint", async ({
     )
     .toMatchObject({
       enabled: true,
-      destination: "https://push.example.test/subscription",
+      destination: "https://example.com/subscription",
       type: "push",
     });
   await expect(page.getByRole("button", { name: /Disable push/i })).toBeVisible();
@@ -364,7 +364,7 @@ test("push subscribe and unsubscribe flow registers endpoint", async ({
             await store.findNotificationEndpoint({
               orgId: seeded.orgId,
               type: "push",
-              destination: "https://push.example.test/subscription",
+              destination: "https://example.com/subscription",
             })
           )?.enabled;
         } catch {

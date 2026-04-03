@@ -1,0 +1,20 @@
+- [x] Re-read PR context in `tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md` as the authoritative state for this run.
+- [x] Rebase the current branch onto `upstream/main` and resolve every merge conflict.
+- [x] Review the PR diff and changed file scope against the failing `e2e / Test 3/4` check to decide whether the failing notification spec is PR-related.
+- [x] Investigate the failing `CI Result` check and determine the concrete failing underlying job(s) or reason it is failing.
+- [x] Investigate the active review thread identified by cubic about duplicated security-critical network validation logic in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Investigate the active review thread identified by cubic about DNS rebinding TOCTOU in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Investigate the active review thread from keppo-bot about DNS rebinding TOCTOU in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Investigate the active review thread from keppo-bot about fragile string-prefix error matching in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Investigate the active review thread from keppo-bot about per-delivery DNS lookup latency in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Investigate the trusted review/issue feedback about hex-encoded IPv4-mapped IPv6 literals bypassing the endpoint blocklist in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Investigate the trusted review/issue feedback about transient DNS failures incorrectly disabling healthy subscriptions in `apps/web/app/lib/server/api-runtime/push.ts`.
+- [x] Consult `docs/rules/security.md` before making any auth, API boundary, outbound networking, or runtime-security code changes.
+- [x] Implement the required code changes, tests, and docs/spec updates needed to address valid PR review feedback and CI failures.
+- [x] Run the required local E2E verification for any PR-related E2E fix, or document in `summaryComment` if the E2E failure is unrelated to this PR.
+- [x] Run `pnpm check` and fix all remaining failures until it passes.
+- [x] Self-review the final diff against the PR context, review feedback, changed files, and CI findings.
+- [ ] Create a local git commit with a Conventional Commit message for the completed fixes.
+- [ ] Re-read `TODOS.md` and confirm every item is marked complete before writing `tmp/pr-review-responder/actions.json`.
+- [ ] Write `tmp/pr-review-responder/actions.json` with the required `summaryComment` and `threadActions`.
+- [ ] Delete `TODOS.md`.
