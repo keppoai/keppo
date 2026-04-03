@@ -68,6 +68,6 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 - Security fixes should ship with targeted regression tests for the closed exploit path.
 - Security fixes that tighten Convex visibility should also add or update a static invariant in `scripts/check-security-invariants.mjs` when the contract can be expressed syntactically.
 - OAuth connect state for org-scoped credential writes must bind to the initiating user and callback handlers must re-check that same user's current authorization before persisting shared credentials.
-- If runtime or operator setup changes, update `docs/setup.md` and the relevant rules/specs in the same change.
+- If runtime or operator setup changes, update `docs/self-hosting-setup.md` and, when local contributor flows change, `docs/dev-setup.md` in the same change.
 - Run `pnpm check:security` and the most relevant targeted tests when touching security-sensitive code.
 - `pnpm check:security` must cover static invariant checks plus targeted auth/API/Convex security regressions.

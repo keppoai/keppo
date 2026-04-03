@@ -24,4 +24,4 @@
 
 - Keep schema changes additive and reviewed for index/query compatibility.
 - Validate deploys in staging before production rollout.
-- Keep `.env.example` and `docs/setup.md` synchronized with runtime requirements.
+- Keep `.env.example` and `docs/self-hosting-setup.md` synchronized with runtime requirements.

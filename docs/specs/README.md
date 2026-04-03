@@ -2,7 +2,7 @@
 
 This directory is the concise canonical spec for the implemented product.
 
-Code remains the source of truth when drift is found. Operator setup and deployment steps live in `docs/setup.md`, while change guardrails live in `docs/rules/*`.
+Code remains the source of truth when drift is found. Local contributor setup lives in `docs/dev-setup.md`, operator setup and deployment steps live in `docs/self-hosting-setup.md`, and change guardrails live in `docs/rules/*`.
 
 ## Maintenance Rules
 

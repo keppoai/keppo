@@ -1,6 +1,6 @@
 # Testing strategy
 
-This spec defines the canonical ownership of test layers. Operational commands, runtime budgets, and authoring guardrails live in `docs/setup.md`, `docs/rules/non_e2e_testing.md`, and `docs/rules/e2e_testing.md`.
+This spec defines the canonical ownership of test layers. Operational commands, runtime budgets, and authoring guardrails live in `docs/dev-setup.md`, `docs/rules/non_e2e_testing.md`, and `docs/rules/e2e_testing.md`.
 
 ## Main layers
 

@@ -10,7 +10,8 @@ const requiredFiles = [
   ".env.dev",
   "CONTRIBUTING.md",
   "SECURITY.md",
-  "docs/setup.md",
+  "docs/dev-setup.md",
+  "docs/self-hosting-setup.md",
 ];
 
 const expectedLicenses = [
@@ -39,15 +40,20 @@ for (const entry of expectedLicenses) {
   }
 }
 
-const setupDoc = existsSync("docs/setup.md") ? readFileSync("docs/setup.md", "utf8") : "";
-if (!setupDoc.includes(".env.example")) {
-  violations.push("docs/setup.md must document .env.example bootstrap usage.");
+const setupDocs = ["docs/dev-setup.md", "docs/self-hosting-setup.md"];
+const setupDocContents = setupDocs
+  .filter((filePath) => existsSync(filePath))
+  .map((filePath) => readFileSync(filePath, "utf8"))
+  .join("\n\n");
+
+if (!setupDocContents.includes(".env.example")) {
+  violations.push("Setup docs must document .env.example bootstrap usage.");
 }
-if (!/pnpm/i.test(setupDoc)) {
-  violations.push("docs/setup.md must document pnpm usage.");
+if (!/pnpm/i.test(setupDocContents)) {
+  violations.push("Setup docs must document pnpm usage.");
 }
-if (/prepare:cloud|strip:cloud|build:cloud|build:oss/.test(setupDoc)) {
-  violations.push("docs/setup.md must not document removed cloud overlay scripts.");
+if (/prepare:cloud|strip:cloud|build:cloud|build:oss/.test(setupDocContents)) {
+  violations.push("Setup docs must not document removed cloud overlay scripts.");
 }
 if (existsSync("scripts/prepare-cloud.ts") || existsSync("scripts/strip-cloud.ts")) {
   violations.push("Overlay mutation scripts must not be reintroduced.");
