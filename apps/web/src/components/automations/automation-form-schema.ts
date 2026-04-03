@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AUTOMATION_MEMORY_MAX_LENGTH } from "@keppo/shared/automations";
 import {
   getProviderAutomationTriggers,
   resolveProviderAutomationTriggerDefinition,
@@ -143,6 +144,12 @@ export const automationFormSchema = z
   .object({
     name: trimmedString.min(1, "Name is required."),
     description: trimmedString,
+    memory: z
+      .string()
+      .refine(
+        (value) => value.replace(/\r\n?/g, "\n").trim().length <= AUTOMATION_MEMORY_MAX_LENGTH,
+        `Memory must be ${String(AUTOMATION_MEMORY_MAX_LENGTH)} characters or fewer.`,
+      ),
     mermaid_content: trimmedString,
     trigger_type: z.enum(["schedule", "event", "manual"]),
     schedule_cron: trimmedString,
@@ -282,6 +289,7 @@ export const getDefaultAutomationFormValues = (
 ): AutomationFormValues => ({
   name: "",
   description: "",
+  memory: "",
   mermaid_content: "",
   trigger_type: "schedule",
   schedule_cron: "0 9 * * *",

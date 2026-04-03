@@ -100,6 +100,7 @@ export type AutomationRunDispatchContext = {
     org_id: string;
     workspace_id: string;
     name: string;
+    memory: string;
     status: AutomationStatus;
   };
   config: {

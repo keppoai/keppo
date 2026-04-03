@@ -101,6 +101,11 @@ type McpRoutesDeps = {
 
 const MCP_ROUTE_PATH = "/mcp/:workspaceId";
 const AUTOMATION_OUTCOME_TOOL_NAME = "record_outcome";
+const AUTOMATION_MEMORY_TOOL_NAMES = ["add_memory", "edit_memory"] as const;
+const AUTOMATION_ONLY_TOOL_NAMES = new Set<string>([
+  AUTOMATION_OUTCOME_TOOL_NAME,
+  ...AUTOMATION_MEMORY_TOOL_NAMES,
+]);
 
 type McpRequestAuthContext = {
   workspaceId: string;
@@ -201,8 +206,11 @@ const recordTypedToolCallFailureMetrics = (
 };
 
 const isKeppoInternalToolName = (toolName: string): boolean => {
-  return toolName === AUTOMATION_OUTCOME_TOOL_NAME || toolName.startsWith("keppo.");
+  return AUTOMATION_ONLY_TOOL_NAMES.has(toolName) || toolName.startsWith("keppo.");
 };
+
+const getAutomationOnlyToolMessage = (toolName: string): string =>
+  `${toolName} is only available inside automation runs.`;
 
 const resolveToolOwner = async (toolName: string): Promise<CanonicalProviderId | undefined> => {
   const { toolMap } = await loadToolsCoreModule();
@@ -892,15 +900,17 @@ const createMcpServer = (
       const handlerContext = resolveHandlerContext(sessionStates, extra);
       await deps.convex.touchRun(handlerContext.runId);
       const listedTools = await deps.convex.listToolCatalogForWorkspace(handlerContext.workspaceId);
-      const tools = listedTools.filter((tool) => tool.name !== AUTOMATION_OUTCOME_TOOL_NAME);
+      const tools = listedTools.filter((tool) => !AUTOMATION_ONLY_TOOL_NAMES.has(tool.name));
       if (handlerContext.automationRunId) {
         const { toolMap } = await loadToolsCoreModule();
-        const outcomeTool = toolMap.get(AUTOMATION_OUTCOME_TOOL_NAME);
-        if (outcomeTool) {
-          tools.push({
-            name: outcomeTool.name,
-            description: outcomeTool.description,
-          });
+        for (const toolName of AUTOMATION_ONLY_TOOL_NAMES) {
+          const tool = toolMap.get(toolName);
+          if (tool) {
+            tools.push({
+              name: tool.name,
+              description: tool.description,
+            });
+          }
         }
       }
 
@@ -951,8 +961,8 @@ const createMcpServer = (
         code_mode_enabled: handlerContext.codeModeEnabled,
       });
 
-      if (toolName === AUTOMATION_OUTCOME_TOOL_NAME && !handlerContext.automationRunId) {
-        const message = "record_outcome is only available inside automation runs.";
+      if (AUTOMATION_ONLY_TOOL_NAMES.has(toolName) && !handlerContext.automationRunId) {
+        const message = getAutomationOnlyToolMessage(toolName);
         logReturnedMcpErrorResult(deps, {
           eventName: "mcp.tool_call.failed",
           redactedEventName: "mcp.tool_call.error_redacted",

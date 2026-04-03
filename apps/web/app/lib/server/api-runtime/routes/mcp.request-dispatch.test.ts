@@ -410,13 +410,15 @@ describe("createMcpRouteDispatcher", () => {
     await expect(parseStreamableHttpJson(secondResponse)).resolves.toBeTruthy();
   });
 
-  it("hides record_outcome from non-automation tool lists", async () => {
+  it("hides automation-only tools from non-automation tool lists", async () => {
     const { convex, deps } = createDeps();
     convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
     convex.createRun.mockResolvedValue({ id: "run_test" });
     convex.listToolCatalogForWorkspace.mockResolvedValue([
       { name: "search_tools", description: "Search tools" },
       { name: "record_outcome", description: "Record automation outcome" },
+      { name: "add_memory", description: "Append automation memory" },
+      { name: "edit_memory", description: "Edit automation memory" },
     ]);
     const dispatch = createMcpRouteDispatcher(deps);
 
@@ -438,7 +440,7 @@ describe("createMcpRouteDispatcher", () => {
     expect(payload.result?.tools?.map((tool) => tool.name)).toEqual(["search_tools"]);
   });
 
-  it("injects record_outcome for automation-authenticated sessions", async () => {
+  it("injects automation-only tools for automation-authenticated sessions", async () => {
     const { convex, deps } = createDeps();
     convex.authenticateCredential.mockResolvedValue(
       createWorkspaceAuth({ automationRunId: "arun_test" }),
@@ -464,7 +466,9 @@ describe("createMcpRouteDispatcher", () => {
     };
 
     expect(listResponse.status).toBe(200);
-    expect(payload.result?.tools?.map((tool) => tool.name)).toContain("record_outcome");
+    expect(payload.result?.tools?.map((tool) => tool.name)).toEqual(
+      expect.arrayContaining(["record_outcome", "add_memory", "edit_memory"]),
+    );
   });
 
   it("advertises execute_code with a required description field in code mode", async () => {
@@ -548,6 +552,36 @@ describe("createMcpRouteDispatcher", () => {
     );
   });
 
+  it("rejects add_memory outside automation sessions", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(createWorkspaceAuth());
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "add_memory", {
+        memory: "Remember the operator prefers concise summaries.",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+    const payload = (await parseStreamableHttpJson(response)) as {
+      result?: { content?: Array<{ text?: string }>; isError?: boolean };
+    };
+
+    expect(response.status).toBe(200);
+    expect(payload.result?.isError).toBe(true);
+    expect(payload.result?.content?.[0]?.text).toContain(
+      "add_memory is only available inside automation runs.",
+    );
+    expect(convex.executeToolCall).not.toHaveBeenCalled();
+  });
+
   it("logs direct execute_code error results when Code Mode is disabled", async () => {
     const { convex, deps } = createDeps();
     convex.authenticateCredential.mockResolvedValue(
@@ -625,6 +659,46 @@ describe("createMcpRouteDispatcher", () => {
       input: {
         success: true,
         summary: "Completed triage",
+      },
+      credentialId: "cred_test",
+    });
+  });
+
+  it("passes the automation run id through add_memory tool calls", async () => {
+    const { convex, deps } = createDeps();
+    convex.authenticateCredential.mockResolvedValue(
+      createWorkspaceAuth({ automationRunId: "arun_test" }),
+    );
+    convex.createRun.mockResolvedValue({ id: "run_test" });
+    convex.executeToolCall.mockResolvedValue({
+      status: "updated",
+      operation: "append",
+      memory_length: 52,
+      remaining_characters: 19_948,
+    });
+    const dispatch = createMcpRouteDispatcher(deps);
+
+    const initializeResponse = await dispatch({
+      request: createInitializeRequest(),
+      workspaceIdParam: "ws_test",
+    });
+    const sessionId = initializeResponse.headers.get("mcp-session-id");
+
+    const response = await dispatch({
+      request: createToolCallRequest(sessionId!, "add_memory", {
+        memory: "Remember the operator prefers concise summaries.",
+      }),
+      workspaceIdParam: "ws_test",
+    });
+
+    expect(response.status).toBe(200);
+    expect(convex.executeToolCall).toHaveBeenCalledWith({
+      workspaceId: "ws_test",
+      runId: "run_test",
+      automationRunId: "arun_test",
+      toolName: "add_memory",
+      input: {
+        memory: "Remember the operator prefers concise summaries.",
       },
       credentialId: "cred_test",
     });

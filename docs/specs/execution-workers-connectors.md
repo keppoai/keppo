@@ -125,12 +125,14 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - create automation-attributed MCP session identity and update run lifecycle to `running`,
   - issue an automation-scoped workspace credential whose auth metadata includes the owning `automation_run_id` so automation-only MCP tools can be enforced at runtime,
   - revoke automation-issued credentials on terminal lifecycle transitions and reject them at MCP auth time if the referenced run is missing, workspace-mismatched, or already terminal,
-  - wrap the saved automation prompt with runtime-owned instructions that require a final `record_outcome({ success, summary })` tool call exactly once and define approval-waiting as `success=true` when the requested work is otherwise complete.
+  - wrap the saved automation prompt with runtime-owned instructions that require a final `record_outcome({ success, summary })` tool call exactly once, define approval-waiting as `success=true` when the requested work is otherwise complete, and inject non-empty automation memory inside a `<memory>...</memory>` block ahead of the task prompt.
 - Callback/log contract:
   - log/complete callback URLs are HMAC-signed and include run-scoped expiry metadata.
   - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`.
   - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`, retries transient persistence failures with exponential backoff before surfacing a typed `complete_failed` response, and logs the failed terminal write with the run id and intended terminal status when retries are exhausted.
-  - automation-backed MCP sessions expose one additional internal tool, `record_outcome`, which is unavailable to normal MCP clients and records a single final outcome on the owning automation run.
+  - automation-backed MCP sessions expose three internal tools unavailable to normal MCP clients: `record_outcome`, `add_memory`, and `edit_memory`.
+  - `add_memory` appends durable context onto the owning automation's shared memory string and fails once the automation would exceed `20,000` characters, with guidance to remove or compact older content first.
+  - `edit_memory` performs literal replacement against that shared memory string; when `replace_all` is not `true`, it only succeeds for exactly one match so the runtime never applies ambiguous partial edits silently.
   - `record_outcome` writes are exactly-once at the run level: the first valid call wins, duplicate calls fail, and terminal lifecycle updates synthesize a fallback outcome that matches the final terminal status when no valid outcome was recorded before the run ended. If a run later finishes in a failure state after an earlier success outcome was recorded, the terminal failure replaces that stale success with a fallback failure outcome.
   - hot rows are archived to cold storage via `automation_scheduler:archiveHotLogs`; cold blobs expire per tier retention via `automation_scheduler:expireColdLogs`.
 - Scheduler/trigger contract:

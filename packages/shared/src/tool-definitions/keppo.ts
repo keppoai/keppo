@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH } from "../automations.js";
+import {
+  AUTOMATION_MEMORY_MAX_LENGTH,
+  AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH,
+} from "../automations.js";
 import type { ToolDefinition } from "./types.js";
 
 export const keppoInternalTools: ToolDefinition[] = [
@@ -17,6 +20,38 @@ export const keppoInternalTools: ToolDefinition[] = [
     input_schema: z.object({
       success: z.boolean(),
       summary: z.string().trim().min(1).max(AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH),
+    }),
+  },
+  {
+    name: "add_memory",
+    provider: "keppo",
+    capability: "write",
+    risk_level: "low",
+    requires_approval: false,
+    output_sensitivity: "low",
+    action_type: "add_memory",
+    description:
+      "Append durable automation memory for future runs. Store only concise long-lived context.",
+    redaction_policy: [],
+    input_schema: z.object({
+      memory: z.string().trim().min(1).max(AUTOMATION_MEMORY_MAX_LENGTH),
+    }),
+  },
+  {
+    name: "edit_memory",
+    provider: "keppo",
+    capability: "write",
+    risk_level: "low",
+    requires_approval: false,
+    output_sensitivity: "low",
+    action_type: "edit_memory",
+    description:
+      "Edit existing automation memory by literal string replacement. When replace_all is false, the search string must match exactly once.",
+    redaction_policy: [],
+    input_schema: z.object({
+      search: z.string().min(1).max(AUTOMATION_MEMORY_MAX_LENGTH),
+      replace: z.string().max(AUTOMATION_MEMORY_MAX_LENGTH),
+      replace_all: z.boolean().optional(),
     }),
   },
   {

@@ -4,7 +4,12 @@ import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { RefreshCwIcon, WandSparklesIcon } from "lucide-react";
 import { Controller, FormProvider, useForm, useWatch, type Control } from "react-hook-form";
-import { computeAutomationPromptHash, isAutomationMermaidStale } from "@keppo/shared/automations";
+import {
+  AUTOMATION_MEMORY_MAX_LENGTH,
+  computeAutomationPromptHash,
+  isAutomationMermaidStale,
+  normalizeAutomationMemory,
+} from "@keppo/shared/automations";
 import { ApiError } from "@/lib/api-errors";
 import { useAuth } from "@/hooks/use-auth";
 import { useRouteParams } from "@/hooks/use-route-params";
@@ -180,6 +185,7 @@ export function AutomationConfigEditor({
     defaultValues: getDefaultAutomationFormValues({
       name: automation.name,
       description: initialMeta.description,
+      memory: automation.memory,
       mermaid_content: initialMeta.mermaidContent ?? "",
       trigger_type: config.trigger_type,
       schedule_cron: config.schedule_cron ?? "0 9 * * *",
@@ -200,6 +206,7 @@ export function AutomationConfigEditor({
   });
   const triggerType = form.watch("trigger_type");
   const modelClass = form.watch("model_class");
+  const memoryValue = form.watch("memory");
   const networkAccess = form.watch("network_access");
   const executionProviderByModelClass = {
     auto: "openai",
@@ -223,6 +230,7 @@ export function AutomationConfigEditor({
       getDefaultAutomationFormValues({
         name: automation.name,
         description: initialMeta.description,
+        memory: automation.memory,
         mermaid_content: initialMeta.mermaidContent ?? "",
         trigger_type: config.trigger_type,
         schedule_cron: config.schedule_cron ?? "0 9 * * *",
@@ -247,6 +255,7 @@ export function AutomationConfigEditor({
     setEditorMermaidPromptHash(automation.mermaid_prompt_hash);
   }, [
     automation.mermaid_prompt_hash,
+    automation.memory,
     automation.name,
     config,
     initialMeta.description,
@@ -410,6 +419,7 @@ export function AutomationConfigEditor({
   const handleSave = handleSubmit(async (values) => {
     setError(null);
     try {
+      const normalizedMemory = normalizeAutomationMemory(values.memory);
       const normalizedMermaidContent = normalizeMermaidContent(values.mermaid_content);
       const mermaidError = await validateMermaidContent(normalizedMermaidContent);
       if (mermaidError) {
@@ -422,22 +432,43 @@ export function AutomationConfigEditor({
       if (
         values.name.trim() !== automation.name.trim() ||
         values.description.trim() !== initialMeta.description ||
+        normalizedMemory !== normalizeAutomationMemory(automation.memory) ||
         normalizedMermaidContent !== (initialMeta.mermaidContent ?? "")
       ) {
         await updateAutomationMetaMutation({
           automation_id: automation.id,
           name: values.name,
           description: values.description,
+          memory: normalizedMemory,
           mermaid_content: normalizedMermaidContent,
           prompt: values.prompt,
         });
       }
 
-      await updateAutomationConfigMutation({
-        automation_id: automation.id,
-        change_summary: values.change_summary?.trim() || undefined,
-        ...buildAutomationConfigInput(values, { triggerCelEnabled }),
-      });
+      const nextConfigInput = buildAutomationConfigInput(values, { triggerCelEnabled });
+      const currentConfigInput = {
+        trigger_type: config.trigger_type,
+        ...(config.trigger_type === "schedule" && config.schedule_cron
+          ? { schedule_cron: config.schedule_cron }
+          : {}),
+        ...(config.trigger_type === "event" && config.provider_trigger
+          ? { provider_trigger: config.provider_trigger }
+          : {}),
+        model_class: config.model_class,
+        runner_type: config.runner_type,
+        ai_model_provider: config.ai_model_provider,
+        ai_model_name: config.ai_model_name,
+        prompt: config.prompt,
+        network_access: config.network_access,
+      };
+
+      if (JSON.stringify(nextConfigInput) !== JSON.stringify(currentConfigInput)) {
+        await updateAutomationConfigMutation({
+          automation_id: automation.id,
+          change_summary: values.change_summary?.trim() || undefined,
+          ...nextConfigInput,
+        });
+      }
 
       onSaved();
     } catch (caught) {
@@ -471,6 +502,28 @@ export function AutomationConfigEditor({
                 className="min-h-20"
                 {...register("description")}
               />
+            </div>
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <Label htmlFor="automation-meta-memory">Automation memory</Label>
+                <p className="text-muted-foreground text-xs">
+                  {String(memoryValue.length)} / {String(AUTOMATION_MEMORY_MAX_LENGTH)} characters
+                </p>
+              </div>
+              <Textarea
+                id="automation-meta-memory"
+                className="min-h-40 font-mono text-xs"
+                placeholder="Durable context for future runs: operator preferences, stable conventions, or important long-lived facts."
+                {...register("memory")}
+              />
+              <HelpText>
+                This memory is reused across future runs and injected into the automation system
+                prompt. Keep it concise and durable. Runtime agents can also update it with
+                `add_memory` and `edit_memory`.
+              </HelpText>
+              {errors.memory ? (
+                <p className="text-xs text-destructive">{errors.memory.message}</p>
+              ) : null}
             </div>
             <div className="space-y-1">
               <div className="flex flex-wrap items-center justify-between gap-3">

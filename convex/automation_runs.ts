@@ -153,6 +153,7 @@ const automationRunDispatchContextValidator = v.object({
     org_id: v.string(),
     workspace_id: v.string(),
     name: v.string(),
+    memory: v.string(),
     status: automationStatusValidator,
   }),
   config: v.object({
@@ -1219,6 +1220,7 @@ export const getAutomationRunDispatchContext = internalQuery({
         org_id: automation.org_id,
         workspace_id: automation.workspace_id,
         name: automation.name,
+        memory: automation.memory ?? "",
         status: automation.status,
       },
       config: {
@@ -1369,6 +1371,7 @@ export const claimAutomationRunDispatchContext = internalMutation({
         org_id: automation.org_id,
         workspace_id: automation.workspace_id,
         name: automation.name,
+        memory: automation.memory ?? "",
         status: automation.status,
       },
       config: {

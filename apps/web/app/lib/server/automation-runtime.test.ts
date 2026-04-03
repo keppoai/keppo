@@ -218,6 +218,7 @@ describe("start-owned automation runtime handlers", () => {
         org_id: "org_test",
         workspace_id: "ws_test",
         name: "Daily triage",
+        memory: "Remember the operator prefers concise summaries.",
         status: "active",
       },
       config: {
@@ -286,6 +287,10 @@ describe("start-owned automation runtime handlers", () => {
       "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
     );
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
+    expect(dispatchArg.runtime.command).toContain("<memory>");
+    expect(dispatchArg.runtime.command).toContain(
+      "Remember the operator prefers concise summaries.",
+    );
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
     expect(dispatchArg.runtime.callbacks.log_url).toContain("/internal/automations/log?");
     expect(dispatchArg.runtime.callbacks.complete_url).toContain("/internal/automations/complete?");

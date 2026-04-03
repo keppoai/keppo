@@ -13,6 +13,7 @@ import {
   isAutomationRunStatus,
   isAutomationRunTerminalStatus,
   isAutomationRouteErrorCode,
+  normalizeAutomationMemory,
   parseAutomationRouteErrorCode,
   type AiKeyCredentialKind,
   type AiKeyMode,
@@ -562,11 +563,21 @@ export const buildRunnerCommand = (params: {
   return `codex exec --skip-git-repo-check${automationApprovalBypassFlag}${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
 };
 
-export const buildAutomationRunnerPrompt = (prompt: string): string => {
+export const buildAutomationRunnerPrompt = (prompt: string, memory?: string | null): string => {
   const task = prompt.trim();
+  const normalizedMemory = normalizeAutomationMemory(memory);
   return [
     "You are running inside a Keppo automation.",
+    ...(normalizedMemory
+      ? [
+          "Use the automation memory below as durable context from prior runs. It may be incomplete or stale, so verify it when needed and keep it concise.",
+          "<memory>",
+          normalizedMemory,
+          "</memory>",
+        ]
+      : []),
     "Complete the requested task using the available MCP tools.",
+    "If you learn durable context that should persist across runs, use add_memory or edit_memory to maintain automation memory.",
     "Call `record_outcome({ success, summary })` exactly once as your final tool call before you stop.",
     "Call `record_outcome` directly, not through `execute_code`.",
     "Use `success: true` when you accomplished the requested work. Waiting only for a human approval after you finished everything you can still counts as success.",

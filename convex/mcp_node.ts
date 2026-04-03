@@ -47,6 +47,8 @@ const refs = {
   timeoutInactiveRuns: internal.mcp.timeoutInactiveRuns,
   expirePendingActions: internal.mcp.expirePendingActions,
   runSecurityMaintenance: internal.mcp.runSecurityMaintenance,
+  addAutomationMemoryForRun: internal.automations.addAutomationMemoryForRun,
+  editAutomationMemoryForRun: internal.automations.editAutomationMemoryForRun,
   recordAutomationRunOutcome: internal.automation_runs.recordAutomationRunOutcome,
   recordCronSuccess: internal.cron_heartbeats.recordSuccessInternal,
   recordCronFailure: internal.cron_heartbeats.recordFailureInternal,
@@ -193,6 +195,20 @@ const handleInternalToolCall = createInternalToolCallHandler({
     await approvedActionHandlers.createActionFromDecisionForInternalTool(ctx, params),
   finalizeToolCallRecord: async (ctx, params) =>
     await approvedActionHandlers.finalizeToolCallRecord(ctx, params),
+  addAutomationMemory: async (ctx, params) =>
+    await ctx.runMutation(refs.addAutomationMemoryForRun, {
+      workspace_id: params.workspaceId,
+      automation_run_id: params.automationRunId,
+      memory: params.memory,
+    }),
+  editAutomationMemory: async (ctx, params) =>
+    await ctx.runMutation(refs.editAutomationMemoryForRun, {
+      workspace_id: params.workspaceId,
+      automation_run_id: params.automationRunId,
+      search: params.search,
+      replace: params.replace,
+      ...(params.replaceAll !== undefined ? { replace_all: params.replaceAll } : {}),
+    }),
   recordAutomationRunOutcome: async (ctx, params) =>
     await ctx.runMutation(refs.recordAutomationRunOutcome, {
       workspace_id: params.workspaceId,

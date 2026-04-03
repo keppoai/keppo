@@ -298,6 +298,8 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - Home tab includes trigger observability for provider-trigger automations: recent matched/skipped deliveries, skip reasons, current delivery mode, trigger-subscription health, last queued dispatch time, and deep links to the resulting automation runs.
   - config editor saves immutable versions and supports optional change summary.
   - config editor shows the same stale-diagram advisory when the prompt changes without a corresponding Mermaid refresh, and can regenerate Mermaid in-place before save.
+  - config editor includes an automation-memory textarea in the metadata section. It shows a live `20,000` character counter, stores one mutable memory string on the automation itself, and allows memory-only saves without creating a new config version.
+  - automation memory editing is only available on the automation detail/config surface. The guided builder, manual create flow, and other create entrypoints do not expose memory authoring fields.
   - versions tab supports inspect, compare (field-level diff), and rollback.
 - `/:orgSlug/:workspaceSlug/integrations/$provider` route:
   - integrations list cards surface the current unhealthy reason inline whenever a connected provider is degraded, with a short stable diagnostic label when an error category/code exists.
