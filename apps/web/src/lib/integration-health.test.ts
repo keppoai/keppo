@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatIntegrationCredentialExpiry,
   getIntegrationUnhealthyReason,
   isIntegrationCredentialExpired,
   isIntegrationReconnectRequired,
@@ -38,6 +39,15 @@ describe("integration health helpers", () => {
         hasRecentHealthFailure: false,
       }),
     ).toBeNull();
+  });
+
+  it("adds an auto-refresh qualifier when a refreshable access token timestamp is already past", () => {
+    expect(
+      formatIntegrationCredentialExpiry({
+        credentialExpiresAt: "2000-01-01T00:00:00.000Z",
+        hasRefreshToken: true,
+      }),
+    ).toBe("2000-01-01T00:00:00.000Z (access token expired, auto-refresh available)");
   });
 
   it("still requires reconnect when an expired credential has no refresh token", () => {

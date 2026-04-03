@@ -43,6 +43,21 @@ const isExpiredTimestamp = (value: string | null | undefined): boolean => {
   return Number.isFinite(expiresAt) && expiresAt <= Date.now();
 };
 
+export const formatIntegrationCredentialExpiry = (params: {
+  credentialExpiresAt?: string | null | undefined;
+  hasRefreshToken?: boolean | null | undefined;
+}): string => {
+  if (!params.credentialExpiresAt) {
+    return "Unknown";
+  }
+
+  if (params.hasRefreshToken && isExpiredTimestamp(params.credentialExpiresAt)) {
+    return `${params.credentialExpiresAt} (access token expired, auto-refresh available)`;
+  }
+
+  return params.credentialExpiresAt;
+};
+
 export const isIntegrationCredentialExpired = (params: {
   credentialExpiresAt?: string | null | undefined;
   hasRefreshToken?: boolean | null | undefined;

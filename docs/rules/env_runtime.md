@@ -25,6 +25,7 @@
 - When `KEPPO_URL` defines the unified web origin, derive `KEPPO_API_INTERNAL_BASE_URL` from that origin plus `/api`.
 - When constructing root-owned internal/protocol URLs (`/internal/*`, `/mcp/*`, `/oauth/*`, `/webhooks/*`) from `KEPPO_API_INTERNAL_BASE_URL`, resolve them with URL semantics instead of string concatenation so a same-origin `/api` base still targets the real root route (`/internal/...`, not `/api/internal/...`).
 - E2E and local-Convex harnesses that boot the fake Dyad gateway must also export `KEPPO_LLM_GATEWAY_URL` to that fake gateway base URL before syncing Convex env. Otherwise Convex reports `bundled_runtime_enabled: false`, and paid-tier billing/runtime tests silently behave like generation-only mode.
+- Fake OpenAI Responses repro harnesses are the inverse case: when `KEPPO_E2E_OPENAI_RESPONSES_FAKE=1`, the wrapper that boots local Convex must clear `KEPPO_LLM_GATEWAY_URL` before syncing env so bundled runtime stays disabled and BYOK-only response-path tests do not silently render hosted AI mode.
 - Dashboard auth is always same-origin (`/api/auth/*`). Never call `authClient.getCookie()` from dashboard code; rely on browser cookies forwarded with the current request. Use the shared Better Auth cookie helper to short-circuit and omit `betterAuthCookie` entirely; direct `getCookie()` calls can trigger nonexistent `/api/auth/get-cookie` requests and Zod input failures on server functions.
 - When Vercel Deployment Protection guards automation-facing hosted routes, propagate `VERCEL_AUTOMATION_BYPASS_SECRET` into both the API runtime and hosted Convex env only for non-production hosted environments. `production` must not inject or propagate that bypass secret.
 - If local Convex state is recreated, refresh `.env.local` from `.convex/local/default/config.json` for:
@@ -74,6 +75,7 @@
 
 - Remote sandboxes should receive a minimal, sandbox-valid `PATH`, not the host machine `PATH`.
 - Docker sandboxes must rewrite host loopback URLs to `host.docker.internal` or an equivalent gateway alias.
+- Any host-side test or fake service that Docker sandboxes call through `host.docker.internal` must listen on `0.0.0.0`, not only `127.0.0.1`; loopback-only listeners are reachable from the host process but not from the sandbox container.
 - Local Code Mode should default to the sandbox provider, not a silent in-process fallback.
 - Bundled Codex OpenAI runs that point `OPENAI_BASE_URL` at the Dyad gateway must disable Codex `responses_websockets`; that gateway only supports the HTTP Responses transport, so bundled automation dispatch should pass `--disable responses_websockets` on `codex exec`.
 - Automation model-class routing must resolve from the explicit env contract: `KEPPO_AUTOMATION_MODEL_AUTO`, `KEPPO_AUTOMATION_MODEL_FRONTIER`, `KEPPO_AUTOMATION_MODEL_BALANCED`, and `KEPPO_AUTOMATION_MODEL_VALUE`. Treat `Auto` as an env alias, not a hard-coded model name.

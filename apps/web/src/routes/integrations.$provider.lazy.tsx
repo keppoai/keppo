@@ -20,6 +20,7 @@ import { parseProviderCatalogPayload } from "@/lib/boundary-contracts";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
 import { fullTimestamp, relativeTime } from "@/lib/format";
 import {
+  formatIntegrationCredentialExpiry,
   formatIntegrationErrorDiagnostic,
   getIntegrationUnhealthyReason,
   isIntegrationCredentialExpired,
@@ -334,6 +335,10 @@ function IntegrationDetailsHeader({
     lastErrorCode,
     lastErrorCategory,
   });
+  const credentialExpiryLabel = formatIntegrationCredentialExpiry({
+    credentialExpiresAt: expiresAt,
+    hasRefreshToken,
+  });
   const healthSummary = unhealthyReason
     ? unhealthyReason
     : connected
@@ -366,7 +371,7 @@ function IntegrationDetailsHeader({
         </div>
         <div>
           <span className="font-medium text-foreground">Credential expiry:</span>{" "}
-          <span>{expiresAt ?? "Unknown"}</span>
+          <span>{credentialExpiryLabel}</span>
         </div>
         <div>
           <span className="font-medium text-foreground">Last health check:</span>{" "}

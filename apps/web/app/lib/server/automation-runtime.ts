@@ -45,6 +45,7 @@ import {
   resolveAutomationCallbackBaseUrl,
   resolveAutomationMcpServerUrl,
   resolveVercelAutomationBypassSecret,
+  shouldUseCodexCustomOpenAiProvider,
 } from "./api-runtime/routes/automations.ts";
 import {
   createAutomationSandboxProvider,
@@ -592,12 +593,21 @@ export const handleInternalAutomationDispatchRequest = async (
     }
 
     const decryptedKey = await decryptStoredKey(key.encrypted_key);
+    const effectiveNetworkAccess =
+      context.config.network_access === "mcp_only" &&
+      shouldUseCodexCustomOpenAiProvider({
+        aiModelProvider: resolvedModel.aiModelProvider,
+        aiKeyMode: authKeyMode,
+        credentialKind: key.credential_kind,
+      })
+        ? "mcp_and_web"
+        : context.config.network_access;
     const runnerCommand = buildRunnerCommand({
       runnerType: resolvedModel.runnerType,
       aiModelProvider: resolvedModel.aiModelProvider,
       aiKeyMode: authKeyMode,
       credentialKind: key.credential_kind,
-      networkAccess: context.config.network_access,
+      networkAccess: effectiveNetworkAccess,
       model: resolvedModel.aiModelName,
       prompt: buildAutomationRunnerPrompt(context.config.prompt),
     });
@@ -652,7 +662,7 @@ export const handleInternalAutomationDispatchRequest = async (
       runner_type: resolvedModel.runnerType,
       ai_model_provider: resolvedModel.aiModelProvider,
       ai_key_mode: authKeyMode,
-      network_access: context.config.network_access,
+      network_access: effectiveNetworkAccess,
       has_e2e_openai_base_url: Boolean(runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL),
       has_openai_base_url: Boolean(runtimeEnv.OPENAI_BASE_URL),
       has_openai_api_key: Boolean(runtimeEnv.OPENAI_API_KEY),
@@ -674,7 +684,7 @@ export const handleInternalAutomationDispatchRequest = async (
         bootstrap_command: runtimeBootstrapCommand,
         command: runnerCommand,
         env: runtimeEnv,
-        network_access: context.config.network_access,
+        network_access: effectiveNetworkAccess,
         callbacks: {
           log_url: createSignedUrl("/internal/automations/log"),
           complete_url: createSignedUrl("/internal/automations/complete"),

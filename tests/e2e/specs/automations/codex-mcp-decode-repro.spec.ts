@@ -225,6 +225,16 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     logText: string;
   } | null = null;
 
+  const readServiceLog = async (name: "dashboard" | "fake-gateway"): Promise<string> => {
+    try {
+      return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
+    } catch {
+      return "";
+    }
+  };
+
+  let fakeGatewayLog = "";
+
   await expect
     .poll(
       async () => {
@@ -259,14 +269,6 @@ test("codex automation run completes after search_tools when fake OpenAI respons
 
   const finalLogText = finalRunState?.logText ?? "";
 
-  const readServiceLog = async (name: "dashboard"): Promise<string> => {
-    try {
-      return await readFile(serviceLogFileForWorker(app.runtime.workerIndex, name), "utf8");
-    } catch {
-      return "";
-    }
-  };
-
   let dashboardLog = await readServiceLog("dashboard");
   await expect
     .poll(
@@ -282,22 +284,67 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     )
     .toBe(true);
 
-  const result = {
-    status: finalRunState?.status ?? null,
-    outcomeSuccess: finalRunState?.outcomeSuccess ?? null,
-    dashboardConfiguredFakeOpenAiPath:
-      dashboardLog.includes('"msg":"automation.dispatch.runtime_configured"') &&
-      dashboardLog.includes('"has_e2e_openai_base_url":true') &&
-      dashboardLog.includes('"runner_uses_custom_openai_provider":true'),
-    dashboardDispatchSucceeded: dashboardLog.includes('"msg":"automation.dispatch.succeeded"'),
-    dashboardSawCompletionCallback: dashboardLog.includes("/internal/automations/complete"),
-    hasCodexSessionBootstrapped:
-      finalLogText.includes("Added global MCP server 'keppo'.") &&
-      finalLogText.includes("OpenAI Codex"),
-    hasStreamDisconnectError: finalRunState?.hasStreamDisconnectError ?? true,
-  };
+  await expect
+    .poll(
+      async () => {
+        fakeGatewayLog = await readServiceLog("fake-gateway");
+        return fakeGatewayLog.includes("[fake-openai] path=/responses");
+      },
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe(true);
+  dashboardLog = await readServiceLog("dashboard");
 
-  expect(result, "fake OpenAI repro did not hit the expected successful Codex/MCP path").toEqual({
+  expect(
+    {
+      fakeGatewaySawSearchToolsFunction: fakeGatewayLog.includes('"name":"mcp__keppo__search_tools"'),
+      fakeGatewaySawRecordOutcomeFunction: fakeGatewayLog.includes('"name":"mcp__keppo__record_outcome"'),
+      fakeGatewaySawFunctionOutputFollowUp: fakeGatewayLog.includes('"type":"function_call_output"'),
+      dashboardSawDispatchConfigured: dashboardLog.includes(
+        '"msg":"automation.dispatch.runtime_configured"',
+      ),
+      dashboardSawDispatchSucceeded: dashboardLog.includes('"msg":"automation.dispatch.succeeded"'),
+    },
+    "fake OpenAI repro did not hit the expected successful Codex/MCP path",
+  ).toEqual({
+    fakeGatewaySawSearchToolsFunction: true,
+    fakeGatewaySawRecordOutcomeFunction: true,
+    fakeGatewaySawFunctionOutputFollowUp: true,
+    dashboardSawDispatchConfigured: true,
+    dashboardSawDispatchSucceeded: true,
+  });
+
+  expect(
+    finalRunState?.logText,
+    "fake OpenAI repro did not hit the expected successful Codex/MCP path",
+  ).toContain("OpenAI Codex");
+
+  expect(
+    {
+      status: finalRunState?.status ?? null,
+      outcomeSuccess: finalRunState?.outcomeSuccess ?? null,
+      dashboardConfiguredFakeOpenAiPath:
+        dashboardLog.includes('"msg":"automation.dispatch.runtime_configured"') &&
+        dashboardLog.includes('"has_e2e_openai_base_url":true') &&
+        dashboardLog.includes('"runner_uses_custom_openai_provider":true'),
+      dashboardDispatchSucceeded: dashboardLog.includes('"msg":"automation.dispatch.succeeded"'),
+      dashboardSawCompletionCallback: dashboardLog.includes("/internal/automations/complete"),
+      hasCodexSessionBootstrapped:
+        finalLogText.includes("Added global MCP server 'keppo'.") &&
+        finalLogText.includes("OpenAI Codex"),
+      hasStreamDisconnectError: finalRunState?.hasStreamDisconnectError ?? true,
+      fakeGatewaySawSearchToolsFunction: fakeGatewayLog.includes(
+        '"name":"mcp__keppo__search_tools"',
+      ),
+      fakeGatewaySawRecordOutcomeFunction: fakeGatewayLog.includes(
+        '"name":"mcp__keppo__record_outcome"',
+      ),
+      fakeGatewaySawFunctionOutputFollowUp: fakeGatewayLog.includes(
+        '"type":"function_call_output"',
+      ),
+    },
+    "fake OpenAI repro did not hit the expected successful Codex/MCP path",
+  ).toEqual({
     status: "succeeded",
     outcomeSuccess: true,
     dashboardConfiguredFakeOpenAiPath: true,
@@ -305,5 +352,8 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     dashboardSawCompletionCallback: true,
     hasCodexSessionBootstrapped: true,
     hasStreamDisconnectError: false,
+    fakeGatewaySawSearchToolsFunction: true,
+    fakeGatewaySawRecordOutcomeFunction: true,
+    fakeGatewaySawFunctionOutputFollowUp: true,
   });
 });
