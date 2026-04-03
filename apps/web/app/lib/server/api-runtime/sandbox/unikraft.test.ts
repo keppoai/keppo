@@ -239,4 +239,68 @@ describe("UnikraftSandboxProvider", () => {
     expect(stopInstance).toHaveBeenCalledWith("inst_error", { drainTimeoutMs: 5_000 });
     expect(deleteInstance).toHaveBeenCalledWith("inst_error");
   });
+
+  it("retries log uploads when the callback returns a non-2xx response", async () => {
+    let logFailuresRemaining = 2;
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === baseConfig.runtime.callbacks.log_url && logFailuresRemaining > 0) {
+        logFailuresRemaining -= 1;
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            status: "log_failed",
+            error: "convex write unavailable",
+          }),
+          { status: 500, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchFn);
+
+    const createInstance = vi.fn().mockResolvedValue({
+      uuid: "inst_retry",
+      state: "running",
+    });
+    const getInstanceLogs = vi
+      .fn()
+      .mockResolvedValueOnce({
+        output: "hello from unikraft\n",
+        next_offset: 20,
+      })
+      .mockResolvedValue({
+        output: "",
+        next_offset: 20,
+      });
+    const getInstance = vi.fn().mockResolvedValue({
+      uuid: "inst_retry",
+      state: "stopped",
+      env: {
+        KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
+        KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
+      },
+    });
+    const deleteInstance = vi.fn().mockResolvedValue(undefined);
+
+    const UnikraftSandboxProvider = await loadProvider();
+    const provider = new UnikraftSandboxProvider({
+      createInstance,
+      getInstanceLogs,
+      getInstance,
+      deleteInstance,
+      stopInstance: vi.fn(),
+    });
+
+    await expect(provider.dispatch(baseConfig)).resolves.toEqual({ sandbox_id: "inst_retry" });
+
+    await vi.waitFor(
+      () => {
+        expect(
+          fetchFn.mock.calls.filter(([url]) => url === baseConfig.runtime.callbacks.log_url).length,
+        ).toBe(3);
+      },
+      { timeout: 3_000 },
+    );
+  });
 });

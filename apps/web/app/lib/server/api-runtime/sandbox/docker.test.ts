@@ -262,6 +262,81 @@ describe("DockerSandboxProvider", () => {
     ]);
   });
 
+  it("retries log uploads when the callback returns a non-2xx response", async () => {
+    let logFailuresRemaining = 2;
+    const fetchFn = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url === baseConfig.runtime.callbacks.log_url && logFailuresRemaining > 0) {
+        logFailuresRemaining -= 1;
+        return new Response(
+          JSON.stringify({
+            ok: false,
+            status: "log_failed",
+            error: "convex write unavailable",
+          }),
+          { status: 500, headers: { "content-type": "application/json" } },
+        );
+      }
+      return new Response(null, { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchFn);
+
+    const spawnMock = vi.fn((cmd: string, args: string[]) => {
+      if (args[0] === "image" && args[1] === "inspect") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => child.emit("close", 0));
+        return child;
+      }
+
+      if (args[0] === "run") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout?.write("container_123\n");
+          child.emit("close", 0);
+        });
+        return child;
+      }
+
+      if (args[0] === "logs") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout?.write("hello from codex\n");
+          child.emit("close", 0);
+        });
+        return child;
+      }
+
+      if (args[0] === "wait") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => {
+          child.stdout?.write("0\n");
+          child.emit("close", 0);
+        });
+        return child;
+      }
+
+      if (args[0] === "rm") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => child.emit("close", 0));
+        return child;
+      }
+
+      throw new Error(`Unexpected docker args: ${args.join(" ")}`);
+    });
+
+    const provider = new DockerSandboxProvider(spawnMock as unknown as typeof nodeSpawn);
+    await provider.dispatch(baseConfig);
+
+    await vi.waitFor(
+      () => {
+        expect(
+          fetchFn.mock.calls.filter(([url]) => url === baseConfig.runtime.callbacks.log_url).length,
+        ).toBe(3);
+      },
+      { timeout: 3_000 },
+    );
+  });
+
   it("removes the Docker container when a run is terminated", async () => {
     vi.stubGlobal(
       "fetch",

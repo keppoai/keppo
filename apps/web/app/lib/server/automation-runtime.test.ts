@@ -7,6 +7,7 @@ import {
   handleInternalAutomationCompleteRequest,
   handleInternalAutomationDispatchRequest,
   handleInternalAutomationSessionArtifactRequest,
+  handleInternalAutomationLogRequest,
   handleInternalAutomationTerminateRequest,
 } from "./automation-runtime";
 import { hasValidAutomationCallbackSignature } from "./api-runtime/routes/automations.ts";
@@ -1345,6 +1346,59 @@ describe("start-owned automation runtime handlers", () => {
         status: "cancelled",
         error: "convex write unavailable",
         attempts: 3,
+      }),
+    );
+  });
+
+  it("returns a typed error when log batch persistence keeps failing", async () => {
+    vi.useFakeTimers();
+    const deps = createDeps();
+    deps.convex.appendAutomationRunLogBatch.mockRejectedValue(
+      new Error("convex write unavailable"),
+    );
+
+    const logRequest = withJson(
+      "/internal/automations/log?automation_run_id=arun_log_retry_fail&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_log_retry_fail",
+        lines: [{ level: AUTOMATION_RUN_LOG_LEVEL.stdout, content: "hello world" }],
+      },
+    );
+    const logUrl = new URL(logRequest.url);
+    logUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(`${logUrl.pathname}:arun_log_retry_fail:${logUrl.searchParams.get("expires")}`)
+        .digest("hex"),
+    );
+
+    const responsePromise = handleInternalAutomationLogRequest(
+      new Request(logUrl, {
+        method: "POST",
+        headers: logRequest.headers,
+        body: await logRequest.text(),
+      }),
+      deps,
+    );
+
+    await vi.runAllTimersAsync();
+    const response = await responsePromise;
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "log_failed",
+      error: "convex write unavailable",
+    });
+    expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledTimes(3);
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "automation.log.failed",
+      expect.objectContaining({
+        automation_run_id: "arun_log_retry_fail",
+        batch_index: 0,
+        batch_size: 1,
+        ingested_before_failure: 0,
+        error: "convex write unavailable",
       }),
     );
   });

@@ -51,6 +51,8 @@ const timedOutSandboxes = new Set<string>();
 
 let sandboxImageReady = false;
 let ensureImagePromise: Promise<void> | null = null;
+const LOG_POST_RETRIES = 2;
+const LOG_POST_RETRY_BASE_DELAY_MS = 250;
 
 export const resetDockerSandboxStateForTests = (): void => {
   sandboxImageReady = false;
@@ -130,13 +132,21 @@ const normalizeConfigForDocker = (config: SandboxConfig): SandboxConfig => {
 };
 
 const postJson = async (url: string, payload: Record<string, unknown>): Promise<void> => {
-  await fetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
     body: JSON.stringify(payload),
   });
+  if (!response.ok) {
+    const body = (await response.text()).trim();
+    throw new Error(
+      body.length > 0
+        ? `Callback request failed with status ${String(response.status)}: ${body}`
+        : `Callback request failed with status ${String(response.status)}.`,
+    );
+  }
 };
 
 const postLogLines = async (
@@ -148,13 +158,21 @@ const postLogLines = async (
   if (!runId || lines.length === 0) {
     return;
   }
-  try {
-    await postJson(callbackUrl, {
-      automation_run_id: runId,
-      lines: lines.map((content) => ({ level, content })),
-    });
-  } catch {
-    // Log ingestion is best-effort; terminal completion still marks the run outcome.
+  for (let attempt = 0; attempt <= LOG_POST_RETRIES; attempt += 1) {
+    try {
+      await postJson(callbackUrl, {
+        automation_run_id: runId,
+        lines: lines.map((content) => ({ level, content })),
+      });
+      return;
+    } catch {
+      if (attempt >= LOG_POST_RETRIES) {
+        break;
+      }
+      await new Promise((resolve) =>
+        setTimeout(resolve, LOG_POST_RETRY_BASE_DELAY_MS * 2 ** attempt),
+      );
+    }
   }
 };
 
