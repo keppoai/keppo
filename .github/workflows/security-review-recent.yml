@@ -69,6 +69,8 @@ jobs:
         if: env.AGENT_KIND == 'codex'
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_AUTH_JSON_1: ${{ secrets.CODEX_AUTH_JSON_1 }}
+          CODEX_AUTH_JSON_2: ${{ secrets.CODEX_AUTH_JSON_2 }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/write-codex-auth.sh"
 
       - name: Reset private output directory

@@ -157,6 +157,8 @@ jobs:
         if: steps.check-author.outputs.should_continue == 'true'
         env:
           CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_AUTH_JSON_1: ${{ secrets.CODEX_AUTH_JSON_1 }}
+          CODEX_AUTH_JSON_2: ${{ secrets.CODEX_AUTH_JSON_2 }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/write-codex-auth.sh"
 
       - name: Remove rebase trigger labels and add sync-pr:pending
