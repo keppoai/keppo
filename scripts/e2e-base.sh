@@ -5,6 +5,10 @@ set -euo pipefail
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/_convex-env.sh"
 
 playwright_args=("$@")
+if [ "${#playwright_args[@]}" -eq 0 ] && [ -n "${PLAYWRIGHT_ARGS:-}" ]; then
+  # Support workflow-style env forwarding for targeted retries.
+  read -r -a playwright_args <<<"${PLAYWRIGHT_ARGS}"
+fi
 if [ "${playwright_args[0]:-}" = "--" ]; then
   playwright_args=("${playwright_args[@]:1}")
 fi
@@ -16,7 +20,13 @@ export KEPPO_E2E_CONVEX_DEPLOYMENT="${KEPPO_E2E_CONVEX_DEPLOYMENT:-anonymous-kep
 export VITE_API_BASE="/"
 export VITE_VAPID_PUBLIC_KEY="${VITE_VAPID_PUBLIC_KEY:-dGVzdA}"
 export KEPPO_FAKE_EXTERNAL_BASE_URL="http://127.0.0.1:${KEPPO_E2E_FAKE_EXTERNAL_PORT:-9901}"
-export KEPPO_LLM_GATEWAY_URL="${KEPPO_LLM_GATEWAY_URL:-${KEPPO_FAKE_EXTERNAL_BASE_URL}}"
+if [ "${KEPPO_E2E_OPENAI_RESPONSES_FAKE:-}" = "1" ]; then
+  export KEPPO_LLM_GATEWAY_URL=""
+elif [ "${KEPPO_LLM_GATEWAY_URL+x}" = "x" ]; then
+  export KEPPO_LLM_GATEWAY_URL
+else
+  export KEPPO_LLM_GATEWAY_URL="${KEPPO_FAKE_EXTERNAL_BASE_URL}"
+fi
 export GMAIL_API_BASE_URL="${KEPPO_FAKE_EXTERNAL_BASE_URL}/gmail/v1"
 export KEPPO_FAKE_GMAIL_ACCESS_TOKEN="fake_gmail_access_token"
 export KEPPO_FAKE_STRIPE_ACCESS_TOKEN="fake_stripe_access_token"

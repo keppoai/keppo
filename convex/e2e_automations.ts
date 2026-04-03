@@ -40,6 +40,7 @@ import {
   jsonRecordValidator,
   automationRunEventTypeValidator,
   automationRunLogLevelValidator,
+  automationRunOutcomeSourceValidator,
   automationRunStatusValidator,
   automationTriggerEventMatchStatusValidator,
   automationTriggerEventStatusValidator,
@@ -126,6 +127,10 @@ const automationFixtureRunDetailValidator = v.object({
   error_message: v.union(v.string(), v.null()),
   sandbox_id: v.union(v.string(), v.null()),
   mcp_session_id: v.union(v.string(), v.null()),
+  outcome_success: v.union(v.boolean(), v.null()),
+  outcome_summary: v.union(v.string(), v.null()),
+  outcome_source: v.union(automationRunOutcomeSourceValidator, v.null()),
+  outcome_recorded_at: v.union(v.string(), v.null()),
   created_at: v.string(),
 });
 
@@ -1002,6 +1007,10 @@ export const getAutomationFixtureRun = query({
       error_message: run.error_message ?? null,
       sandbox_id: run.sandbox_id ?? null,
       mcp_session_id: run.mcp_session_id ?? null,
+      outcome_success: run.outcome_success ?? null,
+      outcome_summary: run.outcome_summary ?? null,
+      outcome_source: run.outcome_source ?? null,
+      outcome_recorded_at: run.outcome_recorded_at ?? null,
       created_at: run.created_at ?? run.started_at ?? nowIso(),
     };
   },

@@ -77,7 +77,7 @@ const AUTOMATION_DISPATCH_PATH = "/internal/automations/dispatch";
 const AUTOMATION_TERMINATE_PATH = "/internal/automations/terminate";
 const DEFAULT_E2E_PORT_BASE = 9900;
 const DEFAULT_E2E_PORT_BLOCK_SIZE = 20;
-const DEFAULT_E2E_API_PORT_OFFSET = 2;
+const DEFAULT_E2E_DASHBOARD_PORT_OFFSET = 3;
 const DEFAULT_SCHEDULE_SCAN_LIMIT = 200;
 const DEFAULT_STALE_RUN_SCAN_LIMIT = 250;
 const DEFAULT_LOG_ARCHIVE_SCAN_LIMIT = 500;
@@ -109,8 +109,8 @@ const resolveNamespaceApiBase = (namespace?: string): string | null => {
     Number.isInteger(basePort) && basePort >= 1024 ? basePort : DEFAULT_E2E_PORT_BASE;
   const safeBlockSize =
     Number.isInteger(blockSize) && blockSize >= 5 ? blockSize : DEFAULT_E2E_PORT_BLOCK_SIZE;
-  const apiPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_API_PORT_OFFSET;
-  return `http://127.0.0.1:${apiPort}`;
+  const dashboardPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_DASHBOARD_PORT_OFFSET;
+  return `http://127.0.0.1:${dashboardPort}`;
 };
 
 const resolveNamespaceCronSecret = (namespace?: string): string | null => {
@@ -169,11 +169,15 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
 };
 
 const resolveInternalAuthHeader = (namespace?: string): string | null => {
+  const namespaceSecret = resolveNamespaceCronSecret(namespace);
+  if (namespaceSecret) {
+    return `Bearer ${namespaceSecret}`;
+  }
   const envSecret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
     process.env.VERCEL_CRON_SECRET;
-  const secret = envSecret ?? resolveNamespaceCronSecret(namespace);
+  const secret = envSecret;
   if (!secret) {
     return null;
   }

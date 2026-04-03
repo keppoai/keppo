@@ -33,6 +33,9 @@ const refs = {
   dispatchAutomationRun: makeFunctionReference<"action">(
     "automation_scheduler:dispatchAutomationRun",
   ),
+  terminateAutomationRun: makeFunctionReference<"action">(
+    "automation_scheduler:terminateAutomationRun",
+  ),
   reapStaleRuns: makeFunctionReference<"mutation">("automation_scheduler:reapStaleRuns"),
 };
 
@@ -518,6 +521,103 @@ describe("automation scheduler contract boundaries", () => {
     expect(dispatchHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
   });
 
+  it("derives the local dashboard dispatch URL from the E2E namespace when no explicit base is set", async () => {
+    vi.useFakeTimers();
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_namespace_dispatch",
+      email: "convex-scheduler-namespace-dispatch@example.com",
+      name: "Convex Scheduler Namespace Dispatch",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-namespace-dispatch@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-namespace-dispatch@example.com",
+      name: "Convex Scheduler Namespace Dispatch",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    const result = await t.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+      namespace: "run_test.0.tabc123.0.0",
+    });
+
+    expect(result).toMatchObject({
+      dispatched: true,
+      status: "dispatched",
+      http_status: 204,
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://127.0.0.1:9903/internal/automations/dispatch",
+      expect.objectContaining({
+        method: "POST",
+      }),
+    );
+    const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(dispatchHeaders.get("authorization")).toBe("Bearer e2e-cron-token-0");
+  });
+
+  it("prefers the namespace-scoped cron token over ambient runtime secrets for local dispatch", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_CRON_SECRET", "hosted-cron-secret");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_namespace_dispatch_auth",
+      email: "convex-scheduler-namespace-dispatch-auth@example.com",
+      name: "Convex Scheduler Namespace Dispatch Auth",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [{ field: "email", value: "convex-scheduler-namespace-dispatch-auth@example.com" }],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-namespace-dispatch-auth@example.com",
+      name: "Convex Scheduler Namespace Dispatch Auth",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    const result = await t.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+      namespace: "run_test.0.tabc123.0.0",
+    });
+
+    expect(result).toMatchObject({
+      dispatched: true,
+      status: "dispatched",
+      http_status: 204,
+    });
+    const dispatchHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(dispatchHeaders.get("authorization")).toBe("Bearer e2e-cron-token-0");
+  });
+
   it("rewrites bundled missing-key dispatch failures with the bundled credential label", async () => {
     vi.useFakeTimers();
     vi.stubEnv(
@@ -708,5 +808,54 @@ describe("automation scheduler contract boundaries", () => {
     );
     const terminateHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
     expect(terminateHeaders.get("x-vercel-protection-bypass")).toBe("bypass_secret_test");
+  });
+
+  it("prefers the namespace-scoped cron token over ambient runtime secrets for local terminate", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_CRON_SECRET", "hosted-cron-secret");
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const fixture = await seedAutomationFixture(t, "org_convex_scheduler_namespace_terminate_auth");
+    const startedAt = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("automation_runs", {
+        id: "arun_timeout_namespace_auth",
+        automation_id: fixture.automationId,
+        org_id: "org_convex_scheduler_namespace_terminate_auth",
+        workspace_id: fixture.workspaceId,
+        config_version_id: fixture.configVersionId,
+        trigger_type: "manual",
+        error_message: null,
+        sandbox_id: null,
+        log_storage_id: null,
+        created_at: startedAt,
+        mcp_session_id: null,
+        client_type: "other",
+        metadata: {
+          automation_run_status: AUTOMATION_RUN_STATUS.running,
+          log_bytes: 0,
+          log_eviction_noted: false,
+        },
+        started_at: startedAt,
+        ended_at: null,
+        status: RUN_STATUS.active,
+      });
+    });
+
+    const result = await t.action(refs.terminateAutomationRun, {
+      runId: "arun_timeout_namespace_auth",
+      namespace: "run_test.0.tabc123.0.0",
+    });
+
+    expect(result).toMatchObject({
+      terminated: true,
+      status: "terminated",
+      http_status: null,
+    });
+    const terminateHeaders = fetchMock.mock.calls[0]?.[1]?.headers as Headers;
+    expect(terminateHeaders.get("authorization")).toBe("Bearer e2e-cron-token-0");
   });
 });
