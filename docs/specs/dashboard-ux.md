@@ -257,7 +257,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Sidebar includes `Automations` entry.
 - **Automation Builder** (`automation-prompt-box.tsx`): staged guided creation flow shared by the dashboard home hero, automations page, and global modal entrypoint.
   - Appears on the dashboard home page (`variant="hero"`) and the automations page (`variant="compact"`), and the same builder is rendered in the global `Cmd+K` / `Ctrl+K` modal.
-  - Stages are explicit and ordered: `brief -> questions -> draft -> providers -> settings -> ready`, with distinct pending states for question generation and draft generation plus a short success transition before navigation.
+  - Stages are explicit and ordered: `brief -> questions -> draft -> providers -> settings`, with distinct pending states for question generation and draft generation plus a short success transition before navigation. The settings step includes the final ready-to-create summary and create action.
   - The builder persists the in-progress prompt, generated questions, answers, current question index, and generated draft per workspace so switching between the home hero, automations page, and modal does not reset progress.
   - It calls `POST /api/automations/generate-questions` first, then `POST /api/automations/generate-prompt` only after the operator finishes the questionnaire.
   - The question stage is one-question-at-a-time, keyboard-first, and limited to `radio`, `checkbox`, and single-line `text` inputs.

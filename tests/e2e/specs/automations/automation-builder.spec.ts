@@ -178,10 +178,7 @@ test("automation builder asks clarifying questions before drafting and keeps pro
 
   await page.getByRole("button", { name: "Continue without these providers" }).click();
   await expect(page.getByLabel("Model")).toBeVisible();
-
-  await page.getByRole("button", { name: "Continue" }).click();
   await expect(page.getByText("Ready to create")).toBeVisible();
-
   await page.getByRole("button", { name: "Create automation" }).click();
 
   await pages.automations.expectDetailLoaded("Morning GitHub Triage");

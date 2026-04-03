@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { parseGeneratedConfig } from "./automation-prompt-box";
+import { normalizePersistedBuilderStep, parseGeneratedConfig } from "./automation-prompt-box";
+
+describe("normalizePersistedBuilderStep", () => {
+  it("maps the legacy ready step back to settings", () => {
+    expect(normalizePersistedBuilderStep("ready")).toBe("settings");
+  });
+});
 
 describe("parseGeneratedConfig", () => {
   it("accepts persisted draft payloads without ok=true", () => {
