@@ -30,9 +30,14 @@ const contextFiles: RepoContextDefinition[] = [
     description: "Human-applied and workflow-owned GitHub labels.",
   },
   {
-    path: "docs/setup.md",
-    tags: ["setup", "runtime", "oauth", "env", "git-host"],
-    description: "Runtime and environment requirements.",
+    path: "docs/dev-setup.md",
+    tags: ["setup", "development", "testing", "local", "env"],
+    description: "Local development, verification, and maintainer workflow requirements.",
+  },
+  {
+    path: "docs/self-hosting-setup.md",
+    tags: ["setup", "runtime", "oauth", "env", "deployment", "self-hosted"],
+    description: "Deployment, runtime, and self-hosting requirements.",
   },
   {
     path: "docs/rules/security.md",

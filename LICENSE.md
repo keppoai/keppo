@@ -16,4 +16,4 @@ The `cloud/` directory is licensed under the Functional Source License 1.1 with 
 - `convex/` and `apps/web/app/lib/server/api-runtime/` keep stable filenames where Convex or routing expects them, but those files now stay thin wrappers around the canonical runtime modules.
 - `packages/shared/src/` remains the canonical shared-domain surface used by both Apache and FSL codepaths.
 
-See [docs/setup.md](docs/setup.md) for the normal build and deployment flow.
+See [docs/dev-setup.md](docs/dev-setup.md) and [docs/self-hosting-setup.md](docs/self-hosting-setup.md) for the normal build and deployment flow.

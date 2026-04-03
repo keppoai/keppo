@@ -7,7 +7,8 @@ It helps teams connect tools, run automations, gate risky actions behind approva
 ## Learn More
 
 - Product docs: [keppo.ai/docs](https://keppo.ai/docs)
-- Local setup and development: [`docs/setup.md`](docs/setup.md)
+- Local setup and development: [`docs/dev-setup.md`](docs/dev-setup.md)
+- Self-hosting and deployment: [`docs/self-hosting-setup.md`](docs/self-hosting-setup.md)
 - Repository specs: [`docs/specs/README.md`](docs/specs/README.md)
 - Engineering rules and guardrails: [`docs/rules/`](docs/rules)
 

@@ -13,7 +13,7 @@ Linear is one of the most requested integrations for engineering teams. It's a n
 ## Non-Goals
 
 - Automation trigger definitions (polling/push triggers for Linear events) — can be added in a follow-up after the base provider ships.
-- Linear OAuth app registration guidance or hosted setup — that's a docs/setup.md update.
+- Linear OAuth app registration guidance or hosted setup - that's a `docs/self-hosting-setup.md` update.
 - E2E Playwright specs for the Linear integration detail page — E2E coverage follows once the provider is stable.
 - Dashboard icon SVG design — will use a placeholder icon until a Linear brand icon is added to the icon set.
 
@@ -243,7 +243,7 @@ Update the Convex schema canonical enums and all relevant specs/docs.
 - `convex/schema.ts` (if provider enums are explicitly listed)
 - `docs/specs/core-domain-model.md`
 - `docs/specs/execution-workers-connectors.md`
-- `docs/setup.md`
+- `docs/self-hosting-setup.md`
 - `docs/rules/additional_convex_rules.md` (if provider enums are listed there)
 
 **Steps:**
@@ -251,7 +251,7 @@ Update the Convex schema canonical enums and all relevant specs/docs.
 - [ ] Check `convex/schema.ts` for hardcoded provider enum lists and add `"linear"` if present
 - [ ] Update `docs/specs/core-domain-model.md` — add `linear` to the Canonical enums Providers list
 - [ ] Update `docs/specs/execution-workers-connectors.md` — add Linear connector runtime coverage summary following the pattern of other providers
-- [ ] Update `docs/setup.md` — add `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET` to the environment variables section
+- [ ] Update `docs/self-hosting-setup.md` - add `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET` to the environment variables section
 - [ ] Add `LINEAR_CLIENT_ID`, `LINEAR_CLIENT_SECRET`, `LINEAR_WEBHOOK_SECRET` to `.env.example`
 
 **Verification:** `pnpm check` passes across the monorepo. Specs mention Linear. `.env.example` includes the new vars.
@@ -311,7 +311,7 @@ Rebuild shared package and verify everything compiles end-to-end.
 - `tests/e2e/providers/registry.ts`
 - `docs/specs/core-domain-model.md`
 - `docs/specs/execution-workers-connectors.md`
-- `docs/setup.md`
+- `docs/self-hosting-setup.md`
 - `.env.example`
 - `convex/schema.ts` (if applicable)
 
@@ -337,7 +337,7 @@ Rebuild shared package and verify everything compiles end-to-end.
 - [ ] Conformance test scenarios pass for Linear read and write paths
 - [ ] E2E fake provider registry includes Linear
 - [ ] All specs (`core-domain-model.md`, `execution-workers-connectors.md`) updated
-- [ ] `docs/setup.md` and `.env.example` include Linear env vars
+- [ ] `docs/self-hosting-setup.md` and `.env.example` include Linear env vars
 - [ ] `pnpm check` and `pnpm test` pass across the monorepo
 
 ## Iteration Log

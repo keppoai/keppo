@@ -99,14 +99,14 @@ export const getPreviewSeed = (
         type: "textarea",
         required: false,
         placeholder:
-          "For example: docs/setup, label workflow docs, security rules, selected workflow files...",
+          "For example: docs/dev-setup, docs/self-hosting-setup, label workflow docs, security rules, selected workflow files...",
       },
     ],
     answers: {
       scope: "workflow-labels-and-draft",
       constraints: ["strict-allowlist", "standalone-app", "public-image-uploads"],
       "repo-context":
-        "Use docs/github-label-workflows.md, AGENTS.md, docs/setup.md, docs/rules/security.md, and the issue-agent workflow.",
+        "Use docs/github-label-workflows.md, AGENTS.md, docs/dev-setup.md, docs/self-hosting-setup.md, docs/rules/security.md, and the issue-agent workflow.",
     },
     draft: {
       draft: {
@@ -134,7 +134,12 @@ export const getPreviewSeed = (
         "?agent:claude",
         "needs-human:review-issue",
       ],
-      contextFiles: ["docs/github-label-workflows.md", "docs/rules/security.md", "docs/setup.md"],
+      contextFiles: [
+        "docs/github-label-workflows.md",
+        "docs/rules/security.md",
+        "docs/dev-setup.md",
+        "docs/self-hosting-setup.md",
+      ],
       imageNotes: [
         "Annotated screenshots should be preserved as public attachment links in the final issue body.",
       ],

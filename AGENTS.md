@@ -16,7 +16,8 @@
 - [Error messaging rules](docs/rules/error-messaging.md) — human-first error copy, stable machine-readable identifiers, collapsed operator details, and public-route sanitization policy.
 - [UX rules](docs/rules/ux.md) — animations, forms, touch/accessibility, typography, visual polish, and performance best practices. **Must be consulted before any frontend/UI/UX change** — read the full file, not just the section you think applies.
 - [Product principles](docs/rules/product-principles.md) — high-level product decision-making principles used by the PR review responder to autonomously resolve ambiguous or subjective feedback.
-- [docs/setup.md](docs/setup.md) — authoritative, self-hosted setup and deployment reference for this app. Any change that affects required runtime behavior (OAuth providers, ports, environment variables, callbacks, auth flow, database/runtime dependencies, or external integrations) must be reflected here immediately so others can run Keppo independently.
+- [docs/dev-setup.md](docs/dev-setup.md) — authoritative local contributor setup, verification, and maintainer workflow reference for this app. Any change that affects required local commands, ports, test entrypoints, or repo-operated workflow prerequisites must be reflected here immediately.
+- [docs/self-hosting-setup.md](docs/self-hosting-setup.md) — authoritative self-hosted setup and deployment reference for this app. Any change that affects required runtime behavior (OAuth providers, ports, environment variables, callbacks, auth flow, database/runtime dependencies, or external integrations) must be reflected here immediately so others can run Keppo independently.
 
 ### E2E Testing
 

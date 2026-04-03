@@ -29,7 +29,7 @@ In scope:
 - `apps/web/app/lib/server/api-runtime`
 - `convex/*`
 - `packages/shared`
-- Deployment and auth configuration documented in `docs/setup.md`
+- Deployment and auth configuration documented in `docs/self-hosting-setup.md` and `docs/dev-setup.md`
 
 Out of scope:
 

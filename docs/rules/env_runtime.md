@@ -56,7 +56,7 @@
 - Keep local dashboard, Convex, and Better Auth origins on the same hostname. Prefer `localhost` across `KEPPO_URL`, `VITE_CONVEX_URL`, `VITE_CONVEX_SITE_URL`, `CONVEX_URL`, and `CONVEX_SITE_URL`; mixing `localhost` with `127.0.0.1` splits browser cookies and can make Better Auth session checks fail while the app shell still appears signed in.
 - Local admin/operator bypasses must be explicit. Use `KEPPO_LOCAL_ADMIN_BYPASS=true` only in machine-local development env, sync it into the local Convex runtime, and do not infer admin access from `NODE_ENV`, loopback hosts, or deployment names alone.
 - The internal Convex action `dangerous_admin.dangerouslyDropAllTables` is fail-closed unless Convex env sets `KEPPO_ALLOW_DANGEROUS_DROP_ALL=true`. Remove that flag after use on shared deployments.
-- If operator-facing env requirements change, update `docs/setup.md` in the same change.
+- If operator-facing env requirements change, update `docs/self-hosting-setup.md` in the same change.
 
 ## Auth versus integrations
 

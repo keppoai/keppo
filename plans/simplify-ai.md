@@ -144,13 +144,13 @@ Keppo currently exposes too much low-level AI configuration. Operators choose ru
 - `docs/specs/core-domain-model.md`
 - `docs/specs/control-plane-api.md`
 - `docs/specs/dashboard-ux.md`
-- `docs/setup.md`
+- `docs/self-hosting-setup.md`
 
 **Steps:**
 
 - [ ] Update the landing page pricing section and surrounding marketing copy to explain `Free trial`, one-time 20 credits, bundled execution availability, and the simplified four-tier AI choice model.
 - [ ] Update billing/settings/dashboard copy across all authenticated surfaces to use `Free trial` consistently and describe the new credit semantics accurately.
-- [ ] Document the new model-class env vars and the gateway-dependent BYO behavior in `docs/setup.md`.
+- [ ] Document the new model-class env vars and the gateway-dependent BYO behavior in `docs/self-hosting-setup.md`.
 - [ ] Update relevant rules and specs so they describe the new billing semantics, automation config domain shape, dashboard UX, and runtime env contract without leaving spec drift.
 - [ ] If UI copy or structure changes meaningfully in pricing or automation authoring, include the required screenshot-based UX validation and critique workflow during implementation.
 
@@ -209,7 +209,7 @@ Keppo currently exposes too much low-level AI configuration. Operators choose ru
 - `docs/specs/core-domain-model.md`
 - `docs/specs/control-plane-api.md`
 - `docs/specs/dashboard-ux.md`
-- `docs/setup.md`
+- `docs/self-hosting-setup.md`
 
 ## Risks and Mitigations
 
@@ -227,7 +227,7 @@ Keppo currently exposes too much low-level AI configuration. Operators choose ru
 - [ ] Automation configs persist `model_class`, existing configs are migrated to `auto`, and runtime resolves concrete model/provider/runner from env-backed classes.
 - [ ] Runner harness selection and direct model picking are removed from product UI, and all surfaces use `Free trial` naming consistently.
 - [ ] BYO is fully disabled when `KEPPO_LLM_GATEWAY_URL` is set, with correct runtime gating and updated copy.
-- [ ] Landing page, billing/dashboard copy, tests, rules, specs, and `docs/setup.md` are updated to match the shipped behavior.
+- [ ] Landing page, billing/dashboard copy, tests, rules, specs, and `docs/self-hosting-setup.md` are updated to match the shipped behavior.
 
 ## Iteration Log
 

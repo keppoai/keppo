@@ -59,11 +59,11 @@ describe("contracts", () => {
   it("still requires context files in the API questions response", () => {
     const parsed = questionsResponseSchema.parse({
       questions: [],
-      contextFiles: ["docs/setup.md"],
+      contextFiles: ["docs/dev-setup.md"],
       imageNotes: [],
     });
 
-    expect(parsed.contextFiles).toEqual(["docs/setup.md"]);
+    expect(parsed.contextFiles).toEqual(["docs/dev-setup.md"]);
   });
 
   it("requires suggested extra labels in the model draft schema", () => {
