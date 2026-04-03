@@ -33,7 +33,6 @@ if npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   "Bash(node .agents/skills/bug-finder-recent/scripts/select_recent_files.mjs:*)" \
   "Bash(pwd:*)" \
   "Bash(rg:*)" \
-  "Bash(sed:*)" \
   "Bash(sort:*)" \
   "Bash(tail:*)" \
   "Bash(wc:*)" \

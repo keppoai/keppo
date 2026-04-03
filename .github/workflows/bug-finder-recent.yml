@@ -2,8 +2,9 @@ name: Nightly Bug Finder Recent
 
 on:
   schedule:
-    - cron: "0 3 * * *"
-      timezone: "America/Los_Angeles"
+    # GitHub Actions cron uses UTC; 10:00 UTC keeps this near the intended
+    # 3am Pacific run time during most of the year.
+    - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
       agent:
@@ -33,6 +34,7 @@ jobs:
     env:
       AGENT_KIND: ${{ inputs.agent || 'codex' }}
       CLAUDE_CODE_VERSION: 2.1.89
+      CODEX_CLI_VERSION: 0.118.0
       CODEX_HOME: tmp/bug-finder-recent/codex-home
       PROMPT_PATH: tmp/bug-finder-recent/run-prompt.txt
       LOG_MARKER_PATH: tmp/bug-finder-recent/session-log-marker
@@ -63,7 +65,7 @@ jobs:
 
       - name: Install Codex CLI
         if: env.AGENT_KIND == 'codex'
-        run: npm install -g @openai/codex@latest
+        run: npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
 
       - name: Write Codex auth file
         if: env.AGENT_KIND == 'codex'
@@ -142,8 +144,7 @@ jobs:
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permissions: >-
-            {"issues": "write"}
+          permission-issues: write
 
       - name: File issues and send notification
         if: success()

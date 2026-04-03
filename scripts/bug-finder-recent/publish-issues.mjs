@@ -1,9 +1,28 @@
+import crypto from "node:crypto";
 import fs from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
 const BUG_LABEL = "bugfinder";
+const DO_ISSUE_LABEL = "/do-issue";
+const MAX_EXISTING_ISSUE_PAGES = 20;
+const REQUIRED_SECTION_HEADINGS = [
+  "### Summary",
+  "### Affected Files",
+  "### Reproduction Path",
+  "### Impact",
+  "### Suggested Fix",
+];
+const VALID_CATEGORIES = new Set([
+  "data-loss",
+  "race-condition",
+  "unhandled-error",
+  "logic-error",
+  "ui-bug",
+  "performance",
+  "integration",
+]);
 
 const readResponseBody = async (response) => {
   const text = await response.text();
@@ -15,6 +34,14 @@ const normalizeTitle = (value) =>
     .trim()
     .replace(/\s+/g, " ")
     .toLowerCase();
+
+const normalizeDedupKey = (value) =>
+  value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
 
 const requireEnv = (name) => {
   const value = process.env[name]?.trim();
@@ -89,6 +116,51 @@ const loadSessionLogLinks = async (path) => {
     .map(([, label, url]) => ({ label, url }));
 };
 
+const findSectionIndexes = (raw) => {
+  const indexes = REQUIRED_SECTION_HEADINGS.map((heading) => raw.indexOf(heading));
+  if (indexes.some((index) => index === -1)) {
+    return null;
+  }
+  for (let index = 1; index < indexes.length; index += 1) {
+    if (indexes[index - 1] >= indexes[index]) {
+      return null;
+    }
+  }
+  return indexes;
+};
+
+const extractSectionBlock = (raw, startHeading, endHeading) => {
+  const startIndex = raw.indexOf(startHeading);
+  if (startIndex === -1) {
+    return "";
+  }
+  const contentStart = startIndex + startHeading.length;
+  const endIndex = endHeading ? raw.indexOf(endHeading, contentStart) : -1;
+  const block = endIndex === -1 ? raw.slice(contentStart) : raw.slice(contentStart, endIndex);
+  return block.trim();
+};
+
+const parseAffectedFiles = (raw) =>
+  extractSectionBlock(raw, "### Affected Files", "### Reproduction Path")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.startsWith("- "))
+    .map((line) => line.slice(2).trim())
+    .filter(Boolean);
+
+export const sanitizeMentions = (value) => value.replaceAll("@", "@\u200b");
+
+export const buildDedupMarker = (dedupKey) => {
+  const normalizedKey = normalizeDedupKey(dedupKey);
+  const digest = crypto.createHash("sha256").update(normalizedKey).digest("hex").slice(0, 16);
+  return `<!-- bug-finder-dedup:${digest}:${normalizedKey} -->`;
+};
+
+const readDedupMarker = (issueBody) => {
+  const match = String(issueBody || "").match(/<!-- bug-finder-dedup:[0-9a-f]{16}:([a-z0-9-]+) -->/);
+  return match ? match[1] : null;
+};
+
 export const parseFindingMarkdown = (raw, filePath) => {
   const titleMatch = raw.match(/^#\s+(.+)$/m);
   if (!titleMatch) {
@@ -103,16 +175,35 @@ export const parseFindingMarkdown = (raw, filePath) => {
   const severity = severityMatch[1].toLowerCase();
 
   const categoryMatch = raw.match(/^-\s*Category:\s*(\S+)\s*$/im);
-  const category = categoryMatch ? categoryMatch[1].toLowerCase() : "unknown";
+  if (!categoryMatch) {
+    return { error: `Malformed finding file ${filePath}: missing category line` };
+  }
+  const category = categoryMatch[1].toLowerCase();
+  if (!VALID_CATEGORIES.has(category)) {
+    return { error: `Malformed finding file ${filePath}: invalid category "${category}"` };
+  }
 
-  // Description is everything after the frontmatter (title + severity + category lines)
-  const summaryIndex = raw.indexOf("### Summary");
-  const description = summaryIndex !== -1
-    ? raw.slice(summaryIndex).trim()
-    : raw.slice(raw.indexOf("\n", raw.indexOf(severityMatch[0]) + severityMatch[0].length)).trim();
+  const dedupKeyMatch = raw.match(/^-\s*Dedup Key:\s*([a-z0-9][a-z0-9-]{2,100})\s*$/im);
+  if (!dedupKeyMatch) {
+    return { error: `Malformed finding file ${filePath}: missing or invalid dedup key line` };
+  }
+  const dedupKey = normalizeDedupKey(dedupKeyMatch[1]);
+
+  const sectionIndexes = findSectionIndexes(raw);
+  if (!sectionIndexes) {
+    return {
+      error: `Malformed finding file ${filePath}: missing required sections or section order`,
+    };
+  }
+  const description = raw.slice(sectionIndexes[0]).trim();
 
   if (!description) {
     return { error: `Malformed finding file ${filePath}: empty description` };
+  }
+
+  const affectedFiles = parseAffectedFiles(raw);
+  if (affectedFiles.length === 0) {
+    return { error: `Malformed finding file ${filePath}: missing affected files list` };
   }
 
   return {
@@ -121,6 +212,8 @@ export const parseFindingMarkdown = (raw, filePath) => {
       description,
       severity,
       category,
+      dedupKey,
+      affectedFiles,
     },
   };
 };
@@ -158,8 +251,8 @@ export const loadFindings = async (dirPath) => {
   return { findings, malformed };
 };
 
-const ensureLabel = async ({ apiBaseUrl, repo, token }) => {
-  const response = await fetch(`${apiBaseUrl}/repos/${repo}/labels/${BUG_LABEL}`, {
+const ensureLabel = async ({ apiBaseUrl, repo, token, label, description }) => {
+  const response = await fetch(`${apiBaseUrl}/repos/${repo}/labels/${encodeURIComponent(label)}`, {
     headers: {
       Authorization: `Bearer ${token}`,
       Accept: "application/vnd.github+json",
@@ -173,7 +266,7 @@ const ensureLabel = async ({ apiBaseUrl, repo, token }) => {
 
   if (response.status !== 404) {
     const body = await readResponseBody(response);
-    throw new Error(`Failed to check label "${BUG_LABEL}": ${response.status} ${body}`);
+    throw new Error(`Failed to check label "${label}": ${response.status} ${body}`);
   }
 
   const createResponse = await fetch(`${apiBaseUrl}/repos/${repo}/labels`, {
@@ -185,26 +278,27 @@ const ensureLabel = async ({ apiBaseUrl, repo, token }) => {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      name: BUG_LABEL,
+      name: label,
       color: "d73a4a",
-      description: "Bug found by the nightly bug-finder:recent workflow",
+      description,
     }),
   });
 
   if (!createResponse.ok) {
     const body = await readResponseBody(createResponse);
-    throw new Error(`Failed to create label "${BUG_LABEL}": ${createResponse.status} ${body}`);
+    throw new Error(`Failed to create label "${label}": ${createResponse.status} ${body}`);
   }
 };
 
 const fetchExistingIssues = async ({ apiBaseUrl, repo, token }) => {
   let nextUrl = new URL(`${apiBaseUrl}/repos/${repo}/issues`);
   nextUrl.searchParams.set("labels", BUG_LABEL);
-  nextUrl.searchParams.set("state", "all");
+  nextUrl.searchParams.set("state", "open");
   nextUrl.searchParams.set("per_page", "100");
 
   const issues = [];
-  while (nextUrl) {
+  let pageCount = 0;
+  while (nextUrl && pageCount < MAX_EXISTING_ISSUE_PAGES) {
     const response = await fetch(nextUrl, {
       headers: {
         Authorization: `Bearer ${token}`,
@@ -227,9 +321,10 @@ const fetchExistingIssues = async ({ apiBaseUrl, repo, token }) => {
     issues.push(...page);
     const nextPage = getNextPageUrl(response.headers.get("link"));
     nextUrl = nextPage ? new URL(nextPage) : null;
+    pageCount += 1;
   }
 
-  return issues;
+  return { issues, reachedPageCap: pageCount >= MAX_EXISTING_ISSUE_PAGES && Boolean(nextUrl) };
 };
 
 export const createRepositoryIssue = async ({
@@ -239,14 +334,18 @@ export const createRepositoryIssue = async ({
   finding,
   agentLabel,
 }) => {
+  const safeTitle = sanitizeMentions(finding.title);
+  const safeDescription = sanitizeMentions(finding.description);
+  const dedupMarker = buildDedupMarker(finding.dedupKey);
   const body = [
     `**Severity:** ${finding.severity}`,
     `**Category:** ${finding.category}`,
     "",
-    finding.description,
+    safeDescription,
     "",
     "---",
     `This issue was generated by the nightly \`bug-finder:recent\` workflow (agent: ${agentLabel}).`,
+    dedupMarker,
   ].join("\n");
 
   const response = await fetch(`${apiBaseUrl}/repos/${repo}/issues`, {
@@ -258,9 +357,9 @@ export const createRepositoryIssue = async ({
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      title: `[${finding.severity.toUpperCase()}] ${finding.title}`,
+      title: `[${finding.severity.toUpperCase()}] ${safeTitle}`,
       body,
-      labels: [BUG_LABEL],
+      labels: [BUG_LABEL, DO_ISSUE_LABEL],
     }),
   });
 
@@ -339,21 +438,39 @@ export const main = async () => {
   const agentLabel = agentKind === "claude" ? "Claude" : "Codex";
   const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
 
-  await ensureLabel({ apiBaseUrl, repo, token });
+  await ensureLabel({
+    apiBaseUrl,
+    repo,
+    token,
+    label: BUG_LABEL,
+    description: "Bug found by the nightly bug-finder:recent workflow",
+  });
+  await ensureLabel({
+    apiBaseUrl,
+    repo,
+    token,
+    label: DO_ISSUE_LABEL,
+    description: "Kick off the issue-to-PR workflow for this issue",
+  });
 
-  const existing = await fetchExistingIssues({ apiBaseUrl, repo, token });
-  const existingByTitle = new Map(
+  const { issues: existing, reachedPageCap } = await fetchExistingIssues({ apiBaseUrl, repo, token });
+  const existingByDedupKey = new Map(
     existing
-      .map((issue) => [normalizeTitle(String(issue.title || "")), issue])
-      .filter(([title]) => title),
+      .map((issue) => [readDedupMarker(issue.body), issue])
+      .filter(([dedupKey]) => dedupKey),
+  );
+  const existingByTitle = new Map(
+    existing.map((issue) => [normalizeTitle(String(issue.title || "")), issue]).filter(([title]) => title),
   );
 
   const created = [];
   const skipped = [];
+  const failed = [];
 
   for (const finding of findings) {
-    const key = normalizeTitle(`[${finding.severity.toUpperCase()}] ${finding.title}`);
-    const duplicate = existingByTitle.get(key);
+    const titleKey = normalizeTitle(`[${finding.severity.toUpperCase()}] ${sanitizeMentions(finding.title)}`);
+    const dedupKey = normalizeDedupKey(finding.dedupKey);
+    const duplicate = existingByDedupKey.get(dedupKey) || existingByTitle.get(titleKey);
     if (duplicate) {
       skipped.push({
         ...finding,
@@ -364,28 +481,48 @@ export const main = async () => {
       continue;
     }
 
-    const issue = await createRepositoryIssue({
-      apiBaseUrl,
-      repo,
-      token,
-      finding,
-      agentLabel,
-    });
-    created.push({
-      ...finding,
-      issueNumber: issue.number || null,
-      htmlUrl: issue.html_url || null,
-      state: issue.state || null,
-    });
-    existingByTitle.set(key, issue);
+    try {
+      const issue = await createRepositoryIssue({
+        apiBaseUrl,
+        repo,
+        token,
+        finding,
+        agentLabel,
+      });
+      created.push({
+        ...finding,
+        issueNumber: issue.number || null,
+        htmlUrl: issue.html_url || null,
+        state: issue.state || null,
+      });
+      existingByDedupKey.set(dedupKey, issue);
+      existingByTitle.set(titleKey, issue);
+    } catch (error) {
+      failed.push({
+        ...finding,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   await appendStepSummary(`Created issues: ${created.length}`);
   await appendStepSummary(`Skipped as duplicates: ${skipped.length}`);
+  await appendStepSummary(`Issue creation failures: ${failed.length}`);
+  if (reachedPageCap) {
+    await appendStepSummary(
+      `Stopped duplicate scan after ${MAX_EXISTING_ISSUE_PAGES} pages of open bugfinder issues.`,
+    );
+  }
   if (malformed.length > 0) {
     await appendStepSummary("Malformed findings:");
     for (const message of malformed) {
       await appendStepSummary(`- ${message}`);
+    }
+  }
+  if (failed.length > 0) {
+    await appendStepSummary("Issue creation failures:");
+    for (const entry of failed) {
+      await appendStepSummary(`- ${entry.title}: ${entry.error}`);
     }
   }
 
@@ -414,6 +551,11 @@ export const main = async () => {
           (finding) =>
             `- [${finding.severity}] ${finding.title} (#${finding.issueNumber})${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
         )),
+    "",
+    "Issue creation failures:",
+    ...(failed.length === 0
+      ? ["- none"]
+      : failed.map((finding) => `- [${finding.severity}] ${finding.title}: ${finding.error}`)),
   ];
 
   if (sessionLogLinks.length > 0) {
@@ -427,6 +569,12 @@ export const main = async () => {
   if (runUrl) {
     textSections.push("", `Workflow run: ${runUrl}`);
   }
+  if (reachedPageCap) {
+    textSections.push(
+      "",
+      `Duplicate scan hit the safety cap of ${MAX_EXISTING_ISSUE_PAGES} pages of open bugfinder issues.`,
+    );
+  }
 
   const html = `
 <!doctype html>
@@ -438,7 +586,8 @@ export const main = async () => {
     <p style="margin:0 0 12px;">
       Confirmed findings: <strong>${findings.length}</strong><br />
       Created issues: <strong>${created.length}</strong><br />
-      Skipped as duplicates: <strong>${skipped.length}</strong>
+      Skipped as duplicates: <strong>${skipped.length}</strong><br />
+      Issue creation failures: <strong>${failed.length}</strong>
     </p>
     <h3 style="margin:16px 0 8px;">Created issues</h3>
     <ul style="margin:0 0 16px;padding-left:20px;">
@@ -474,6 +623,24 @@ export const main = async () => {
               .join("")
       }
     </ul>
+    <h3 style="margin:16px 0 8px;">Issue creation failures</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        failed.length === 0
+          ? "<li>none</li>"
+          : failed
+              .map(
+                (finding) =>
+                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}: ${escapeHtml(finding.error)}</li>`,
+              )
+              .join("")
+      }
+    </ul>
+    ${
+      reachedPageCap
+        ? `<p style="margin:16px 0 0;">Duplicate scan hit the safety cap of ${MAX_EXISTING_ISSUE_PAGES} pages of open bugfinder issues.</p>`
+        : ""
+    }
     ${
       sessionLogLinks.length > 0
         ? `
@@ -509,11 +676,12 @@ export const main = async () => {
   });
 
   console.log(
-    `Processed ${findings.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s).`,
+    `Processed ${findings.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s), ${failed.length} failed.`,
   );
 
-  if (malformed.length > 0) {
-    throw new Error(malformed.join("\n"));
+  const terminalErrors = [...malformed, ...failed.map((entry) => entry.error)];
+  if (terminalErrors.length > 0) {
+    throw new Error(terminalErrors.join("\n"));
   }
 };
 

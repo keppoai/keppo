@@ -7,6 +7,7 @@ Requirements:
 - Do NOT report security vulnerabilities. All findings will be filed on a public issue tracker.
 - Follow the skill's workflow and formatting requirements exactly.
 - Write one `.md` file per confirmed finding to `{{FINDINGS_DIR}}/`, using the naming convention `<short-slug>.md`.
+- Include the required stable `Dedup Key` frontmatter in each confirmed finding file.
 - If no qualifying bugs are confirmed, leave `{{FINDINGS_DIR}}/` empty.
 - Do not modify tracked repository files. Only write under `./out-bug-finder`.
 

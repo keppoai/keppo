@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 const days = Number(process.argv[2] ?? "7");
 const targetCount = Number(process.argv[3] ?? "25");
 
 const raw = execFileSync(
   "git",
-  ["log", `--since=${days} days ago`, "--name-only", "--pretty=format:"],
+  ["log", `--since=${days} days ago`, "--diff-filter=d", "--name-only", "--pretty=format:"],
   { encoding: "utf8" },
 );
 
@@ -55,7 +56,9 @@ function score(path) {
   return keywordMatches * 12 + extensionBonus + componentBonus + convexBonus + routeBonus + shorterPathBonus;
 }
 
-const unique = [...new Set(raw.split("\n").map((line) => line.trim()).filter(Boolean))].filter(include);
+const unique = [...new Set(raw.split("\n").map((line) => line.trim()).filter(Boolean))]
+  .filter((path) => existsSync(path))
+  .filter(include);
 const sorted = unique.sort((a, b) => score(b) - score(a) || a.localeCompare(b));
 
 const buckets = new Map();

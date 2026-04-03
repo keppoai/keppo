@@ -134,6 +134,7 @@ Look for these categories of bugs:
 
 - Severity: critical|high
 - Category: data-loss|race-condition|unhandled-error|logic-error|ui-bug|performance|integration
+- Dedup Key: stable-kebab-case-key
 ```
 
    - After the frontmatter, write the full description as Markdown with these exact sections, in this order:
@@ -169,6 +170,7 @@ Give concrete remediation steps:
 
    - Style rules for the description:
      - Be specific to the codebase.
+     - The dedup key must be deterministic across reruns for the same bug. Base it on the affected feature and failure mode, not on wording. Example: `billing-webhook-missing-idempotency-check`.
      - Mention exact function names, components, mutations, queries, and data objects when known.
      - Prefer concrete nouns over vague language.
      - Avoid filler, marketing tone, and generic advice.
