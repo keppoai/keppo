@@ -272,6 +272,18 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     );
   });
 
+  it("skips the Vercel protection bypass query param in production", () => {
+    vi.stubEnv("KEPPO_ENVIRONMENT", "production");
+    vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "bypass_secret_test");
+
+    expect(resolveAutomationMcpServerUrl(undefined, "https://keppo.ai/api", "ws_test")).toBe(
+      "https://keppo.ai/mcp/ws_test",
+    );
+    expect(applyVercelProtectionBypassToUrl("https://keppo.ai/internal/automations/log")).toBe(
+      "https://keppo.ai/internal/automations/log",
+    );
+  });
+
   it("applies the Vercel protection bypass query param to parseable URLs only", () => {
     vi.stubEnv("VERCEL_AUTOMATION_BYPASS_SECRET", "bypass_secret_test");
 

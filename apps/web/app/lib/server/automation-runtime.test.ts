@@ -109,6 +109,7 @@ describe("start-owned automation runtime handlers", () => {
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     KEPPO_API_INTERNAL_BASE_URL: process.env.KEPPO_API_INTERNAL_BASE_URL,
     KEPPO_CALLBACK_HMAC_SECRET: process.env.KEPPO_CALLBACK_HMAC_SECRET,
+    KEPPO_ENVIRONMENT: process.env.KEPPO_ENVIRONMENT,
     KEPPO_MASTER_KEY: process.env.KEPPO_MASTER_KEY,
     NODE_ENV: process.env.NODE_ENV,
     KEPPO_SANDBOX_PROVIDER: process.env.KEPPO_SANDBOX_PROVIDER,
@@ -123,6 +124,7 @@ describe("start-owned automation runtime handlers", () => {
     process.env.KEPPO_SANDBOX_PROVIDER = "docker";
     process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "bypass_secret_test";
     delete process.env.KEPPO_API_INTERNAL_BASE_URL;
+    delete process.env.KEPPO_ENVIRONMENT;
   });
 
   afterEach(() => {
@@ -372,6 +374,80 @@ describe("start-owned automation runtime handlers", () => {
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.env.OPENAI_CODEX_AUTH_JSON).toContain("oauth-access-token-test");
     expect(dispatchArg.runtime.env.OPENAI_API_KEY).toBeUndefined();
+  });
+
+  it("does not pass the Vercel bypass secret into production sandbox runs", async () => {
+    const deps = createDeps();
+    deps.getEnv.mockReturnValueOnce({
+      ...defaultTestEnv,
+      KEPPO_ENVIRONMENT: "production",
+    } as never);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_dispatch_prod_test",
+        automation_id: "automation_dispatch_prod_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_dispatch_prod_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Daily triage",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_dispatch_prod_test", dispatch_token: "dispatch_token_test" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
+    expect(dispatchArg.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET).toBeUndefined();
   });
 
   it("keeps the Codex exec command at its default network-enabled shape when automation web access is enabled", async () => {

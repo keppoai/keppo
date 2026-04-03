@@ -44,6 +44,7 @@ import {
   preflightMcpServer,
   resolveAutomationCallbackBaseUrl,
   resolveAutomationMcpServerUrl,
+  resolveVercelAutomationBypassSecret,
 } from "./api-runtime/routes/automations.ts";
 import {
   createAutomationSandboxProvider,
@@ -622,7 +623,7 @@ export const handleInternalAutomationDispatchRequest = async (
     if (env.KEPPO_E2E_MODE && e2eOpenAiBaseUrl) {
       runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL = e2eOpenAiBaseUrl;
     }
-    const vercelAutomationBypassSecret = env.VERCEL_AUTOMATION_BYPASS_SECRET;
+    const vercelAutomationBypassSecret = resolveVercelAutomationBypassSecret(env);
     if (vercelAutomationBypassSecret) {
       runtimeEnv.VERCEL_AUTOMATION_BYPASS_SECRET = vercelAutomationBypassSecret;
     }

@@ -35,7 +35,11 @@ const managedConvexEnv = [
   { key: "KEPPO_MASTER_KEY_BLOB", modes: ["local"] },
   { key: "KEPPO_LLM_GATEWAY_URL", modes: ["local", "hosted"] },
   { key: "KEPPO_LOCAL_QUEUE_CONSUMER_URL", modes: ["local"] },
-  { key: "VERCEL_AUTOMATION_BYPASS_SECRET", modes: ["hosted"] },
+  {
+    key: "VERCEL_AUTOMATION_BYPASS_SECRET",
+    modes: ["hosted"],
+    hostedEnvironments: ["preview", "staging"],
+  },
 ];
 
 export const managedConvexEnvEntries = managedConvexEnv;
@@ -70,17 +74,33 @@ export const unmanagedConvexEnvKeys = [
   "VERCEL_CRON_SECRET",
 ];
 
-const appliesToMode = (entry, mode) => entry.modes.includes(mode);
+const normalizeEnvironment = (value) => trim(value).toLowerCase();
+
+const appliesToMode = (entry, mode, environment) => {
+  if (!entry.modes.includes(mode)) {
+    return false;
+  }
+  if (mode !== "hosted" || !Array.isArray(entry.hostedEnvironments)) {
+    return true;
+  }
+  const normalizedEnvironment = normalizeEnvironment(environment);
+  if (!normalizedEnvironment) {
+    return true;
+  }
+  return entry.hostedEnvironments.includes(normalizedEnvironment);
+};
 
 const resolveDefaultValue = (entry, mode) => trim(entry.defaultByMode?.[mode]);
 
-export const listManagedConvexEnvKeys = (mode) =>
-  managedConvexEnv.filter((entry) => appliesToMode(entry, mode)).map((entry) => entry.key);
+export const listManagedConvexEnvKeys = (mode, environment = process.env.KEPPO_ENVIRONMENT) =>
+  managedConvexEnv
+    .filter((entry) => appliesToMode(entry, mode, environment))
+    .map((entry) => entry.key);
 
 export const collectManagedConvexEnvValues = ({ mode, env = process.env }) => {
   const values = {};
   for (const entry of managedConvexEnv) {
-    if (!appliesToMode(entry, mode)) {
+    if (!appliesToMode(entry, mode, env.KEPPO_ENVIRONMENT)) {
       continue;
     }
     const raw = trim(env[entry.key]);
