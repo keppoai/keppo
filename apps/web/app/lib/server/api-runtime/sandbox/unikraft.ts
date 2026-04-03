@@ -249,6 +249,7 @@ export class UnikraftSandboxProvider implements SandboxProvider {
         KEPPO_RUNNER_COMMAND: composeRunnerCommand(config),
         KEPPO_LOG_CALLBACK_URL: config.runtime.callbacks.log_url,
         KEPPO_COMPLETE_CALLBACK_URL: config.runtime.callbacks.complete_url,
+        KEPPO_SESSION_ARTIFACT_CALLBACK_URL: config.runtime.callbacks.session_artifact_url,
         KEPPO_TIMEOUT_MS: String(config.timeout_ms),
       },
       autostart: true,

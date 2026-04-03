@@ -47,6 +47,8 @@ const baseConfig = {
         "http://localhost:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "http://localhost:8787/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
+      session_artifact_url:
+        "http://localhost:8787/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
     },
   },
   timeout_ms: 120_000,
@@ -173,6 +175,9 @@ describe("DockerSandboxProvider", () => {
     );
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_LOG_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
+    );
+    expect(runCall?.args.join(" ")).toContain(
+      "KEPPO_SESSION_ARTIFACT_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
     );
     expect(fetchFn).toHaveBeenCalledWith(
       baseConfig.runtime.callbacks.log_url,

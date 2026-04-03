@@ -35,19 +35,22 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("builds the current Codex exec runner command shape", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_only",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'`,
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "byok",
+      credentialKind: "secret",
+      networkAccess: "mcp_only",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      `codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'`,
     );
+    expect(command).toContain('if [ -n "${KEPPO_SESSION_ARTIFACT_CALLBACK_URL:-}" ]; then');
+    expect(command).toContain("KEPPO_SESSION_ARTIFACT_CALLBACK_URL");
+    expect(command).toContain("relative_path");
   });
 
   it("wraps automation prompts with the record_outcome runtime contract", () => {
@@ -60,18 +63,18 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("leaves Codex network access at the default when the automation allows web access", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_and_web",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' 'Review open issues'`,
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "byok",
+      credentialKind: "secret",
+      networkAccess: "mcp_and_web",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      `codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' 'Review open issues'`,
     );
   });
 
@@ -108,18 +111,18 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("routes bundled OpenAI Codex runs through the custom HTTPS-only provider", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "bundled",
-        credentialKind: "secret",
-        networkAccess: "mcp_and_web",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "bundled",
+      credentialKind: "secret",
+      networkAccess: "mcp_and_web",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      `codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
     );
   });
 
@@ -176,8 +179,8 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         model: "gpt-5.2",
         prompt: "Review open issues",
       }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
+    ).toContain(
+      `codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
     );
 
     expect(

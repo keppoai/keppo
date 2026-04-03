@@ -120,6 +120,9 @@ const normalizeConfigForDocker = (config: SandboxConfig): SandboxConfig => {
       callbacks: {
         log_url: rewriteDockerReachableUrl(config.runtime.callbacks.log_url),
         complete_url: rewriteDockerReachableUrl(config.runtime.callbacks.complete_url),
+        session_artifact_url: rewriteDockerReachableUrl(
+          config.runtime.callbacks.session_artifact_url,
+        ),
       },
     },
   };
@@ -394,6 +397,7 @@ export class DockerSandboxProvider implements SandboxProvider {
       ...dockerConfig.runtime.env,
       KEPPO_LOG_CALLBACK_URL: dockerConfig.runtime.callbacks.log_url,
       KEPPO_COMPLETE_CALLBACK_URL: dockerConfig.runtime.callbacks.complete_url,
+      KEPPO_SESSION_ARTIFACT_CALLBACK_URL: dockerConfig.runtime.callbacks.session_artifact_url,
       KEPPO_TIMEOUT_MS: String(Math.max(1, dockerConfig.timeout_ms)),
     };
 

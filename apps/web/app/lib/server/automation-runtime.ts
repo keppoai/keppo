@@ -41,6 +41,7 @@ import {
   parseDispatchPayload,
   parseTerminatePayload,
   parseLogPayload,
+  parseSessionArtifactPayload,
   preflightMcpServer,
   resolveAutomationCallbackBaseUrl,
   resolveAutomationMcpServerUrl,
@@ -70,6 +71,7 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   | "getAutomationRunDispatchContext"
   | "getOrgAiKey"
   | "issueAutomationWorkspaceCredential"
+  | "storeAutomationRunSessionTrace"
   | "updateAutomationRunStatus"
   | "upsertOpenAiOauthKey"
 >;
@@ -532,18 +534,6 @@ export const handleInternalAutomationDispatchRequest = async (
 
     const timeoutMs = Math.max(60_000, deps.getEnv().KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS);
     const expiresMs = Date.now() + timeoutMs + 5 * 60_000;
-    const logCallbackUrl = new URL("/internal/automations/log", `${callbackBaseUrl}/`);
-    logCallbackUrl.searchParams.set("automation_run_id", context.run.id);
-    logCallbackUrl.searchParams.set("expires", String(expiresMs));
-    logCallbackUrl.searchParams.set(
-      "signature",
-      new URL("/internal/automations/log", `${callbackBaseUrl}/`).searchParams.get("signature") ??
-        "",
-    );
-    const completeCallbackUrl = new URL("/internal/automations/complete", `${callbackBaseUrl}/`);
-    completeCallbackUrl.searchParams.set("automation_run_id", context.run.id);
-    completeCallbackUrl.searchParams.set("expires", String(expiresMs));
-
     const createSignedUrl = (pathname: string): string => {
       const url = new URL(pathname, `${callbackBaseUrl}/`);
       url.searchParams.set("automation_run_id", context.run.id);
@@ -651,6 +641,7 @@ export const handleInternalAutomationDispatchRequest = async (
     const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)();
 
     const runtimeEnv: Record<string, string> = {
+      KEPPO_AUTOMATION_RUN_ID: context.run.id,
       KEPPO_MCP_SESSION_ID: mcpSessionId,
       KEPPO_MCP_SERVER_URL: mcpServerUrl,
       KEPPO_MCP_BEARER_TOKEN: mcpBearerToken,
@@ -714,6 +705,7 @@ export const handleInternalAutomationDispatchRequest = async (
         callbacks: {
           log_url: createSignedUrl("/internal/automations/log"),
           complete_url: createSignedUrl("/internal/automations/complete"),
+          session_artifact_url: createSignedUrl("/internal/automations/session-artifact"),
         },
       },
       timeout_ms: timeoutMs,
@@ -820,6 +812,44 @@ export const handleInternalAutomationLogRequest = async (
   });
 };
 
+export const handleInternalAutomationSessionArtifactRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  let payload: ReturnType<typeof parseSessionArtifactPayload>;
+  try {
+    payload = await parseRequestPayload(request, deps, parseSessionArtifactPayload);
+  } catch (error) {
+    const invalidPayload = mapInvalidPayloadError(error);
+    if (invalidPayload) {
+      return jsonResponse(request, invalidPayload, 400);
+    }
+    throw error;
+  }
+
+  if (!hasValidAutomationCallbackSignature(request, payload.automation_run_id)) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.invalidSignature,
+      },
+      401,
+    );
+  }
+
+  const stored = await deps.convex.storeAutomationRunSessionTrace({
+    automationRunId: payload.automation_run_id,
+    relativePath: payload.relative_path,
+    contentBase64: payload.content_base64,
+  });
+
+  return jsonResponse(request, {
+    ok: true,
+    stored: stored.stored,
+  });
+};
+
 export const handleInternalAutomationCompleteRequest = async (
   request: Request,
   deps = getDefaultDeps(),
@@ -893,6 +923,9 @@ export const dispatchStartOwnedAutomationRuntimeRequest = async (
   }
   if (request.method === "POST" && pathname === "/internal/automations/log") {
     return await handleInternalAutomationLogRequest(request, deps ?? getDefaultDeps());
+  }
+  if (request.method === "POST" && pathname === "/internal/automations/session-artifact") {
+    return await handleInternalAutomationSessionArtifactRequest(request, deps ?? getDefaultDeps());
   }
   if (request.method === "POST" && pathname === "/internal/automations/complete") {
     return await handleInternalAutomationCompleteRequest(request, deps ?? getDefaultDeps());

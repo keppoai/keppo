@@ -547,6 +547,8 @@ export const seedAutomationCascadeFixture = mutation({
       error_message: null,
       sandbox_id: null,
       log_storage_id: null,
+      session_trace_storage_id: null,
+      session_trace_relative_path: null,
       created_at: seeded.createdAt,
       workspace_id: seeded.workspaceId,
       mcp_session_id: null,

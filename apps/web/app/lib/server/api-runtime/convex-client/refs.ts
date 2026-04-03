@@ -1,4 +1,4 @@
-import type { FunctionReference } from "convex/server";
+import { makeFunctionReference, type FunctionReference } from "convex/server";
 import { api, internal } from "../../../../../../../convex/_generated/api";
 import type { ApiDedupeScope, ApiDedupeStatus, ClientType } from "@keppo/shared/domain";
 
@@ -89,6 +89,9 @@ export const refs = {
   updateAutomationRunStatus: adminRef(internal.automation_runs.updateAutomationRunStatus),
   appendAutomationRunLog: adminRef(internal.automation_runs.appendAutomationRunLog),
   appendAutomationRunLogBatch: adminRef(internal.automation_runs.appendAutomationRunLogBatch),
+  storeAutomationRunSessionTrace: adminRef(
+    makeFunctionReference<"action">("automation_runs:storeAutomationRunSessionTrace"),
+  ),
   getOrgAiKey: adminRef(internal.org_ai_keys.getOrgAiKey),
   upsertOpenAiOauthKey: adminRef(internal.org_ai_keys.upsertOpenAiOauthKey),
   upsertBundledOrgAiKey: adminRef(internal.org_ai_keys.upsertBundledOrgAiKey),

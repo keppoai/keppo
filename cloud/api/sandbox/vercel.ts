@@ -432,6 +432,7 @@ export class VercelSandboxProvider implements SandboxProvider {
       KEPPO_TIMEOUT_MS: String(config.timeout_ms),
       KEPPO_LOG_CALLBACK_URL: config.runtime.callbacks.log_url,
       KEPPO_COMPLETE_CALLBACK_URL: config.runtime.callbacks.complete_url,
+      KEPPO_SESSION_ARTIFACT_CALLBACK_URL: config.runtime.callbacks.session_artifact_url,
       KEPPO_AUTOMATION_RUN_ID: runId,
       ...(config.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET
         ? { VERCEL_AUTOMATION_BYPASS_SECRET: config.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET }

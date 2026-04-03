@@ -253,6 +253,9 @@ const deleteAutomationRun = async (
   if (run.log_storage_id) {
     await ctx.storage.delete(run.log_storage_id);
   }
+  if (run.session_trace_storage_id) {
+    await ctx.storage.delete(run.session_trace_storage_id);
+  }
 
   await ctx.db.delete(run._id);
 };

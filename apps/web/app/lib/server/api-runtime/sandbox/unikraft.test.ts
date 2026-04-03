@@ -21,6 +21,8 @@ const baseConfig = {
         "https://api.keppo.ai/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "https://api.keppo.ai/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
+      session_artifact_url:
+        "https://api.keppo.ai/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
     },
   },
   timeout_ms: 50,
@@ -92,6 +94,7 @@ describe("UnikraftSandboxProvider", () => {
           KEPPO_RUNNER_COMMAND: "true && export HOME=/sandbox/home && codex exec 'hello'",
           KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
           KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
+          KEPPO_SESSION_ARTIFACT_CALLBACK_URL: baseConfig.runtime.callbacks.session_artifact_url,
           KEPPO_TIMEOUT_MS: "50",
         }),
       }),

@@ -13,6 +13,9 @@ const refs = {
   recordAutomationRunOutcome: makeFunctionReference<"mutation">(
     "automation_runs:recordAutomationRunOutcome",
   ),
+  storeAutomationRunSessionTrace: makeFunctionReference<"action">(
+    "automation_runs:storeAutomationRunSessionTrace",
+  ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
   ),
@@ -77,6 +80,56 @@ describe("convex automation lifecycle functions", () => {
         summary: "Second attempt",
       }),
     ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
+  });
+
+  it("stores a private codex session trace once and records a system log", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_session_trace";
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const createdRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+
+    const firstStore = await t.action(refs.storeAutomationRunSessionTrace, {
+      automation_run_id: createdRun.id,
+      relative_path: "sessions/2026/04/03/rollout-test.jsonl",
+      content_base64: Buffer.from('{"type":"thread.started"}\n', "utf8").toString("base64"),
+    });
+    const secondStore = await t.action(refs.storeAutomationRunSessionTrace, {
+      automation_run_id: createdRun.id,
+      relative_path: "sessions/2026/04/03/rollout-second.jsonl",
+      content_base64: Buffer.from('{"type":"turn.completed"}\n', "utf8").toString("base64"),
+    });
+
+    expect(firstStore).toEqual({ stored: true });
+    expect(secondStore).toEqual({ stored: false });
+
+    const storedState = await t.run(async (ctx) => {
+      const run = await ctx.db
+        .query("automation_runs")
+        .withIndex("by_custom_id", (q) => q.eq("id", createdRun.id))
+        .unique();
+      const logs = await ctx.db
+        .query("automation_run_logs")
+        .withIndex("by_run_seq", (q) => q.eq("automation_run_id", createdRun.id))
+        .collect();
+      return {
+        run,
+        logs,
+      };
+    });
+
+    expect(storedState.run?.session_trace_relative_path).toBe(
+      "sessions/2026/04/03/rollout-test.jsonl",
+    );
+    expect(storedState.run?.session_trace_storage_id).toBeTruthy();
+    expect(
+      storedState.logs.filter((line) =>
+        line.content.includes("Stored Codex session trace artifact"),
+      ),
+    ).toHaveLength(1);
   });
 
   it("replaces a fallback outcome when the agent records the real final result later", async () => {

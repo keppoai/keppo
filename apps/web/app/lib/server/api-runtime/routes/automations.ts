@@ -559,7 +559,8 @@ export const buildRunnerCommand = (params: {
   const customOpenAiProviderArgs = shouldUseCodexCustomOpenAiProvider(params)
     ? ` --config 'model_provider="${CODEX_CUSTOM_OPENAI_PROVIDER_ID}"'`
     : "";
-  return `codex exec --skip-git-repo-check${automationApprovalBypassFlag}${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
+  const codexCommand = `codex exec --json --skip-git-repo-check${automationApprovalBypassFlag}${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
+  return `${codexCommand}; ${buildCodexSessionArtifactUploadCommand()}`;
 };
 
 export const buildAutomationRunnerPrompt = (prompt: string): string => {
@@ -585,6 +586,73 @@ const resolveCodexHomeDir = (providerMode: AutomationSandboxProviderMode): strin
 };
 
 const CODEX_CUSTOM_OPENAI_PROVIDER_ID = "keppo_openai_api";
+
+const buildCodexSessionArtifactUploadScript = (): string => {
+  return [
+    'const fs = require("node:fs");',
+    'const path = require("node:path");',
+    'const callbackUrl = process.env.KEPPO_SESSION_ARTIFACT_CALLBACK_URL ?? "";',
+    'const runId = process.env.KEPPO_AUTOMATION_RUN_ID ?? "";',
+    'const homeDir = process.env.HOME ?? "";',
+    'const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";',
+    "const MAX_BYTES = 5 * 1024 * 1024;",
+    'const sessionsDir = path.join(homeDir, ".codex", "sessions");',
+    "",
+    "const walkSessionFiles = (dir, files = []) => {",
+    "  if (!dir || !fs.existsSync(dir)) {",
+    "    return files;",
+    "  }",
+    "  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {",
+    "    const fullPath = path.join(dir, entry.name);",
+    "    if (entry.isDirectory()) {",
+    "      walkSessionFiles(fullPath, files);",
+    "    } else if (entry.isFile() && /\\.(json|jsonl)$/u.test(entry.name)) {",
+    "      files.push(fullPath);",
+    "    }",
+    "  }",
+    "  return files;",
+    "};",
+    "",
+    "(async () => {",
+    "  if (!callbackUrl || !runId || !homeDir) {",
+    "    return;",
+    "  }",
+    "  const sessionPath = walkSessionFiles(sessionsDir)",
+    "    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];",
+    "  if (!sessionPath) {",
+    "    return;",
+    "  }",
+    "  const stat = fs.statSync(sessionPath);",
+    "  if (!Number.isFinite(stat.size) || stat.size <= 0 || stat.size > MAX_BYTES) {",
+    "    return;",
+    "  }",
+    '  const relativePath = path.posix.join("sessions", ...path.relative(sessionsDir, sessionPath).split(path.sep));',
+    '  const contentBase64 = fs.readFileSync(sessionPath).toString("base64");',
+    "  await fetch(callbackUrl, {",
+    '    method: "POST",',
+    "    headers: {",
+    '      "content-type": "application/json",',
+    '      ...(bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {}),',
+    "    },",
+    "    body: JSON.stringify({",
+    "      automation_run_id: runId,",
+    "      relative_path: relativePath,",
+    "      content_base64: contentBase64,",
+    "    }),",
+    "  });",
+    "})().catch(() => {});",
+  ].join("\n");
+};
+
+const buildCodexSessionArtifactUploadCommand = (): string => {
+  return [
+    "runner_exit=$?",
+    'if [ -n "${KEPPO_SESSION_ARTIFACT_CALLBACK_URL:-}" ]; then',
+    `  node -e ${shellQuote(buildCodexSessionArtifactUploadScript())} || true`,
+    "fi",
+    "exit $runner_exit",
+  ].join("; ");
+};
 
 const shouldUseCodexCustomOpenAiProvider = (params: {
   aiModelProvider?: AiModelProvider;
@@ -809,7 +877,195 @@ const parseJsonLikeContent = (content: string): unknown | undefined => {
 
 const normalizeConfigKey = (value: string): string => value.trim().toLowerCase();
 
+const truncateStructuredText = (value: string, maxLength = 4_000): string => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 1))}...`;
+};
+
+const asStructuredJson = (value: unknown, maxLength = 4_000): unknown | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  try {
+    const serialized = JSON.stringify(value);
+    if (!serialized || serialized.length > maxLength) {
+      return undefined;
+    }
+    return value;
+  } catch {
+    return undefined;
+  }
+};
+
+const classifyCodexJsonLine = (
+  level: AutomationRunLogLevel,
+  content: string,
+): ClassifiedEvent | null => {
+  if (level === "system") {
+    return null;
+  }
+
+  const parsed = tryParseJsonValue(content.trim());
+  if (!isJsonRecord(parsed)) {
+    return null;
+  }
+
+  const eventType = asNullableString(parsed.type);
+  if (!eventType) {
+    return null;
+  }
+
+  const item = isJsonRecord(parsed.item) ? parsed.item : null;
+  const itemType = asNullableString(item?.type);
+
+  if (eventType === "thread.started") {
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.system,
+      event_data: {
+        message: "Codex thread started.",
+        source: "codex_json",
+        ...(typeof parsed.thread_id === "string"
+          ? { thread_id: truncateStructuredText(parsed.thread_id, 256) }
+          : {}),
+      },
+    };
+  }
+
+  if (eventType === "turn.started") {
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.system,
+      event_data: {
+        message: "Codex turn started.",
+        source: "codex_json",
+      },
+    };
+  }
+
+  if (eventType === "turn.completed") {
+    const usage = isJsonRecord(parsed.usage)
+      ? {
+          ...(typeof parsed.usage.input_tokens === "number"
+            ? { input_tokens: parsed.usage.input_tokens }
+            : {}),
+          ...(typeof parsed.usage.cached_input_tokens === "number"
+            ? { cached_input_tokens: parsed.usage.cached_input_tokens }
+            : {}),
+          ...(typeof parsed.usage.output_tokens === "number"
+            ? { output_tokens: parsed.usage.output_tokens }
+            : {}),
+        }
+      : undefined;
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.system,
+      event_data: {
+        message: "Codex turn completed.",
+        source: "codex_json",
+        ...(usage ? { usage } : {}),
+      },
+    };
+  }
+
+  if (itemType === "reasoning" && eventType === "item.completed") {
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.thinking,
+      event_data: {
+        text: truncateStructuredText(asNullableString(item?.text) ?? content),
+        source: "codex_json",
+      },
+    };
+  }
+
+  if (itemType === "command_execution") {
+    const command = asNullableString(item?.command);
+    if (eventType === "item.started") {
+      return {
+        event_type: AUTOMATION_RUN_EVENT_TYPE.toolCall,
+        event_data: {
+          tool_name: "command_execution",
+          ...(command
+            ? {
+                args: {
+                  command: truncateStructuredText(command, 1_024),
+                },
+              }
+            : {}),
+          source: "codex_json",
+        },
+      };
+    }
+
+    if (eventType === "item.completed") {
+      const aggregatedOutput = asNullableString(item?.aggregated_output);
+      const parsedOutput =
+        aggregatedOutput !== null
+          ? asStructuredJson(parseJsonLikeContent(aggregatedOutput))
+          : undefined;
+      const exitCode = typeof item?.exit_code === "number" ? item.exit_code : undefined;
+      const status = item?.status === "completed" && exitCode === 0 ? "success" : "error";
+      return {
+        event_type: AUTOMATION_RUN_EVENT_TYPE.toolCall,
+        event_data: {
+          tool_name: "command_execution",
+          status,
+          is_result: true,
+          ...(command
+            ? {
+                args: {
+                  command: truncateStructuredText(command, 1_024),
+                },
+              }
+            : {}),
+          ...(aggregatedOutput
+            ? {
+                result_text: truncateStructuredText(aggregatedOutput),
+              }
+            : {}),
+          ...(parsedOutput !== undefined ? { result: parsedOutput } : {}),
+          ...(exitCode !== undefined ? { exit_code: exitCode } : {}),
+          source: "codex_json",
+        },
+      };
+    }
+  }
+
+  if (itemType === "agent_message" && eventType === "item.completed") {
+    const text = asNullableString(item?.text) ?? content;
+    const parsedOutput = asStructuredJson(parseJsonLikeContent(text));
+    return {
+      event_type: AUTOMATION_RUN_EVENT_TYPE.output,
+      event_data: {
+        text: truncateStructuredText(text),
+        format: parsedOutput !== undefined ? "json" : "text",
+        ...(parsedOutput !== undefined ? { parsed: parsedOutput } : {}),
+        source: "codex_json",
+      },
+    };
+  }
+
+  const codexMessage =
+    itemType && (eventType === "item.started" || eventType === "item.completed")
+      ? `Codex ${itemType} ${eventType === "item.started" ? "started" : "completed"}.`
+      : `Codex event: ${eventType}.`;
+
+  return {
+    event_type: AUTOMATION_RUN_EVENT_TYPE.system,
+    event_data: {
+      message: codexMessage,
+      source: "codex_json",
+      codex_event_type: eventType,
+      ...(itemType ? { item_type: itemType } : {}),
+    },
+  };
+};
+
 const classifyLogLine = (level: AutomationRunLogLevel, content: string): ClassifiedEvent | null => {
+  const codexJsonEvent = classifyCodexJsonLine(level, content);
+  if (codexJsonEvent) {
+    return codexJsonEvent;
+  }
+
   if (level === "system") {
     return { event_type: AUTOMATION_RUN_EVENT_TYPE.system, event_data: { message: content } };
   }
@@ -984,6 +1240,49 @@ export const parseLogPayload = (
         };
       })
       .filter((row): row is ParsedLogLine => Boolean(row)),
+  };
+};
+
+const isValidSessionArtifactRelativePath = (value: string): boolean => {
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (!normalized.startsWith("sessions/")) {
+    return false;
+  }
+  const segments = normalized.split("/");
+  if (segments.length < 2) {
+    return false;
+  }
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    return false;
+  }
+  return /\.(json|jsonl)$/u.test(normalized);
+};
+
+export const parseSessionArtifactPayload = (
+  value: unknown,
+): {
+  automation_run_id: string;
+  relative_path: string;
+  content_base64: string;
+} => {
+  const body = value as Record<string, unknown>;
+  const automationRunId = parseAutomationRunId(value);
+  const relativePath =
+    typeof body.relative_path === "string" ? body.relative_path.trim().replace(/\\/g, "/") : "";
+  if (!isValidSessionArtifactRelativePath(relativePath)) {
+    throw createAutomationRouteError(
+      "invalid_payload",
+      "relative_path must be a sessions/*.json or sessions/*.jsonl path",
+    );
+  }
+  const contentBase64 = typeof body.content_base64 === "string" ? body.content_base64.trim() : "";
+  if (contentBase64.length === 0) {
+    throw createAutomationRouteError("invalid_payload", "content_base64 is required");
+  }
+  return {
+    automation_run_id: automationRunId,
+    relative_path: relativePath,
+    content_base64: contentBase64,
   };
 };
 

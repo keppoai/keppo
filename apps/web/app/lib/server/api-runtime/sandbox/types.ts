@@ -10,6 +10,7 @@ export interface SandboxStageConfig {
 export interface SandboxRuntimeCallbacks {
   log_url: string;
   complete_url: string;
+  session_artifact_url: string;
 }
 
 export interface SandboxConfig {

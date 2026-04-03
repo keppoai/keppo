@@ -18,6 +18,8 @@ const baseConfig = {
         "https://api.keppo.ai/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "https://api.keppo.ai/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
+      session_artifact_url:
+        "https://api.keppo.ai/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
     },
   },
   timeout_ms: 120_000,
@@ -95,6 +97,7 @@ describe("VercelSandboxProvider", () => {
           KEPPO_RUNNER_BOOTSTRAP_COMMAND: baseConfig.runtime.bootstrap_command,
           KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
           KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
+          KEPPO_SESSION_ARTIFACT_CALLBACK_URL: baseConfig.runtime.callbacks.session_artifact_url,
         }),
       }),
     );
@@ -150,6 +153,7 @@ describe("VercelSandboxProvider", () => {
     expect(createArg?.env).not.toHaveProperty("KEPPO_MCP_BEARER_TOKEN");
     expect(createArg?.env).not.toHaveProperty("KEPPO_LOG_CALLBACK_URL");
     expect(createArg?.env).not.toHaveProperty("KEPPO_COMPLETE_CALLBACK_URL");
+    expect(createArg?.env).not.toHaveProperty("KEPPO_SESSION_ARTIFACT_CALLBACK_URL");
   });
 
   it("allowlists the configured OpenAI base URL host for mcp_only runs", async () => {

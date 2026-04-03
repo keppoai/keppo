@@ -85,6 +85,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - `POST /internal/automations/dispatch`
   - `POST /internal/automations/terminate`
   - `POST /internal/automations/log`
+  - `POST /internal/automations/session-artifact`
   - `POST /internal/automations/complete`
 - `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the targeted `automation_run_id`; the runtime must reject requests that cannot claim that short-lived per-run token before decrypting org-scoped AI credentials, claims become invalid once the run leaves `pending`, and scheduler retries must reuse the exact recent in-flight token for a pending run rather than replacing or recomputing it. If a reused claim later returns `404 run_not_found`, the scheduler must retry with a fresh claim instead of leaving the run pending indefinitely.
 - Sandbox provider interface is environment-switched (`docker` for local, `vercel` or `unikraft` for production-tier deployments) with contract:
@@ -128,7 +129,9 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - wrap the saved automation prompt with runtime-owned instructions that require a final `record_outcome({ success, summary })` tool call exactly once and define approval-waiting as `success=true` when the requested work is otherwise complete.
 - Callback/log contract:
   - log/complete callback URLs are HMAC-signed and include run-scoped expiry metadata.
-  - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`.
+  - ChatGPT Codex automation runs invoke `codex exec --json` so live sandbox stdout is a structured JSONL event stream rather than only human-oriented stderr text.
+  - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`; Codex `--json` records are classified into the existing structured event types (`system`, `thinking`, `tool_call`, `output`, `error`) before persistence.
+  - `/internal/automations/session-artifact` accepts a signed upload of the newest Codex session file from `$HOME/.codex/sessions/**/*.json|jsonl`, stores it in private Convex storage, and records only metadata plus a short system log line in the run timeline.
   - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`, retries transient persistence failures with exponential backoff before surfacing a typed `complete_failed` response, and logs the failed terminal write with the run id and intended terminal status when retries are exhausted.
   - automation-backed MCP sessions expose one additional internal tool, `record_outcome`, which is unavailable to normal MCP clients and records a single final outcome on the owning automation run.
   - `record_outcome` writes are exactly-once at the run level: the first valid call wins, duplicate calls fail, and terminal lifecycle updates synthesize a fallback outcome that matches the final terminal status when no valid outcome was recorded before the run ended. If a run later finishes in a failure state after an earlier success outcome was recorded, the terminal failure replaces that stale success with a fallback failure outcome.
