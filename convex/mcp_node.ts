@@ -39,7 +39,6 @@ const refs = {
   getToolCall: internal.mcp.getToolCall,
   createAuditEvent: internal.mcp.createAuditEvent,
   markIntegrationHealth: internal.integrations.markIntegrationHealth,
-  updateIntegrationCredential: internal.mcp.updateIntegrationCredential,
   markCredentialRefreshResult: internal.integrations.markCredentialRefreshResult,
   getOrgBillingForWorkspace: internal.billing.getOrgBillingForWorkspace,
   beginToolCall: internal.billing.beginToolCall,
@@ -63,11 +62,6 @@ const refreshConnectorContextAccessToken = createRefreshConnectorContextAccessTo
   markCredentialRefreshResult: async (ctx, args) => {
     await safeRunMutation("mcp_node.markCredentialRefreshResult", () =>
       ctx.runMutation(refs.markCredentialRefreshResult, args),
-    );
-  },
-  updateIntegrationCredential: async (ctx, args) => {
-    await safeRunMutation("mcp_node.updateIntegrationCredential", () =>
-      ctx.runMutation(refs.updateIntegrationCredential, args),
     );
   },
 });

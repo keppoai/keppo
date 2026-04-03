@@ -31,7 +31,6 @@ const refs = {
     "integrations:updateProviderTriggerIntegrationState",
   ),
   ingestProviderEvent: makeFunctionReference<"mutation">("automation_triggers:ingestProviderEvent"),
-  updateIntegrationCredential: makeFunctionReference<"mutation">("mcp:updateIntegrationCredential"),
   markCredentialRefreshResult: makeFunctionReference<"mutation">(
     "integrations:markCredentialRefreshResult",
   ),
@@ -78,9 +77,6 @@ type ProviderTriggerIntegrationContext = {
 const refreshConnectorContextAccessToken = createRefreshConnectorContextAccessToken({
   markCredentialRefreshResult: async (ctx, args) => {
     await ctx.runMutation(refs.markCredentialRefreshResult, args);
-  },
-  updateIntegrationCredential: async (ctx, args) => {
-    await ctx.runMutation(refs.updateIntegrationCredential, args);
   },
 });
 
