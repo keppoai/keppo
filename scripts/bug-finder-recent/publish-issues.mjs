@@ -161,7 +161,11 @@ const readDedupMarker = (issueBody) => {
 };
 
 export const isRepositoryIssue = (issue) =>
-  Boolean(issue) && typeof issue === "object" && !("pull_request" in issue);
+  Boolean(issue) &&
+  typeof issue === "object" &&
+  typeof issue.number === "number" &&
+  typeof issue.state === "string" &&
+  !("pull_request" in issue);
 
 export const parseFindingMarkdown = (raw, filePath) => {
   const titleMatch = raw.match(/^#\s+(.+)$/m);
@@ -253,7 +257,7 @@ export const loadFindings = async (dirPath) => {
   return { findings, malformed };
 };
 
-const ensureLabel = async ({ apiBaseUrl, repo, token, label, description }) => {
+export const ensureLabel = async ({ apiBaseUrl, repo, token, label, description }) => {
   const response = await fetch(`${apiBaseUrl}/repos/${repo}/labels/${encodeURIComponent(label)}`, {
     headers: {
       Authorization: `Bearer ${token}`,
@@ -287,6 +291,9 @@ const ensureLabel = async ({ apiBaseUrl, repo, token, label, description }) => {
   });
 
   if (!createResponse.ok) {
+    if (createResponse.status === 422) {
+      return;
+    }
     const body = await readResponseBody(createResponse);
     throw new Error(`Failed to create label "${label}": ${createResponse.status} ${body}`);
   }

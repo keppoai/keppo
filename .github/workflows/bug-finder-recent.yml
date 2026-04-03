@@ -40,7 +40,7 @@ jobs:
       LOG_MARKER_PATH: tmp/bug-finder-recent/session-log-marker
       SESSION_LOG_COMMENT_PATH: tmp/bug-finder-recent/session-log-comment.md
       FINDINGS_DIR: out-bug-finder/findings
-      SKILL_PATH: .agents/skills/bug-finder-recent/SKILL.md
+      SKILL_PATH: .workflow-base/.agents/skills/bug-finder-recent/SKILL.md
       WORKFLOW_BASE_PATH: .workflow-base
     steps:
       - name: Checkout repository

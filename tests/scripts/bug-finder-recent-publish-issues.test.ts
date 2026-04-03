@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDedupMarker,
   createRepositoryIssue,
+  ensureLabel,
   isRepositoryIssue,
   parseFindingMarkdown,
   sanitizeMentions,
@@ -124,10 +125,41 @@ describe("scripts/bug-finder-recent/publish-issues.mjs", () => {
   it("filters pull requests and invalid payloads out of repository issue lists", () => {
     expect(isRepositoryIssue(null)).toBe(false);
     expect(isRepositoryIssue("not-an-issue")).toBe(false);
-    expect(isRepositoryIssue({ number: 12, title: "Issue" })).toBe(true);
+    expect(isRepositoryIssue({ number: 12, title: "Issue" })).toBe(false);
+    expect(isRepositoryIssue({ number: 12, state: "open", title: "Issue" })).toBe(true);
+    expect(isRepositoryIssue({ state: "open", title: "Issue" })).toBe(false);
+    expect(isRepositoryIssue([])).toBe(false);
     expect(isRepositoryIssue({ number: 99, pull_request: { url: "https://example.test" } })).toBe(
       false,
     );
+  });
+
+  it("treats concurrent bugfinder label creation as success", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 404,
+        text: async () => "Not Found",
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 422,
+        text: async () => JSON.stringify({ message: "Validation Failed" }),
+      });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ensureLabel({
+        apiBaseUrl: "https://api.github.test",
+        repo: "keppoai/keppo",
+        token: "token",
+        label: "bugfinder",
+        description: "Bug found by the nightly bug-finder:recent workflow",
+      }),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("sanitizes raw mention text consistently", () => {

@@ -21,21 +21,14 @@ if npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   Glob \
   Grep \
   LS \
-  "Bash(cat:*)" \
-  "Bash(find:*)" \
   "Bash(git diff:*)" \
   "Bash(git log:*)" \
   "Bash(git rev-list:*)" \
   "Bash(git show:*)" \
   "Bash(git status:*)" \
-  "Bash(head:*)" \
-  "Bash(ls:*)" \
-  "Bash(node .agents/skills/bug-finder-recent/scripts/select_recent_files.mjs:*)" \
+  "Bash(node .workflow-base/.agents/skills/bug-finder-recent/scripts/select_recent_files.mjs:*)" \
   "Bash(pwd:*)" \
   "Bash(rg:*)" \
-  "Bash(sort:*)" \
-  "Bash(tail:*)" \
-  "Bash(wc:*)" \
   --model claude-opus-4-6 \
   --effort max \
   -p "$prompt" >"${log_file}" 2>&1; then
