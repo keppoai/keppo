@@ -423,7 +423,7 @@ export const handleProviderWebhookRequest = async (
         });
         const matchedOrgIds = result.matched_org_ids ?? [];
         if (matchedOrgIds.length > 0) {
-          void Promise.all(
+          await Promise.all(
             matchedOrgIds.map(async (orgId) =>
               deps.convex.ingestProviderEvent({
                 orgId,
@@ -441,6 +441,7 @@ export const handleProviderWebhookRequest = async (
               event_id: event.deliveryId,
               error: error instanceof Error ? error.message : String(error),
             });
+            throw error;
           });
         }
         deps.logger.info("webhook.process.succeeded", {

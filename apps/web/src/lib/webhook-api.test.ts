@@ -251,6 +251,44 @@ describe("start-owned webhook api handlers", () => {
     expect(deps.convex.ingestProviderEvent).not.toHaveBeenCalled();
   });
 
+  it("returns 500 and releases the idempotency claim when ingestion fails", async () => {
+    const deps = createDeps();
+    deps.convex.ingestProviderEvent.mockRejectedValueOnce(new Error("convex unavailable"));
+
+    const response = await handleProviderWebhookRequest(
+      withWebhook(
+        "stripe",
+        {
+          id: "evt_ingest_failure",
+          type: "invoice.payment_succeeded",
+          account: "acct_test",
+        },
+        {
+          "stripe-signature": "t=1,v1=test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "webhook_processing_failed",
+        provider: "stripe",
+      },
+    });
+    expect(deps.logger.error).toHaveBeenCalledWith("webhook.trigger_queue.failed", {
+      provider: "stripe",
+      event_id: "evt_webhook_test",
+      error: "convex unavailable",
+    });
+    expect(deps.convex.completeApiDedupeKey).not.toHaveBeenCalled();
+    expect(deps.convex.releaseApiDedupeKey).toHaveBeenCalledWith({
+      scope: "webhook_delivery",
+      dedupeKey: "stripe:evt_webhook_test",
+    });
+  });
+
   it("dispatches only matching Start-owned webhook routes", async () => {
     const deps = createDeps();
 
