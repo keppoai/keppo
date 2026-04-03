@@ -33,6 +33,7 @@ jobs:
       LOG_MARKER_PATH: tmp/pr-review-responder/session-log-marker
       SESSION_LOG_COMMENT_PATH: tmp/pr-review-responder/session-log-comment.md
       CODEX_HOME: tmp/pr-review-responder/codex-home
+      CHANGED_FILES_LIMIT: "200"
     steps:
       - name: Create GitHub App token for base repo
         id: base-app-token
@@ -248,6 +249,7 @@ jobs:
           CI_CONCLUSION: ${{ steps.pr-info.outputs.ci_conclusion }}
           OUTPUT_PATH: ${{ env.PR_CONTEXT_PATH }}
           SUMMARY_PATH: ${{ env.PR_CONTEXT_SUMMARY_PATH }}
+          CHANGED_FILES_LIMIT: ${{ env.CHANGED_FILES_LIMIT }}
         run: node "${WORKFLOW_BASE_PATH}/scripts/pr-review-responder/build-context.mjs"
 
       - name: Compute rebase instructions

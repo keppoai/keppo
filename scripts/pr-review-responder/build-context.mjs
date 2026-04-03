@@ -10,6 +10,7 @@ const ciConclusion = process.env.CI_CONCLUSION ?? "";
 const outputPath = process.env.OUTPUT_PATH;
 const summaryPath = process.env.SUMMARY_PATH;
 const githubOutputPath = process.env.GITHUB_OUTPUT;
+const changedFilesLimit = Number.parseInt(process.env.CHANGED_FILES_LIMIT ?? "200", 10);
 
 if (!token) throw new Error("GITHUB_TOKEN is required");
 if (!repository) throw new Error("GITHUB_REPOSITORY is required");
@@ -17,6 +18,9 @@ if (!Number.isFinite(prNumber)) throw new Error("PR_NUMBER is required");
 if (!outputPath) throw new Error("OUTPUT_PATH is required");
 if (!summaryPath) throw new Error("SUMMARY_PATH is required");
 if (!githubOutputPath) throw new Error("GITHUB_OUTPUT is required");
+if (!Number.isInteger(changedFilesLimit) || changedFilesLimit < 1) {
+  throw new Error("CHANGED_FILES_LIMIT must be a positive integer when set");
+}
 
 const [owner, repo] = repository.split("/");
 if (!owner || !repo) throw new Error(`Invalid GITHUB_REPOSITORY: ${repository}`);
@@ -35,6 +39,7 @@ const trustedAuthors = new Set([
 ]);
 
 const normalizeLogin = (login) => (login || "").replace(/\[bot\]$/i, "");
+const isE2ECheckName = (name) => /\be2e\b/i.test(name) || /playwright/i.test(name);
 
 const api = async (pathname) => {
   const response = await fetch(`https://api.github.com/${pathname}`, {
@@ -49,6 +54,37 @@ const api = async (pathname) => {
     throw new Error(`GitHub API ${pathname} failed: ${response.status} ${response.statusText}`);
   }
   return response.json();
+};
+
+const paginate = async (pathname, { maxPages = 10 } = {}) => {
+  const items = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const sep = pathname.includes("?") ? "&" : "?";
+    const response = await fetch(
+      `https://api.github.com/${pathname}${sep}per_page=100&page=${page}`,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "User-Agent": "keppo-pr-review-responder",
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      },
+    );
+    if (!response.ok) {
+      throw new Error(`GitHub API ${pathname} failed: ${response.status} ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    if (!Array.isArray(data) || data.length === 0) {
+      break;
+    }
+
+    items.push(...data);
+  }
+
+  return items;
 };
 
 const graphql = async (query, variables) => {
@@ -68,20 +104,37 @@ const graphql = async (query, variables) => {
 
   const json = await response.json();
   if (json.errors?.length) {
-    throw new Error(`GitHub GraphQL returned errors: ${json.errors.map((error) => error.message).join("; ")}`);
+    throw new Error(
+      `GitHub GraphQL returned errors: ${json.errors.map((error) => error.message).join("; ")}`,
+    );
   }
   return json.data;
 };
 
 const pr = await api(`repos/${owner}/${repo}/pulls/${prNumber}`);
 const headSha = pr.head?.sha ?? "";
-const [checks, reviews, issueComments] = await Promise.all([
+const maxChangedFilesPages = Math.max(1, Math.ceil(changedFilesLimit / 100));
+const [checks, reviews, issueComments, rawChangedFiles] = await Promise.all([
   headSha
     ? api(`repos/${owner}/${repo}/commits/${headSha}/check-runs?per_page=100`)
     : Promise.resolve({ check_runs: [] }),
   api(`repos/${owner}/${repo}/pulls/${prNumber}/reviews?per_page=100`),
   api(`repos/${owner}/${repo}/issues/${prNumber}/comments?per_page=100`),
+  paginate(`repos/${owner}/${repo}/pulls/${prNumber}/files`, {
+    maxPages: maxChangedFilesPages,
+  }),
 ]);
+
+const changedFiles = rawChangedFiles.slice(0, changedFilesLimit).map((file) => ({
+  filename: file.filename,
+  status: file.status,
+  previousFilename: file.previous_filename ?? null,
+}));
+const changedFilesTotal =
+  typeof pr.changed_files === "number" && pr.changed_files > 0
+    ? pr.changed_files
+    : changedFiles.length;
+const changedFilesTruncated = changedFiles.length < changedFilesTotal;
 
 const threadQuery = `
   query($owner: String!, $repo: String!, $pr: Int!, $after: String) {
@@ -184,7 +237,9 @@ const trustedReviews = (reviews ?? [])
 const trustedIssueComments = (issueComments ?? [])
   .filter((comment) => {
     const author = normalizeLogin(comment.user?.login);
-    return trustedAuthors.has(author) && typeof comment.body === "string" && comment.body.trim() !== "";
+    return (
+      trustedAuthors.has(author) && typeof comment.body === "string" && comment.body.trim() !== ""
+    );
   })
   .map((comment) => ({
     id: comment.id,
@@ -195,16 +250,22 @@ const trustedIssueComments = (issueComments ?? [])
   }));
 
 const failingChecks = (checks.check_runs ?? [])
-  .filter((check) => check.status !== "completed" || !["success", "neutral", "skipped"].includes(check.conclusion ?? ""))
+  .filter(
+    (check) =>
+      check.status !== "completed" ||
+      !["success", "neutral", "skipped"].includes(check.conclusion ?? ""),
+  )
   .map((check) => ({
     id: check.id,
     name: check.name,
+    isE2E: isE2ECheckName(check.name),
     status: check.status,
     conclusion: check.conclusion,
     detailsUrl: check.details_url,
     summary: check.output?.summary ?? "",
     text: check.output?.text ?? "",
   }));
+const failingE2EChecks = failingChecks.filter((check) => check.isE2E);
 
 const payload = {
   generatedAt: new Date().toISOString(),
@@ -219,11 +280,14 @@ const payload = {
     headSha,
     labels: (pr.labels ?? []).map((label) => label.name),
     ciConclusion,
+    changedFilesCount: changedFilesTotal,
+    changedFilesTruncated,
   },
   trustedThreads,
   trustedReviews,
   trustedIssueComments,
   untrustedCommentAuthors: [...untrustedCommentAuthors].sort(),
+  changedFiles,
   failingChecks,
 };
 
@@ -234,8 +298,22 @@ const lines = [
   `- URL: ${prUrl ?? pr.html_url}`,
   `- Author: ${normalizeLogin(pr.user?.login)}`,
   `- CI conclusion: ${ciConclusion || "unknown"}`,
-  `- Non-success checks: ${failingChecks.length}`,
+  `- Changed files in scope: ${changedFiles.length}${changedFilesTruncated ? ` of ${changedFilesTotal}` : ""}`,
+  `- Non-success checks: ${failingChecks.length}${failingE2EChecks.length > 0 ? ` (${failingE2EChecks.length} E2E)` : ""}`,
 ];
+
+if (changedFiles.length > 0) {
+  lines.push("", "## Changed Files", "");
+  for (const file of changedFiles) {
+    const renameSuffix = file.previousFilename ? ` (renamed from ${file.previousFilename})` : "";
+    lines.push(`- ${file.filename} [${file.status}]${renameSuffix}`);
+  }
+  if (changedFilesTruncated) {
+    lines.push(
+      `- ... ${changedFilesTotal - changedFiles.length} more file(s) omitted from this summary`,
+    );
+  }
+}
 
 // Build a unified chronological timeline of all trusted PR activity,
 // mirroring the order shown in the GitHub PR conversation UI.
@@ -279,7 +357,8 @@ if (timelineEntries.length > 0) {
 if (failingChecks.length > 0) {
   lines.push("", "## Non-Success Checks", "");
   for (const check of failingChecks) {
-    lines.push(`- ${check.name} [${check.status}/${check.conclusion ?? "pending"}]`);
+    const kind = check.isE2E ? "E2E" : "other";
+    lines.push(`- ${check.name} [${kind}] [${check.status}/${check.conclusion ?? "pending"}]`);
   }
 }
 

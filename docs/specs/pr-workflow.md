@@ -4,11 +4,11 @@ The **PR Watcher** (`pr-watcher.yml`) evaluates every open PR after reviews and 
 
 ## Terminal Labels
 
-| Label | Meaning |
-|---|---|
-| `pr=ready-to-merge` | All reviews pass, CI green, no unresolved threads. Ready for merge. |
-| `pr=needs-human-review` | Has issues requiring human judgment that an agent cannot resolve. |
-| `pr=max-auto-fix` | Exceeded 5 `/fix-pr` cycles without reaching a clean state. |
+| Label                   | Meaning                                                             |
+| ----------------------- | ------------------------------------------------------------------- |
+| `pr=ready-to-merge`     | All reviews pass, CI green, no unresolved threads. Ready for merge. |
+| `pr=needs-human-review` | Has issues requiring human judgment that an agent cannot resolve.   |
+| `pr=max-auto-fix`       | Exceeded 5 `/fix-pr` cycles without reaching a clean state.         |
 
 ## Architecture: Two-Pass Evaluation
 
@@ -26,11 +26,11 @@ The watcher uses a **two-pass** architecture:
 
 Both Claude and Codex reviews emit a structured `**Recommendation:**` line in their comments:
 
-| Value | Meaning |
-|---|---|
-| `ready` | No HIGH issues. PR is ready to merge. |
-| `auto-fix` | All HIGH issues are mechanical — an agent can fix them. |
-| `human-review` | At least one HIGH issue requires human judgment. |
+| Value          | Meaning                                                 |
+| -------------- | ------------------------------------------------------- |
+| `ready`        | No HIGH issues. PR is ready to merge.                   |
+| `auto-fix`     | All HIGH issues are mechanical — an agent can fix them. |
+| `human-review` | At least one HIGH issue requires human judgment.        |
 
 These are informational signals that Claude reads when making its decision. If missing (e.g. old prompt format), `validate-review.mjs` injects a `**Recommendation: human-review (default)**` fallback.
 
@@ -38,14 +38,14 @@ These are informational signals that Claude reads when making its decision. If m
 
 The evaluate script collects these signals into a context file for Claude:
 
-| Signal | Source |
-|---|---|
-| Claude review comment body | Comment with `<!-- pr-review:claude -->` marker, authored by keppo-bot |
-| Codex review comment body | Comment with `<!-- pr-review:codex -->` marker, authored by keppo-bot |
-| CI / E2E status | GraphQL `statusCheckRollup` for HEAD SHA |
-| Unresolved review threads | GraphQL `pullRequest.reviewThreads` (paginated, filtered: not resolved, not outdated) |
-| Fix-pr attempt count | Timeline API: count of historical `/fix-pr` label additions |
-| Fix-pr failure | `fix-pr:failed` label |
+| Signal                     | Source                                                                                |
+| -------------------------- | ------------------------------------------------------------------------------------- |
+| Claude review comment body | Comment with `<!-- pr-review:claude -->` marker, authored by keppo-bot                |
+| Codex review comment body  | Comment with `<!-- pr-review:codex -->` marker, authored by keppo-bot                 |
+| CI / E2E status            | GraphQL `statusCheckRollup` for HEAD SHA                                              |
+| Unresolved review threads  | GraphQL `pullRequest.reviewThreads` (paginated, filtered: not resolved, not outdated) |
+| Fix-pr attempt count       | Timeline API: count of historical `/fix-pr` label additions                           |
+| Fix-pr failure             | `fix-pr:failed` label                                                                 |
 
 ## State Machine
 
@@ -111,7 +111,7 @@ The evaluate script collects these signals into a context file for Claude:
 /fix-pr applied by pr-watcher
     |
     v
-fix-pr.yml runs agent --> pushes commit
+fix-pr.yml runs agent --> pushes commit for PR-related fixes
     |
     v
 synchronize event --> re-triggers PR Review + CI
@@ -129,21 +129,23 @@ pr-watcher re-evaluates with fresh signals
     +-- fix-pr:failed                         --> pr=needs-human-review
 ```
 
+Within a `/fix-pr` pass, non-E2E CI failures remain mandatory fixes. Failing E2E checks are investigated first and only auto-fixed when they are plausibly caused by the PR. If an E2E failure is clearly unrelated to the PR diff, the responder should leave code unchanged for that failure and call it out in the summary PR comment instead of forcing a speculative fix.
+
 When both mechanical and human-judgment issues exist, the watcher applies `/fix-pr` first. After the agent fixes the mechanical issues and a new review runs, only the human-judgment issues remain, and the next evaluation labels `pr=needs-human-review`.
 
 ## Decision Table
 
-| Claude Rec | Codex Rec | CI | Human Threads | Bot Threads | fix-pr count | Action |
-|---|---|---|---|---|---|---|
-| ready | ready | pass | 0 | 0 | any | `pr=ready-to-merge` |
-| ready | ready | pass | >0 | any | any | `pr=needs-human-review` |
-| ready | ready | fail | any | any | <5 | `/fix-pr` |
-| auto-fix | any | any | any | any | <5 | `/fix-pr` |
-| any | auto-fix | any | any | any | <5 | `/fix-pr` |
-| human-review | human-review | pass | any | 0 | any | `pr=needs-human-review` |
-| human-review | any | any | any | >0 | <5 | `/fix-pr` (fix bot issues first) |
-| any | any | any | any | any | >=5 | `pr=max-auto-fix` |
-| -- | -- | -- | -- | -- | failed | `pr=needs-human-review` |
+| Claude Rec   | Codex Rec    | CI   | Human Threads | Bot Threads | fix-pr count | Action                           |
+| ------------ | ------------ | ---- | ------------- | ----------- | ------------ | -------------------------------- |
+| ready        | ready        | pass | 0             | 0           | any          | `pr=ready-to-merge`              |
+| ready        | ready        | pass | >0            | any         | any          | `pr=needs-human-review`          |
+| ready        | ready        | fail | any           | any         | <5           | `/fix-pr`                        |
+| auto-fix     | any          | any  | any           | any         | <5           | `/fix-pr`                        |
+| any          | auto-fix     | any  | any           | any         | <5           | `/fix-pr`                        |
+| human-review | human-review | pass | any           | 0           | any          | `pr=needs-human-review`          |
+| human-review | any          | any  | any           | >0          | <5           | `/fix-pr` (fix bot issues first) |
+| any          | any          | any  | any           | any         | >=5          | `pr=max-auto-fix`                |
+| --           | --           | --   | --            | --          | failed       | `pr=needs-human-review`          |
 
 **Priority order:** `fix-pr:failed` > `count >= 5` > `any auto-fixable` > `human-review only` > `ready-to-merge`
 
@@ -165,11 +167,11 @@ The watcher skips evaluation when:
 
 ## Relationship to Other Workflows
 
-| Workflow | Role |
-|---|---|
-| `pr-review.yml` | Runs Claude + Codex reviews, posts comments with verdict + recommendation |
-| `ci-pr.yml` | Runs lint, typecheck, build, E2E tests |
-| `pr-watcher.yml` | Reads review comments + CI status, applies terminal labels or `/fix-pr` |
-| `fix-pr.yml` | Triggered by `/fix-pr` label, runs agent to fix issues, pushes commit |
-| `label-rebase-prs.yml` | Labels PRs with merge conflicts for rebase |
-| `codex-rebase.yml` | Triggered by `/sync-pr` label, rebases PR onto main |
+| Workflow               | Role                                                                                                                                                      |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pr-review.yml`        | Runs Claude + Codex reviews, posts comments with verdict + recommendation                                                                                 |
+| `ci-pr.yml`            | Runs lint, typecheck, build, E2E tests                                                                                                                    |
+| `pr-watcher.yml`       | Reads review comments + CI status, applies terminal labels or `/fix-pr`                                                                                   |
+| `fix-pr.yml`           | Triggered by `/fix-pr` label, runs agent to fix PR-related issues and notes clearly unrelated E2E failures in the summary comment instead of chasing them |
+| `label-rebase-prs.yml` | Labels PRs with merge conflicts for rebase                                                                                                                |
+| `codex-rebase.yml`     | Triggered by `/sync-pr` label, rebases PR onto main                                                                                                       |
