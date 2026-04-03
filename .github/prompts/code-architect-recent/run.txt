@@ -1,0 +1,14 @@
+Use `$code-architect:recent` at `{{SKILL_PATH}}` to review recent code changes for large architecture improvements that dramatically improve maintainability.
+
+Review the last 7 days of commits. Use `./out-code-architect` for all intermediate artifacts and write each confirmed finding as an individual markdown file in `{{FINDINGS_DIR}}/`.
+
+Requirements:
+- Focus only on real `high` or `critical` architecture improvements that materially reduce coupling, duplication, or structural complexity.
+- Do NOT emit small refactors, naming cleanups, style changes, or ordinary bug fixes.
+- Follow the skill's workflow and formatting requirements exactly.
+- Write one `.md` file per confirmed finding to `{{FINDINGS_DIR}}/`, using the naming convention `<short-slug>.md`.
+- Include the required stable `Dedup Key` frontmatter in each confirmed finding file.
+- If no qualifying improvements are confirmed, leave `{{FINDINGS_DIR}}/` empty.
+- Do not modify tracked repository files. Only write under `./out-code-architect`.
+
+The markdown files in `{{FINDINGS_DIR}}/` are the source of truth for the downstream issue-filing job.

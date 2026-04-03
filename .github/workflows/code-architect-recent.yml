@@ -1,0 +1,170 @@
+name: Nightly Code Architect Recent
+
+on:
+  schedule:
+    # GitHub Actions scheduled workflows run in UTC. 11:00 UTC lands at
+    # 4am PT during daylight saving time and 3am PT during standard time.
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+    inputs:
+      agent:
+        description: Agent to use for the architecture review
+        required: true
+        default: codex
+        type: choice
+        options:
+          - codex
+          - claude
+
+permissions: {}
+
+concurrency:
+  group: code-architect-recent
+  cancel-in-progress: false
+
+jobs:
+  review:
+    environment: ai-bots
+    # This is an expensive long-running job and it's safer
+    # to run it on a larger runner to avoid OOM issues.
+    runs-on: namespace-profile-linux-large
+    timeout-minutes: 180
+    permissions:
+      contents: read
+    env:
+      AGENT_KIND: ${{ inputs.agent || 'codex' }}
+      CLAUDE_CODE_VERSION: 2.1.89
+      CODEX_CLI_VERSION: 0.118.0
+      CODEX_HOME: tmp/code-architect-recent/codex-home
+      PROMPT_PATH: tmp/code-architect-recent/run-prompt.txt
+      LOG_MARKER_PATH: tmp/code-architect-recent/session-log-marker
+      SESSION_LOG_COMMENT_PATH: tmp/code-architect-recent/session-log-comment.md
+      FINDINGS_DIR: out-code-architect/findings
+      SKILL_PATH: .workflow-base/.agents/skills/code-architect-recent/SKILL.md
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Checkout trusted workflow assets
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Codex CLI
+        if: env.AGENT_KIND == 'codex'
+        run: npm install -g "@openai/codex@${CODEX_CLI_VERSION}"
+
+      - name: Write Codex auth file
+        if: env.AGENT_KIND == 'codex'
+        env:
+          CODEX_AUTH_JSON: ${{ secrets.CODEX_AUTH_JSON }}
+          CODEX_AUTH_JSON_1: ${{ secrets.CODEX_AUTH_JSON_1 }}
+          CODEX_AUTH_JSON_2: ${{ secrets.CODEX_AUTH_JSON_2 }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/write-codex-auth.sh"
+
+      - name: Reset private output directory
+        run: |
+          set -euo pipefail
+          rm -rf out-code-architect
+          mkdir -p out-code-architect
+          mkdir -p "${FINDINGS_DIR}"
+
+      - name: Record session log marker
+        run: |
+          set -euo pipefail
+          mkdir -p "$(dirname "${LOG_MARKER_PATH}")"
+          touch "${LOG_MARKER_PATH}"
+
+      - name: Render architecture review prompt
+        env:
+          TEMPLATE_PATH: ${{ env.WORKFLOW_BASE_PATH }}/.github/prompts/code-architect-recent/run.txt
+          OUTPUT_PATH: ${{ env.PROMPT_PATH }}
+          SKILL_PATH: ${{ env.SKILL_PATH }}
+          FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
+
+      - name: Run Codex architecture review
+        id: run-codex-code-architect
+        if: env.AGENT_KIND == 'codex'
+        timeout-minutes: 165
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/run-codex.sh"
+
+      - name: Run Claude architecture review
+        id: run-claude-code-architect
+        if: env.AGENT_KIND == 'claude'
+        timeout-minutes: 165
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+          CLAUDE_CODE_VERSION: ${{ env.CLAUDE_CODE_VERSION }}
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/code-architect-recent/run-claude.sh"
+
+      - name: Refresh trusted workflow assets
+        if: always()
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Upload session logs and findings
+        if: always()
+        continue-on-error: true
+        env:
+          AGENT_KIND: ${{ env.AGENT_KIND }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
+          MAX_LOG_FILES: 100
+          LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODEX_HOME: ${{ env.CODEX_HOME }}
+          EXTRA_UPLOAD_ROOTS: code-architect:${{ github.workspace }}/out-code-architect
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
+
+      - name: Create GitHub App token for issues
+        if: ${{ !cancelled() }}
+        id: issue-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: File issues and send notification
+        if: ${{ !cancelled() }}
+        env:
+          AGENT_KIND: ${{ env.AGENT_KIND }}
+          CODEX_STEP_OUTCOME: ${{ steps.run-codex-code-architect.outcome }}
+          CLAUDE_STEP_OUTCOME: ${{ steps.run-claude-code-architect.outcome }}
+          FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
+          GITHUB_API_URL: ${{ github.api_url }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          CODE_ARCHITECT_GITHUB_TOKEN: ${{ steps.issue-app-token.outputs.token }}
+          CODE_ARCHITECT_ALERT_EMAILS: ${{ vars.CODE_ARCHITECT_ALERT_EMAILS }}
+          MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
+          MAILGUN_DOMAIN: ${{ vars.MAILGUN_DOMAIN }}
+          MAILGUN_FROM_EMAIL: ${{ vars.MAILGUN_FROM_EMAIL }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/code-architect-recent/publish-issues.mjs"

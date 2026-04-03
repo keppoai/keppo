@@ -1,0 +1,4 @@
+interface:
+  display_name: "Code Architect Recent"
+  short_description: "Review recent commits for large architecture improvements."
+  default_prompt: "Use $code-architect:recent to review the last 7 days of recent commits for real high-impact architecture improvements, verify them, and emit findings for issue filing."
