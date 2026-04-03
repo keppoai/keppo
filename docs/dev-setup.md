@@ -180,6 +180,27 @@ Token requirements:
 - Claude runs pin `@anthropic-ai/claude-code` to the workflow-declared `CLAUDE_CODE_VERSION` and use an explicit allowlist-based permission model instead of bypassing permissions entirely.
 - `actions/create-github-app-token` does not support `repository_advisories` fine-grained permission inputs yet, so this workflow must currently mint the installation token without `permission-*` scoping and rely on the App installation's configured permissions.
 
+### Nightly recent code architecture workflow
+
+The `code-architect-recent.yml` workflow runs nightly at `4:00 AM` Pacific time during daylight saving time (`3:00 AM` Pacific during standard time) and on manual dispatch in the `ai-bots` GitHub Actions environment. Manual dispatch supports `codex` and `claude` agents and defaults to `codex`. The workflow runs the selected agent against the repo-local `code-architect:recent` prompt context for commits from the last 7 days, writes confirmed `critical`/`high` structural maintainability findings as individual markdown files to `out-code-architect/findings/`, uploads session logs, files GitHub issues labeled `architecture-review` for new findings, deduplicates against existing architecture-review issues, and sends a Mailgun email when the run creates new issues or needs operator attention.
+
+Required configuration:
+
+- environment secret `CODEX_AUTH_JSON`
+- optional environment secrets `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` for random Codex auth rotation in GitHub Actions
+- environment secret `CLAUDE_CODE_OAUTH_TOKEN` when dispatching with `agent=claude`
+- repository variable `KEPPO_GITHUB_APP_ID`
+- environment secret `KEPPO_GITHUB_APP_PRIVATE_KEY`
+- environment secret `MAILGUN_API_KEY`
+- environment variable `MAILGUN_DOMAIN`
+- environment variable `MAILGUN_FROM_EMAIL`
+- environment variable `CODE_ARCHITECT_ALERT_EMAILS` - comma-separated recipient list
+
+Token requirements:
+
+- The workflow intentionally keeps the job `GITHUB_TOKEN` at `contents: read` and mints a GitHub App installation token with `issues: write` only for the deterministic issue-filing step.
+- Claude runs pin `@anthropic-ai/claude-code` to the workflow-declared `CLAUDE_CODE_VERSION`, restrict writes to `./out-code-architect/**`, and execute the recent-file selection helper from the trusted workflow checkout.
+
 ### Convex preview deployment cleanup
 
 The `convex-preview-cleanup.yml` workflow runs nightly and on manual dispatch to delete stale Convex preview deployments. It uses the `convex-preview-cleanup` GitHub Actions environment and requires:
