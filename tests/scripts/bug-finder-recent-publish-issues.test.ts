@@ -5,6 +5,8 @@ import {
   ensureLabel,
   isRepositoryIssue,
   parseFindingMarkdown,
+  partitionFindingsBySeverity,
+  normalizeSeverityFilter,
   sanitizeMentions,
 } from "../../scripts/bug-finder-recent/publish-issues.mjs";
 
@@ -166,5 +168,18 @@ describe("scripts/bug-finder-recent/publish-issues.mjs", () => {
     expect(sanitizeMentions("@ops please loop in @team/platform")).toBe(
       "@\u200bops please loop in @\u200bteam/platform",
     );
+  });
+
+  it("normalizes the severity filter and preserves filtered findings for audit reporting", () => {
+    const findings = [
+      { severity: "critical", title: "Critical regression" },
+      { severity: "high", title: "High regression" },
+    ];
+
+    expect(normalizeSeverityFilter(" Critical ")).toBe("critical");
+    expect(partitionFindingsBySeverity(findings, " Critical ")).toEqual({
+      filtered: [{ severity: "high", title: "High regression" }],
+      findingsToPublish: [{ severity: "critical", title: "Critical regression" }],
+    });
   });
 });

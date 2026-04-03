@@ -85,6 +85,19 @@ const parseRecipients = (value) => {
   return recipients;
 };
 
+export const normalizeSeverityFilter = (value) => value?.trim().toLowerCase() || "";
+
+export const partitionFindingsBySeverity = (findings, reportSeverity) => {
+  const normalizedSeverity = normalizeSeverityFilter(reportSeverity);
+  if (!normalizedSeverity) {
+    return { filtered: [], findingsToPublish: findings };
+  }
+  return {
+    filtered: findings.filter((finding) => finding.severity !== normalizedSeverity),
+    findingsToPublish: findings.filter((finding) => finding.severity === normalizedSeverity),
+  };
+};
+
 const appendStepSummary = async (line) => {
   const path = process.env.GITHUB_STEP_SUMMARY;
   if (!path) {
@@ -491,6 +504,7 @@ const buildEmailSubject = ({
   repo,
   agentLabel,
   findingsCount,
+  filteredCount,
   createdCount,
   skippedCount,
   failedCount,
@@ -507,7 +521,9 @@ const buildEmailSubject = ({
     return `[ALERT] code-architect:recent (${agentLabel}) filed ${createdCount} new architecture issue(s) for ${repo}`;
   }
   if (findingsCount > 0) {
-    return `[INFO] code-architect:recent (${agentLabel}) 0 new issues (${skippedCount} duplicates) for ${repo}`;
+    const filteredSuffix =
+      filteredCount > 0 ? `, ${filteredCount} filtered by severity` : "";
+    return `[INFO] code-architect:recent (${agentLabel}) 0 new issues (${skippedCount} duplicates${filteredSuffix}) for ${repo}`;
   }
   return `[INFO] code-architect:recent (${agentLabel}) no confirmed architecture issues for ${repo}`;
 };
@@ -523,6 +539,7 @@ const sendSummaryEmail = async ({
   repo,
   agentLabel,
   findings,
+  filtered,
   created,
   skipped,
   failed,
@@ -540,6 +557,7 @@ const sendSummaryEmail = async ({
     repo,
     agentLabel,
     findingsCount: findings.length,
+    filteredCount: filtered.length,
     createdCount: created.length,
     skippedCount: skipped.length,
     failedCount: failed.length,
@@ -550,6 +568,7 @@ const sendSummaryEmail = async ({
     `Repository: ${repo}`,
     `Agent: ${agentLabel}`,
     `Confirmed findings: ${findings.length}`,
+    `Filtered by severity: ${filtered.length}`,
     `Created issues: ${created.length}`,
     `Skipped as duplicates: ${skipped.length}`,
     `Malformed findings: ${malformed.length}`,
@@ -575,6 +594,11 @@ const sendSummaryEmail = async ({
     ...(malformed.length === 0
       ? ["- none"]
       : malformed.map((message) => `- ${message}`)),
+    "",
+    "Filtered by severity:",
+    ...(filtered.length === 0
+      ? ["- none"]
+      : filtered.map((finding) => `- [${finding.severity}] ${finding.title}`)),
     "",
     "Operator alerts:",
     ...(operatorAlerts.length === 0
@@ -617,6 +641,7 @@ const sendSummaryEmail = async ({
     <p style="margin:0 0 12px;"><strong>Agent:</strong> ${escapeHtml(agentLabel)}</p>
     <p style="margin:0 0 12px;">
       Confirmed findings: <strong>${findings.length}</strong><br />
+      Filtered by severity: <strong>${filtered.length}</strong><br />
       Created issues: <strong>${created.length}</strong><br />
       Skipped as duplicates: <strong>${skipped.length}</strong><br />
       Malformed findings: <strong>${malformed.length}</strong><br />
@@ -655,6 +680,19 @@ const sendSummaryEmail = async ({
           ? "<li>none</li>"
           : malformed
               .map((message) => `<li>${escapeHtml(message)}</li>`)
+              .join("")
+      }
+    </ul>
+    <h3 style="margin:16px 0 8px;">Filtered by severity</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        filtered.length === 0
+          ? "<li>none</li>"
+          : filtered
+              .map(
+                (finding) =>
+                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}</li>`,
+              )
               .join("")
       }
     </ul>
@@ -725,6 +763,10 @@ const main = async () => {
   const findingsDir =
     process.env.FINDINGS_DIR?.trim() || "out-code-architect/findings";
   const { findings, malformed } = await loadFindings(findingsDir);
+  const { filtered, findingsToPublish } = partitionFindingsBySeverity(
+    findings,
+    process.env.REPORT_SEVERITY,
+  );
   const repo = requireEnv("GITHUB_REPOSITORY");
   const recipients = parseRecipients(requireEnv("CODE_ARCHITECT_ALERT_EMAILS"));
   const mailgunApiKey = requireEnv("MAILGUN_API_KEY");
@@ -751,17 +793,22 @@ const main = async () => {
         ];
 
   await appendStepSummary(`Findings reviewed: ${findings.length}`);
+  await appendStepSummary(`Filtered by severity: ${filtered.length}`);
+  await appendStepSummary(`Eligible for issue filing: ${findingsToPublish.length}`);
   await appendStepSummary(`Malformed finding files: ${malformed.length}`);
   await appendStepSummary(`Agent step outcome: ${agentStepOutcome}`);
 
-  if (findings.length === 0) {
-    console.log("No confirmed high-impact architecture issues to file.");
+  if (findingsToPublish.length === 0) {
+    console.log("No findings matched the configured severity filter for issue filing.");
     await appendStepSummary("Created issues: 0");
+    await appendStepSummary("Skipped as duplicates: 0");
+    await appendStepSummary("Issue creation failures: 0");
     if (malformed.length > 0 || operatorAlerts.length > 0) {
       await sendSummaryEmail({
         repo,
         agentLabel,
         findings,
+        filtered,
         created: [],
         skipped: [],
         failed: [],
@@ -777,6 +824,26 @@ const main = async () => {
       });
       throw new Error([...malformed, ...operatorAlerts].join("\n"));
     }
+    if (filtered.length > 0) {
+      await sendSummaryEmail({
+        repo,
+        agentLabel,
+        findings,
+        filtered,
+        created: [],
+        skipped: [],
+        failed: [],
+        malformed,
+        operatorAlerts,
+        reachedPageCap: false,
+        runUrl,
+        sessionLogLinks,
+        recipients,
+        mailgunApiKey,
+        mailgunDomain,
+        fromEmail,
+      });
+    }
     return;
   }
 
@@ -791,6 +858,7 @@ const main = async () => {
       repo,
       agentLabel,
       findings,
+      filtered,
       created: [],
       skipped: [],
       failed: [],
@@ -857,7 +925,7 @@ const main = async () => {
   const skipped = [];
   const failed = [];
 
-  for (const finding of findings) {
+  for (const finding of findingsToPublish) {
     const titleKey = normalizeTitle(sanitizeMentions(finding.title));
     const dedupKey = normalizeDedupKey(finding.dedupKey);
     const duplicate =
@@ -918,6 +986,7 @@ const main = async () => {
   }
 
   const shouldSendSummaryEmail =
+    filtered.length > 0 ||
     created.length > 0 ||
     failed.length > 0 ||
     malformed.length > 0 ||
@@ -927,6 +996,7 @@ const main = async () => {
       repo,
       agentLabel,
       findings,
+      filtered,
       created,
       skipped,
       failed,
@@ -943,7 +1013,7 @@ const main = async () => {
   }
 
   console.log(
-    `Processed ${findings.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s), ${failed.length} failed.`,
+    `Processed ${findings.length} finding(s): ${filtered.length} filtered by severity, ${created.length} created, ${skipped.length} duplicate(s), ${failed.length} failed.`,
   );
 
   const terminalErrors = [
