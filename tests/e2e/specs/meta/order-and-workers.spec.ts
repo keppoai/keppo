@@ -2,11 +2,6 @@ import { test, expect } from "../../fixtures/golden.fixture";
 import { readActiveE2ERunOwnership } from "../../infra/stack-manager";
 
 test.describe("meta-infra-contract", () => {
-  test.skip(
-    process.env.KEPPO_E2E_RUN_META !== "1",
-    "Meta contract checks run via test:e2e:meta pipeline.",
-  );
-
   test("namespace format contract", async ({ app }) => {
     const expected = new RegExp(
       `^${app.metadata.runId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\.${app.metadata.workerIndex}\\.${app.metadata.testId}\\.${app.metadata.retryIndex}\\.${app.metadata.repeatEachIndex}$`,
@@ -30,7 +25,11 @@ test.describe("meta-infra-contract", () => {
     expect(ownership?.ownerPid).toBeGreaterThan(0);
     expect(app.runtime.status).toBe("ready");
     expect(app.runtime.ownerPid).toBeGreaterThan(0);
-    expect(app.runtime.readyServices).toHaveLength(4);
+    expect(app.runtime.readyServices.map((service) => service.name).sort()).toEqual([
+      "dashboard",
+      "fake-gateway",
+      "queue-broker",
+    ]);
     expect(app.runtime.readyServices.every((service) => service.readyAt !== null)).toBe(true);
   });
 });

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { resolveLocalAdminKey } from "../../../packages/shared/src/convex-admin";
 import {
@@ -176,10 +177,35 @@ describe("startup failure context", () => {
 describe("resolveConvexAdminKey", () => {
   it("prefers the local Convex config key over a stale env key", async () => {
     vi.stubEnv("KEPPO_CONVEX_ADMIN_KEY", "stale-admin-key");
-    const localAdminKey = resolveLocalAdminKey();
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "keppo-stack-manager-"));
+    const localAdminKey = "local-admin-key";
+    const localConfigDir = path.join(tempRoot, ".convex", "local", "default");
+    const localConfigPath = path.join(localConfigDir, "config.json");
+    await mkdir(localConfigDir, { recursive: true });
+    await writeFile(localConfigPath, `${JSON.stringify({ adminKey: localAdminKey })}\n`, "utf8");
 
-    expect(localAdminKey).toBeTruthy();
-    await expect(resolveConvexAdminKey()).resolves.toBe(localAdminKey);
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempRoot);
+    try {
+      expect(resolveLocalAdminKey()).toBe(localAdminKey);
+      await expect(resolveConvexAdminKey()).resolves.toBe(localAdminKey);
+    } finally {
+      cwdSpy.mockRestore();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the env key when no local Convex config exists", async () => {
+    vi.stubEnv("KEPPO_CONVEX_ADMIN_KEY", "fresh-admin-key");
+    const tempRoot = await mkdtemp(path.join(tmpdir(), "keppo-stack-manager-"));
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempRoot);
+
+    try {
+      expect(resolveLocalAdminKey()).toBeNull();
+      await expect(resolveConvexAdminKey()).resolves.toBe("fresh-admin-key");
+    } finally {
+      cwdSpy.mockRestore();
+      await rm(tempRoot, { recursive: true, force: true });
+    }
   });
 });
 

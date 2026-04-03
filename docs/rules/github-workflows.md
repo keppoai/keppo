@@ -7,7 +7,8 @@ Consult this file before changing GitHub Actions workflow structure, runner sele
 ## Runner selection rules
 
 - Default non-E2E GitHub Actions Linux jobs to `ubuntu-latest`, including lightweight control-plane work like labeling, commenting, prompt/context generation, metadata inspection, short-lived agent runs, and other orchestration work.
-- In `e2e-shared.yml`, use `ubuntu-latest` for the Checks and Report jobs; use `namespace-profile-linux-medium` for Local Convex and Playwright E2E shard jobs. Use `namespace-profile-linux-medium` for `e2e-meta.yml` and `claude-deflake-e2e.yml`.
+- In `e2e-shared.yml`, use `ubuntu-latest` for the Checks and Report jobs; use `namespace-profile-linux-medium` for Local Convex and Playwright E2E shard jobs. Use `namespace-profile-linux-medium` for `claude-deflake-e2e.yml`.
+- Keep E2E meta coverage folded into `e2e-shared.yml`: browser meta specs belong in the normal Playwright lane, and non-browser E2E infra/authoring checks belong in the shared Checks job. Do not reintroduce a standalone `e2e-meta.yml` workflow.
 - Use `ubicloud-standard-2` for other workflows that orchestrate, gate, or accompany E2E (e.g. `ci-pr.yml` check/result jobs, `fix-pr.yml`, `get-main-to-green.yml`, `issue-agent-issue-to-pr.yml`, `codex-commit-review.yml`).
 - Keep runner selection explicit when a job needs a different platform or image family, and document the reason in the same change.
 
