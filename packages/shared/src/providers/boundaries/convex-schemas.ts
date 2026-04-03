@@ -206,6 +206,7 @@ export const convexActionCreationResultSchema = z.object({
     id: nonEmptyStringSchema,
     org_id: nonEmptyStringSchema,
   }),
+  idempotencyReplayed: z.boolean(),
 });
 
 export const convexActionDispatchStateSchema = z.object({

@@ -28,6 +28,7 @@
 - High-risk internal Convex boundaries must expose one canonical `*_shared.ts` arg contract surface with shared validators and builder helpers; do not duplicate scheduler/action payload object literals across `convex/` and `cloud/convex/`.
 - Internal Convex function args stay camelCase (`runId`) even when adjacent HTTP payloads, audit payloads, or database fields intentionally remain snake_case (`automation_run_id`).
 - Narrow casts that only bridge upstream SDK typing gaps are acceptable in provider adapters; do not spend the handwritten runtime debt budget on third-party client limitations when a shared boundary parser can remove the risk elsewhere.
+- Keep idempotency checks and the guarded insert/update in the same Convex mutation transaction. Do not split a read-only existence check and the write across separate `runQuery`/`runMutation` calls.
 
 ## Client-visible errors
 

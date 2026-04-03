@@ -14,7 +14,6 @@ import {
 } from "../domain_constants";
 import {
   convexActionCreationResultSchema,
-  convexActionStatusPayloadSchema,
   convexConnectorContextSchema,
   convexExecuteToolCallPayloadSchema,
   convexGatingDataSchema,
@@ -59,7 +58,6 @@ type ExecuteToolCallRefs = {
   loadConnectorContext: AnyInternalQueryReference;
   loadGatingData: AnyInternalQueryReference;
   createToolCall: AnyInternalMutationReference;
-  findActionByIdempotency: AnyInternalQueryReference;
   createActionFromDecision: AnyInternalMutationReference;
   createAuditEvent: AnyInternalMutationReference;
   markIntegrationHealth: AnyInternalMutationReference;
@@ -133,7 +131,6 @@ type PreparedWriteToolCall = {
   normalizedPayload: Record<string, unknown>;
   payloadPreview: Record<string, unknown>;
   idempotencyKey: string;
-  existing: ConvexActionStatusPayload | null;
 };
 
 const parseBillingOrgId = (
@@ -252,12 +249,6 @@ const toPreparedWrite = (
     normalized_payload: normalizedPayload,
     payload_preview: payloadPreview,
   };
-};
-
-const parseActionStatusPayload = (payload: unknown, message: string): ConvexActionStatusPayload => {
-  return safeParsePayload("mcp_node.parseActionStatusPayload", () =>
-    parseWorkerPayload(convexActionStatusPayloadSchema, payload, { message }),
-  );
 };
 
 const resolveProviderExecutionContext = async (
@@ -562,28 +553,10 @@ const prepareWriteToolCall = async (
   );
 
   const idempotencyKey = stableIdempotencyKey(tool.name, normalizedPayload);
-  const existingRaw = await safeRunQuery("mcp_node.findActionByIdempotency", () =>
-    ctx.runQuery(deps.refs.findActionByIdempotency, {
-      workspaceId: payload.workspaceId,
-      idempotencyKey,
-    }),
-  );
-  const existing =
-    existingRaw === null
-      ? null
-      : parseActionStatusPayload(
-          existingRaw,
-          validationMessage(
-            "mcp_node.findActionByIdempotency",
-            `Idempotency action payload for ${idempotencyKey} failed validation.`,
-          ),
-        );
-
   return {
     normalizedPayload,
     payloadPreview,
     idempotencyKey,
-    existing,
   };
 };
 
@@ -672,6 +645,24 @@ const applyGatingDecision = async (
       ),
     }),
   );
+
+  if (created.idempotencyReplayed) {
+    await deps.finalizeToolCallRecord(ctx, {
+      toolCallId: providerContext.toolCallId,
+      status: TOOL_CALL_STATUS.completed,
+      outputRedacted: {
+        action_id: created.action.id,
+        prior_status: created.action.status,
+      },
+      startedAt,
+    });
+
+    return {
+      status: TOOL_CALL_RESULT_STATUS.idempotentReplay,
+      action_id: created.action.id,
+      action_status: created.action.status,
+    };
+  }
 
   switch (decision.outcome) {
     case DECISION_OUTCOME.deny: {
@@ -856,24 +847,6 @@ export const createExecuteToolCallHandler = (deps: ExecuteToolCallHandlerDeps) =
           error,
           deps,
         });
-      }
-
-      if (preparedWrite.existing) {
-        await deps.finalizeToolCallRecord(ctx, {
-          toolCallId: providerContext.toolCallId,
-          status: TOOL_CALL_STATUS.completed,
-          outputRedacted: {
-            action_id: preparedWrite.existing.id,
-            prior_status: preparedWrite.existing.status,
-          },
-          startedAt,
-        });
-
-        return {
-          status: TOOL_CALL_RESULT_STATUS.idempotentReplay,
-          action_id: preparedWrite.existing.id,
-          action_status: preparedWrite.existing.status,
-        };
       }
 
       return await applyGatingDecision(ctx, {

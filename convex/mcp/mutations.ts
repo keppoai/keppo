@@ -76,6 +76,38 @@ const resolveWorkspaceByRunId = async (
   return { run, workspace };
 };
 
+const toActionBoundary = (action: Doc<"actions">) => {
+  return {
+    id: action.id,
+    automation_run_id: action.automation_run_id,
+    tool_call_id: action.tool_call_id,
+    action_type: action.action_type,
+    risk_level: action.risk_level,
+    normalized_payload_enc: action.normalized_payload_enc,
+    payload_preview: normalizeJsonRecord(action.payload_preview),
+    payload_purged_at: action.payload_purged_at,
+    status: action.status,
+    idempotency_key: action.idempotency_key,
+    created_at: action.created_at,
+    resolved_at: action.resolved_at,
+    result_redacted: action.result_redacted ? normalizeJsonRecord(action.result_redacted) : null,
+  };
+};
+
+const findExistingActionByWorkspaceAndIdempotency = async (
+  ctx: MutationCtx,
+  workspaceId: string,
+  idempotencyKey: string,
+): Promise<Doc<"actions"> | null> => {
+  const candidates = await ctx.db
+    .query("actions")
+    .withIndex("by_idempotency_key", (q) => q.eq("idempotency_key", idempotencyKey))
+    .collect();
+
+  const sortedCandidates = [...candidates].sort((a, b) => a.created_at.localeCompare(b.created_at));
+  return sortedCandidates.find((action) => action.workspace_id === workspaceId) ?? null;
+};
+
 export const createRun = internalMutation({
   args: {
     workspaceId: v.string(),
@@ -246,11 +278,25 @@ export const createActionFromDecision = internalMutation({
   returns: v.object({
     action: actionValidator,
     workspace: workspaceValidator,
+    idempotencyReplayed: v.boolean(),
   }),
   handler: async (ctx, args) => {
     const resolved = await resolveWorkspaceByRunId(ctx, args.runId);
     if (!resolved) {
       throw createMcpExecutionFailedError("Run workspace not found");
+    }
+
+    const existing = await findExistingActionByWorkspaceAndIdempotency(
+      ctx,
+      resolved.workspace.id,
+      args.idempotencyKey,
+    );
+    if (existing) {
+      return {
+        action: toActionBoundary(existing),
+        workspace: toWorkspaceBoundary(resolved.workspace),
+        idempotencyReplayed: true,
+      };
     }
 
     const status = actionStatusFromOutcome(args.decision.outcome);
@@ -387,24 +433,9 @@ export const createActionFromDecision = internalMutation({
     }
 
     return {
-      action: {
-        id: action.id,
-        automation_run_id: action.automation_run_id,
-        tool_call_id: action.tool_call_id,
-        action_type: action.action_type,
-        risk_level: action.risk_level,
-        normalized_payload_enc: action.normalized_payload_enc,
-        payload_preview: normalizeJsonRecord(action.payload_preview),
-        payload_purged_at: action.payload_purged_at,
-        status: action.status,
-        idempotency_key: action.idempotency_key,
-        created_at: action.created_at,
-        resolved_at: action.resolved_at,
-        result_redacted: action.result_redacted
-          ? normalizeJsonRecord(action.result_redacted)
-          : null,
-      },
+      action: toActionBoundary(action),
       workspace: toWorkspaceBoundary(resolved.workspace),
+      idempotencyReplayed: false,
     };
   },
 });
