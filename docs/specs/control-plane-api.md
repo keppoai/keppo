@@ -25,6 +25,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 ## Auth expectations
 
 - User-facing billing, invite, push-subscribe, question-generation, and prompt-generation routes require an authenticated Better Auth session.
+- Automation authoring routes (`POST /api/automations/generate-questions`, `POST /api/automations/generate-prompt`) also require the session member to be an org `owner` or `admin`; same-org `approver` and `viewer` members receive `403 workspace_forbidden` before workspace lookup, AI generation, or credit deduction.
 - OAuth connect derives org scope from the authenticated session, not from caller input.
 - MCP uses workspace bearer credentials, not user cookies.
 - Internal maintenance and queue routes require the internal bearer secret.
@@ -112,7 +113,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 - Billing webhook `checkout.session.completed` events with credit metadata fulfill one-time AI-credit purchases via `ai_credits:addPurchasedCredits`.
 - Billing webhook lifecycle events emit notification events for `subscription_past_due` and `subscription_downgraded`.
 - Push subscription route requires authenticated session identity and registers endpoints using session-derived org/user values.
-- Automation question-generation and prompt-generation routes require authenticated session identity and reject workspace/org mismatches.
+- Automation question-generation and prompt-generation routes require authenticated session identity, reject non-`owner`/`admin` members before workspace lookup, and reject workspace/org mismatches.
 - The automation builder now uses a two-call flow:
   - `POST /api/automations/generate-questions` returns up to 4 structured clarification questions using only `radio`, `checkbox`, and single-line `text` inputs, plus explicit billing metadata that states the question stage is free.
   - `POST /api/automations/generate-prompt` accepts the original `user_description` plus optional `clarification_questions[]` and `clarification_answers[]`, deducts the single visible generation credit, and returns the generated draft with `credit_balance` plus explicit draft billing metadata.

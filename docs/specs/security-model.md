@@ -13,6 +13,7 @@
 - User-facing API routes use the Better Auth session cookie.
 - Invite codes remain platform-admin created. Billing-page redemption is session-bound to the authenticated org member, and paid invite promos are non-Stripe access until the org explicitly completes Stripe checkout.
 - Organization billing management is role-gated server-side: only org `owner` or `admin` members may open the Stripe portal, start recurring checkout, buy AI-credit packs, buy automation-run top-ups, or change recurring subscription state.
+- Automation authoring is role-gated server-side on the Start-owned API routes: only org `owner` or `admin` members may call clarification-question or prompt-generation endpoints, and same-org lower-privilege members are rejected before workspace context lookup or AI-credit deduction.
 - Local admin/operator route bypass is never heuristic-only: it requires `KEPPO_LOCAL_ADMIN_BYPASS=true` plus a genuinely local runtime signal (loopback/local deployment) before `/admin` or `/admin/health` widen beyond `KEPPO_ADMIN_USER_IDS`.
 - MCP uses workspace bearer credentials from Convex.
 - Internal maintenance routes use a shared bearer secret verified with constant-time comparison and a fail-closed missing-secret path.

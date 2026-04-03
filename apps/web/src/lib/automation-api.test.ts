@@ -236,6 +236,74 @@ describe("start-owned automation api handlers", () => {
     expect(deps.convex.getWorkspaceCodeModeContext).not.toHaveBeenCalled();
   });
 
+  it("rejects clarification question generation for non-managers before reading workspace context", async () => {
+    for (const role of ["viewer", "approver"] as const) {
+      const deps = createDeps();
+      deps.convex.resolveApiSessionFromToken.mockResolvedValueOnce({
+        userId: `user_${role}`,
+        orgId: "org_test",
+        role,
+      });
+
+      const response = await handleGenerateAutomationQuestionsRequest(
+        withJson(
+          "/api/automations/generate-questions",
+          {
+            workspace_id: "ws_test",
+            user_description: "Find regressions",
+          },
+          {
+            cookie: "better-auth.session_token=session_token_test",
+          },
+        ),
+        deps,
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        status: "workspace_forbidden",
+      });
+      expect(deps.convex.getWorkspaceCodeModeContext).not.toHaveBeenCalled();
+      expect(deps.generateAutomationQuestions).not.toHaveBeenCalled();
+      expect(deps.convex.deductAiCredit).not.toHaveBeenCalled();
+    }
+  });
+
+  it("rejects prompt generation for non-managers before any credit deduction", async () => {
+    for (const role of ["viewer", "approver"] as const) {
+      const deps = createDeps();
+      deps.convex.resolveApiSessionFromToken.mockResolvedValueOnce({
+        userId: `user_${role}`,
+        orgId: "org_test",
+        role,
+      });
+
+      const response = await handleGenerateAutomationPromptRequest(
+        withJson(
+          "/api/automations/generate-prompt",
+          {
+            workspace_id: "ws_test",
+            user_description: "Find regressions",
+          },
+          {
+            cookie: "better-auth.session_token=session_token_test",
+          },
+        ),
+        deps,
+      );
+
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toMatchObject({
+        ok: false,
+        status: "workspace_forbidden",
+      });
+      expect(deps.convex.getWorkspaceCodeModeContext).not.toHaveBeenCalled();
+      expect(deps.generateAutomationPrompt).not.toHaveBeenCalled();
+      expect(deps.convex.deductAiCredit).not.toHaveBeenCalled();
+    }
+  });
+
   it("generates automation prompts in-process with Start-owned auth context", async () => {
     const deps = createDeps();
 
