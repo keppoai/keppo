@@ -307,16 +307,6 @@ type RefreshResultArgs = RefreshResultSuccessArgs | RefreshResultFailureArgs;
 
 type RefreshConnectorContextDeps = {
   markCredentialRefreshResult: (ctx: ActionCtx, args: RefreshResultArgs) => Promise<void>;
-  updateIntegrationCredential: (
-    ctx: ActionCtx,
-    args: {
-      orgId: string;
-      provider: CanonicalProviderId;
-      accessToken: string;
-      refreshToken: string;
-      expiresAt: string | null;
-    },
-  ) => Promise<void>;
 };
 
 export const createRefreshConnectorContextAccessToken = (deps: RefreshConnectorContextDeps) => {
@@ -370,14 +360,6 @@ export const createRefreshConnectorContextAccessToken = (deps: RefreshConnectorC
       );
       const refreshToken = refreshed.refreshToken ?? params.context.refresh_token;
       const expiresAt = refreshed.expiresAt;
-
-      await deps.updateIntegrationCredential(ctx, {
-        orgId: params.context.orgId,
-        provider: params.provider,
-        accessToken: refreshed.accessToken,
-        refreshToken,
-        expiresAt,
-      });
 
       await deps.markCredentialRefreshResult(ctx, {
         orgId: params.context.orgId,
