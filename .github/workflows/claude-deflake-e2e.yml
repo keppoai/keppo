@@ -183,12 +183,23 @@ jobs:
           test -z "$(git status --short)"
           echo "has_changes=true" >> "$GITHUB_OUTPUT"
 
+      - name: Create GitHub App token for post-agent operations
+        if: steps.validate.outputs.has_changes == 'true'
+        id: post-agent-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write
+
       - name: Refresh workflow base revision
         if: steps.validate.outputs.has_changes == 'true'
         uses: actions/checkout@v4
         with:
           repository: ${{ github.repository }}
-          token: ${{ steps.app-token.outputs.token }}
+          token: ${{ steps.post-agent-app-token.outputs.token }}
           ref: ${{ github.sha }}
           path: ${{ env.WORKFLOW_BASE_PATH }}
           fetch-depth: 1
@@ -210,14 +221,14 @@ jobs:
       - name: Push branch
         if: steps.validate.outputs.has_changes == 'true'
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.post-agent-app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/push-branch.sh"
 
       - name: Create or update PR
         if: steps.validate.outputs.has_changes == 'true'
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.post-agent-app-token.outputs.token }}
           ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
           PR_TITLE: ${{ steps.pr.outputs.title }}
           PR_BODY: ${{ steps.pr.outputs.body }}

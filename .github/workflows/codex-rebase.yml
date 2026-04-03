@@ -128,17 +128,6 @@ jobs:
         env:
           BASE_APP_TOKEN: ${{ steps.base-app-token.outputs.token }}
 
-      - name: Configure push remote for fork PRs
-        if: steps.check-author.outputs.should_continue == 'true'
-        run: |
-          # Keep fetches against the checked-out PR head repo while forcing pushes
-          # through the GitHub App token for the fork/head repository.
-          # Using the app token ensures pushes emit normal synchronize events.
-          git remote set-url --push origin "https://x-access-token:${PR_HEAD_APP_TOKEN}@github.com/${{ github.event.pull_request.head.repo.full_name }}.git"
-          echo "Configured pushurl to ${{ github.event.pull_request.head.repo.full_name }}"
-        env:
-          PR_HEAD_APP_TOKEN: ${{ steps.head-app-token.outputs.token }}
-
       - name: Checkout workflow base revision
         if: steps.check-author.outputs.should_continue == 'true'
         uses: actions/checkout@v5
@@ -177,21 +166,34 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
 
+      - name: Record starting commit
+        if: steps.check-author.outputs.should_continue == 'true'
+        id: start-sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Write Codex prompt
         if: steps.check-author.outputs.should_continue == 'true'
         run: |
           mkdir -p "$(dirname "${PROMPT_PATH}")"
           cat <<EOF > "${PROMPT_PATH}"
-          You are orchestrating the /sync-pr skill. Your job is to run it end-to-end as a sub-agent with NO shortcuts.
+          You are handling a /sync-pr run for PR #${{ steps.check-author.outputs.pr_number }}.
 
-          Rules:
-          1. Execute every step of /sync-pr sequentially. Do not skip, summarize, or stop early.
-          2. The skill must determine the PR base branch from GitHub metadata and rebase onto that branch, not a hardcoded branch name.
-          3. After the rebase and lint steps complete, verify that the force-with-lease push succeeded.
-          4. Do not consider the task complete until the branch update has been pushed successfully and you have confirmed its output.
+          The workflow has already prepared the repository for you:
+          - The current checkout is the PR head branch.
+          - \`origin\` points to the PR head repository.
+          - \`upstream\` points to the base repository.
+          - The PR base branch is \`${{ github.event.pull_request.base.ref }}\`.
 
-          Now run the following command:
-          /sync-pr ${{ steps.check-author.outputs.pr_number }}
+          Required steps:
+          1. Run \`git fetch --all\`.
+          2. Rebase the current branch onto \`upstream/${{ github.event.pull_request.base.ref }}\`.
+          3. If the rebase conflicts, resolve the conflicts carefully and continue until the rebase completes.
+          4. Run \`pnpm check\`. If it fails because of the rebase, fix the issues and rerun it until it passes.
+
+          Important constraints:
+          - Do not push.
+          - Do not edit PR labels, comments, or any other GitHub state.
+          - Stop only when the local branch is clean, the rebase is complete, and checks pass.
           EOF
 
       - name: Run PR rebase with Codex
@@ -201,23 +203,106 @@ jobs:
           GITHUB_TOKEN: ${{ steps.agent-token.outputs.token }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-codex.sh"
 
+      - name: Create GitHub App token for post-agent base repo operations
+        if: always() && steps.check-author.outputs.should_continue == 'true'
+        id: post-agent-base-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-pull-requests: write
+
+      - name: Validate rebased branch state
+        if: steps.check-author.outputs.should_continue == 'true'
+        id: validate
+        env:
+          START_SHA: ${{ steps.start-sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          if git diff --name-only "${START_SHA}" HEAD -- .gitmodules | grep -q .; then
+            echo ".gitmodules changed while .workflow-base was present in the repo" >&2
+            exit 1
+          fi
+
+          gitlink_paths="$(git ls-files --stage | awk '$1 == "160000" { print $4 }')"
+          if [ -n "${gitlink_paths}" ]; then
+            echo "Nested gitlink entries are not allowed:" >&2
+            echo "${gitlink_paths}" >&2
+            exit 1
+          fi
+
+          if git diff --cached --name-only -- .workflow-base | grep -q .; then
+            echo ".workflow-base must never be staged in the PR repository" >&2
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" HEAD -- .workflow-base | grep -q .; then
+            echo ".workflow-base must never appear in agent-authored commits" >&2
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" HEAD -- .gitignore | grep -q . &&
+            git diff "${START_SHA}" HEAD -- .gitignore | grep -F ".workflow-base" >/dev/null; then
+            echo ".gitignore changes that reference .workflow-base are not allowed" >&2
+            exit 1
+          fi
+
+          dirty="$(git status --short -- . ':(exclude).workflow-base')"
+          if [ -n "${dirty}" ]; then
+            echo "Uncommitted changes remain in the workspace:" >&2
+            echo "${dirty}" >&2
+            exit 1
+          fi
+
+          current_sha="$(git rev-parse HEAD)"
+          if [ "${current_sha}" != "${START_SHA}" ]; then
+            echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Create GitHub App token for post-agent PR head repo operations
+        if: steps.validate.outputs.has_changes == 'true'
+        id: post-agent-head-app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          owner: ${{ github.event.pull_request.head.repo.owner.login }}
+          repositories: ${{ github.event.pull_request.head.repo.name }}
+          permission-contents: write
+          permission-workflows: write
+
+      - name: Refresh push remote for post-agent pushes
+        if: steps.validate.outputs.has_changes == 'true'
+        run: |
+          git remote set-url --push origin "https://x-access-token:${PR_HEAD_APP_TOKEN}@github.com/${{ github.event.pull_request.head.repo.full_name }}.git"
+          echo "Refreshed post-agent pushurl to ${{ github.event.pull_request.head.repo.full_name }}"
+        env:
+          PR_HEAD_APP_TOKEN: ${{ steps.post-agent-head-app-token.outputs.token }}
+
+      - name: Push rebased branch
+        if: steps.validate.outputs.has_changes == 'true'
+        run: git push --force-with-lease origin HEAD:${{ github.event.pull_request.head.ref }}
+
       - name: Update labels on success
         if: steps.check-author.outputs.should_continue == 'true' && success()
         run: |
           gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending" --remove-label "sync-pr:failed"
         env:
-          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.post-agent-base-app-token.outputs.token }}
 
       - name: Update labels on cancellation
         if: steps.check-author.outputs.should_continue == 'true' && cancelled()
         run: |
           gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending"
         env:
-          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.post-agent-base-app-token.outputs.token }}
 
       - name: Update labels on failure
         if: steps.check-author.outputs.should_continue == 'true' && failure()
         run: |
           gh pr edit ${{ steps.check-author.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "sync-pr:pending" --add-label "sync-pr:failed"
         env:
-          GITHUB_TOKEN: ${{ steps.base-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.post-agent-base-app-token.outputs.token }}
