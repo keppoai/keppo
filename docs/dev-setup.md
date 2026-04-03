@@ -60,6 +60,7 @@ Use the repo-owned command surface for the smallest layer that exercises the rea
 - `pnpm test:local-convex` for backend integration coverage that needs API + Convex + fake gateways but not a browser
 - `pnpm test:shared` and `pnpm test:conformance` for shared package and provider conformance coverage
 - `pnpm test:non-e2e:authoring` for authoring guardrails on non-E2E suites
+- `pnpm run test:e2e:meta` for non-browser E2E infra and authoring guardrails that also run in the shared PR/main CI lane
 - `pnpm run test:e2e:base -- <playwright-args...>` for local browser debugging
 
 ### Local browser policy
@@ -68,6 +69,7 @@ Use the repo-owned command surface for the smallest layer that exercises the rea
 - Use targeted Playwright specs only, then validate the full suite on GitHub Actions.
 - Docs changes use `pnpm run test:e2e:base -- tests/e2e/specs/docs/public-docs.spec.ts`.
 - For automation-trigger work, use `pnpm run test:e2e:base -- tests/e2e/specs/automations/provider-event-triggers.spec.ts`.
+- For shared E2E runtime-contract debugging, use `pnpm run test:e2e:base -- tests/e2e/specs/meta/order-and-workers.spec.ts`; the non-browser companion checks live in `pnpm run test:e2e:meta`.
 - For intentional Code Mode sandbox verification, set `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` so sandbox unavailability becomes a hard failure instead of a skip. The shared PR/main GitHub Actions E2E workflow exports that env and explicit Docker sandbox-provider env by default.
 
 ## Environment diagnostics

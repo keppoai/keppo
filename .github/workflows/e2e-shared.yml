@@ -60,6 +60,9 @@ jobs:
       - name: Run Non-E2E Suite (excluding local-convex)
         run: pnpm run test:non-e2e:ci
 
+      - name: Run E2E Meta Checks
+        run: pnpm run test:e2e:meta
+
       - name: Run Security Check Suites And Regressions
         run: pnpm run check:security
 
