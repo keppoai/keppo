@@ -161,7 +161,11 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   };
 
   let finalRunState: {
+    dashboardSawSearchToolsCompleted: boolean;
     dashboardSawToolsListCompleted: boolean;
+    fakeGatewaySawRecordOutcomeCall: boolean;
+    fakeGatewaySawResponsesPath: boolean;
+    fakeGatewaySawSearchToolsCall: boolean;
     hasAgentRecordedOutcome: boolean;
     hasOpenAiResponsesSearchToolsRequest: boolean;
     hasStreamDisconnectError: boolean;
@@ -177,8 +181,19 @@ test("codex automation run completes after search_tools when fake OpenAI respons
         const openAiEvents = await readProviderEvents(request, app.runtime.fakeGatewayBaseUrl);
         const newOpenAiEvents = openAiEvents.slice(openAiEventCountBeforeDispatch);
         const dashboardLog = await readServiceLog("dashboard");
+        const fakeGatewayLog = await readServiceLog("fake-gateway");
         finalRunState = {
+          dashboardSawSearchToolsCompleted: dashboardLog.includes(
+            '"msg":"mcp.search_tools.completed"',
+          ),
           dashboardSawToolsListCompleted: dashboardLog.includes('"msg":"mcp.tools_list.completed"'),
+          fakeGatewaySawRecordOutcomeCall: fakeGatewayLog.includes(
+            '"name":"mcp__keppo__record_outcome"',
+          ),
+          fakeGatewaySawResponsesPath: fakeGatewayLog.includes("[fake-openai] path=/responses"),
+          fakeGatewaySawSearchToolsCall: fakeGatewayLog.includes(
+            '"name":"mcp__keppo__search_tools"',
+          ),
           hasAgentRecordedOutcome: logSummary.text.includes(
             "Automation outcome (agent recorded): Success.",
           ),
@@ -199,7 +214,11 @@ test("codex automation run completes after search_tools when fake OpenAI respons
       },
     )
     .toMatchObject({
+      dashboardSawSearchToolsCompleted: true,
       dashboardSawToolsListCompleted: true,
+      fakeGatewaySawRecordOutcomeCall: true,
+      fakeGatewaySawResponsesPath: true,
+      fakeGatewaySawSearchToolsCall: true,
       hasAgentRecordedOutcome: true,
       hasOpenAiResponsesSearchToolsRequest: true,
       hasStreamDisconnectError: false,

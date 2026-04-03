@@ -53,7 +53,7 @@ describe("buildWorkerEnv", () => {
 
     expect(env.base.KEPPO_E2E_MODE).toBe("true");
     expect(env.base.KEPPO_URL).toBe("http://localhost:9903");
-    expect(env.base.KEPPO_API_INTERNAL_BASE_URL).toBe("http://127.0.0.1:9903/api");
+    expect(env.base.KEPPO_API_INTERNAL_BASE_URL).toBe("http://localhost:9903/api");
     expect(env.base.KEPPO_LOCAL_QUEUE_CONSUMER_URL).toBe(
       "http://127.0.0.1:9903/internal/queue/approved-action",
     );

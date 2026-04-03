@@ -52,7 +52,7 @@ const toLocalConvexSiteUrl = (convexUrl: string): string => {
 export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
   const fakeGatewayBase = `http://127.0.0.1:${params.ports.fakeGateway}`;
   const dashboardBase = `http://localhost:${params.ports.dashboard}`;
-  const internalApiBase = `http://127.0.0.1:${params.ports.dashboard}`;
+  const internalApiBase = dashboardBase;
   const apiBase = dashboardBase;
   const queueBrokerBase = `http://127.0.0.1:${params.ports.queueBroker}`;
   const useFakeOpenAiResponses = process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1";
@@ -108,8 +108,8 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     BETTER_AUTH_SECRET:
       process.env.BETTER_AUTH_SECRET ?? `keppo-e2e-better-auth-secret-${params.workerIndex}`,
     KEPPO_URL: dashboardBase,
-    // Keep browser auth on localhost, but force backend-only dispatch callbacks onto
-    // IPv4 loopback so Convex/node-side fetches do not depend on localhost resolution.
+    // Keep browser-visible OAuth callbacks on the same localhost host label as the dashboard
+    // so Better Auth cookies survive the roundtrip.
     KEPPO_API_INTERNAL_BASE_URL: `${internalApiBase}/api`,
     VITE_KEPPO_URL: dashboardBase,
     KEPPO_FAKE_EXTERNAL_BASE_URL: fakeGatewayBase,
@@ -129,7 +129,7 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
     KEPPO_QUEUE_MAX_ATTEMPTS: "5",
     KEPPO_CRON_SECRET: cronToken,
     KEPPO_LOCAL_QUEUE_BROKER_URL: queueBrokerBase,
-    KEPPO_LOCAL_QUEUE_CONSUMER_URL: `${internalApiBase}/internal/queue/approved-action`,
+    KEPPO_LOCAL_QUEUE_CONSUMER_URL: `http://127.0.0.1:${params.ports.dashboard}/internal/queue/approved-action`,
     KEPPO_LOCAL_QUEUE_CONSUMER_AUTH_HEADER: `Bearer ${cronToken}`,
     KEPPO_EXTERNAL_FETCH_ALLOWLIST: [...externalAllowlist].join(","),
     KEPPO_LOCAL_HOST_ALLOWLIST: [...localHostAllowlist].join(","),
