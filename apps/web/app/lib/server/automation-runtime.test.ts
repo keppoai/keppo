@@ -67,6 +67,7 @@ const createDeps = () => {
     }),
     getAutomationRunDispatchContext: vi.fn().mockResolvedValue(null),
     getOrgAiKey: vi.fn().mockResolvedValue(null),
+    getSubscriptionForOrg: vi.fn().mockResolvedValue(null),
     issueAutomationWorkspaceCredential: vi.fn().mockResolvedValue("keppo_secret_test"),
     storeAutomationRunSessionTrace: vi.fn().mockResolvedValue({ stored: true }),
     updateAutomationRunStatus: vi.fn().mockResolvedValue(undefined),
@@ -287,6 +288,7 @@ describe("start-owned automation runtime handlers", () => {
         }),
       },
     });
+    expect(dispatchArg.timeout_ms).toBe(60_000);
     expect(dispatchArg.runtime.command).toContain(
       "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
@@ -322,6 +324,82 @@ describe("start-owned automation runtime handlers", () => {
         sandboxId: "sandbox_test",
       }),
     );
+  });
+
+  it("uses the org tier max run duration for sandbox dispatch timeout", async () => {
+    const deps = createDeps();
+    deps.convex.getSubscriptionForOrg.mockResolvedValueOnce({
+      tier: "starter",
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_tier_timeout_test",
+        automation_id: "automation_tier_timeout_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_tier_timeout_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Tier timeout",
+        memory: "",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      key_mode: "byok",
+      provider: "openai",
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_tier_timeout_test", dispatch_token: "dispatch_token_test" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
+    expect(dispatchArg.timeout_ms).toBe(900_000);
   });
 
   it("fails closed when the resolved automation model is Anthropic because sandboxes always use Codex", async () => {
