@@ -49,18 +49,13 @@ describe("stripe auth facet", () => {
         return new Response(
           JSON.stringify({
             access_token: "stripe_access_token",
+            stripe_user_id: "acct_123",
             refresh_token: "stripe_refresh_token",
             expires_in: 120,
             scope: "read_write",
           }),
           { status: 200, headers: { "content-type": "application/json" } },
         );
-      }
-      if (url === "http://127.0.0.1:9901/stripe/v1/profile") {
-        return new Response(JSON.stringify({ id: "acct_123" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        });
       }
       throw new Error(`Unexpected URL ${url}`);
     });
@@ -81,6 +76,34 @@ describe("stripe auth facet", () => {
       scopes: ["stripe.read", "stripe.write"],
       externalAccountId: "acct_123",
     });
+  });
+
+  it("fails closed when Stripe token exchange omits stripe_user_id", async () => {
+    const httpClient = vi.fn(async (url: string) => {
+      if (url === "http://127.0.0.1:9901/stripe/oauth/token") {
+        return new Response(
+          JSON.stringify({
+            access_token: "stripe_access_token",
+            refresh_token: "stripe_refresh_token",
+            expires_in: 120,
+            scope: "read_write",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+
+    await expect(
+      auth.exchangeCredentials(
+        {
+          code: "oauth_code",
+          redirectUri: "http://127.0.0.1/oauth/integrations/stripe/callback",
+          scopes: ["stripe.read", "stripe.write"],
+        },
+        createRuntime(httpClient),
+      ),
+    ).rejects.toThrow(/did not return a provider account identifier/i);
   });
 
   it("normalizes Stripe refresh grants back to canonical app scopes", async () => {

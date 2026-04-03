@@ -20,7 +20,7 @@
 - Provider webhooks are accepted only after provider-specific signature verification.
 - Izzy treats the repo-scoped GitHub App user token as server-only session state: removing a login from `IZZY_ALLOWED_GITHUB_USERS` clears stored GitHub tokens, blocks refresh, and denies protected routes immediately.
 - Org-wide provider integration writes remain owner/admin-only even when the flow starts or completes through Start-owned OAuth routes; callback completion must be bound to the initiating authenticated owner/admin rather than only signed org-scoped state.
-- OAuth callback completion for org-scoped provider integrations fails closed unless the provider profile lookup returns a provider-issued external account identifier; tenant-owned ids such as `org_id` are never reused as persisted provider account ids.
+- OAuth callback completion for org-scoped provider integrations fails closed unless the provider token response or required provider profile lookup returns a provider-issued external account identifier; tenant-owned ids such as `org_id` are never reused as persisted provider account ids.
 - Provider-trigger delivery history stores only queue/match metadata plus payload references; operator-facing diagnostics must not expose raw provider payload bodies when skip reasons or lifecycle failures are enough.
 - E2E-only Convex helper mutations/queries are callable only when `KEPPO_E2E_MODE=true` and the runtime is local/test (`NODE_ENV in {development,test}`, `CONVEX_DEPLOYMENT=local:*`, or loopback Convex runtime URLs such as `CONVEX_CLOUD_URL=http://127.0.0.1:*`).
 

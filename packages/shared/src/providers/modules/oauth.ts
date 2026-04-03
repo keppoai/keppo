@@ -15,6 +15,7 @@ type OAuthResponse = {
   refresh_token?: string;
   expires_in?: number;
   scope?: string;
+  [key: string]: unknown;
 };
 
 export type ManagedOAuthConfig = {
@@ -37,6 +38,7 @@ export type ManagedOAuthConfig = {
   ) => Array<string>;
   authUrlParams?: Record<string, string>;
   profilePaths: Array<string>;
+  resolveExternalAccountIdFromTokenResponse?: (payload: OAuthResponse) => string | null;
   resolveExternalAccountId: (profile: Record<string, unknown>) => string | null;
 };
 
@@ -180,12 +182,9 @@ const exchangeOAuthCredentials = async (
       ? new Date(runtime.clock.now() + payload.expires_in * 1000).toISOString()
       : null;
 
-  const externalAccountId = await loadExternalAccountId(
-    providerId,
-    resolvedConfig,
-    payload.access_token,
-    runtime,
-  );
+  const externalAccountId =
+    resolvedConfig.resolveExternalAccountIdFromTokenResponse?.(payload) ??
+    (await loadExternalAccountId(providerId, resolvedConfig, payload.access_token, runtime));
 
   return {
     accessToken: payload.access_token,
