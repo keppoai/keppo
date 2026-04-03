@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildDedupMarker,
   createRepositoryIssue,
+  isRepositoryIssue,
   parseFindingMarkdown,
   sanitizeMentions,
 } from "../../scripts/bug-finder-recent/publish-issues.mjs";
@@ -90,7 +91,7 @@ describe("scripts/bug-finder-recent/publish-issues.mjs", () => {
     });
   });
 
-  it("neutralizes mentions before filing an issue and applies both workflow labels", async () => {
+  it("neutralizes mentions before filing an issue without auto-triggering follow-up automation", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({ number: 42, html_url: "https://example.com/issues/42", state: "open" }),
@@ -117,7 +118,16 @@ describe("scripts/bug-finder-recent/publish-issues.mjs", () => {
     expect(payload.title).toContain("@\u200bops");
     expect(payload.body).toContain("@\u200bops");
     expect(payload.body).toContain(buildDedupMarker("project-refresh-mentions-ops"));
-    expect(payload.labels).toEqual(["bugfinder", "/do-issue"]);
+    expect(payload.labels).toEqual(["bugfinder"]);
+  });
+
+  it("filters pull requests and invalid payloads out of repository issue lists", () => {
+    expect(isRepositoryIssue(null)).toBe(false);
+    expect(isRepositoryIssue("not-an-issue")).toBe(false);
+    expect(isRepositoryIssue({ number: 12, title: "Issue" })).toBe(true);
+    expect(isRepositoryIssue({ number: 99, pull_request: { url: "https://example.test" } })).toBe(
+      false,
+    );
   });
 
   it("sanitizes raw mention text consistently", () => {

@@ -32,7 +32,7 @@ Look for these categories of bugs:
    - Ignore `.md`, `.mdx`, docs-only files, generated files, snapshots, and test files.
    - Prefer bug-prone surfaces: mutations, queries, UI components, API routes, forms, state management, data fetching, error boundaries, webhooks, connectors, and workers.
    - Select exactly 25 starting files spread across different parts of the codebase.
-   - Use `scripts/select_recent_files.mjs 7 25` to produce the default candidate list, then adjust manually if the spread is poor.
+   - Use `.agents/skills/bug-finder-recent/scripts/select_recent_files.mjs 7 25` to produce the default candidate list, then adjust manually if the spread is poor.
    - Save the final list to `./out-bug-finder/selected-files.txt`.
 
 3. Launch one sub-agent per starting file.

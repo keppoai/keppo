@@ -3,7 +3,7 @@ name: Nightly Bug Finder Recent
 on:
   schedule:
     # GitHub Actions scheduled workflows run in UTC. 10:00 UTC lands at
-    # 2am PT during daylight saving time and 3am PT during standard time.
+    # 3am PT during daylight saving time and 2am PT during standard time.
     - cron: "0 10 * * *"
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ permissions: {}
 
 concurrency:
   group: bug-finder-recent
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   review:
@@ -95,6 +95,7 @@ jobs:
         run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/render-template.mjs"
 
       - name: Run Codex bug finder
+        id: run-codex-bug-finder
         if: env.AGENT_KIND == 'codex'
         timeout-minutes: 165
         env:
@@ -102,6 +103,7 @@ jobs:
         run: bash "${WORKFLOW_BASE_PATH}/scripts/codex-commit-review/run-codex.sh"
 
       - name: Run Claude bug finder
+        id: run-claude-bug-finder
         if: env.AGENT_KIND == 'claude'
         timeout-minutes: 165
         env:
@@ -138,7 +140,7 @@ jobs:
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
 
       - name: Create GitHub App token for issues
-        if: success()
+        if: ${{ !cancelled() }}
         id: issue-app-token
         uses: actions/create-github-app-token@v2
         with:
@@ -147,9 +149,11 @@ jobs:
           permission-issues: write
 
       - name: File issues and send notification
-        if: success()
+        if: ${{ !cancelled() }}
         env:
           AGENT_KIND: ${{ env.AGENT_KIND }}
+          CODEX_STEP_OUTCOME: ${{ steps.run-codex-bug-finder.outcome }}
+          CLAUDE_STEP_OUTCOME: ${{ steps.run-claude-bug-finder.outcome }}
           FINDINGS_DIR: ${{ env.FINDINGS_DIR }}
           GITHUB_API_URL: ${{ github.api_url }}
           GITHUB_REPOSITORY: ${{ github.repository }}

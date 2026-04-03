@@ -5,7 +5,6 @@ import { pathToFileURL } from "node:url";
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
 const BUG_LABEL = "bugfinder";
-const DO_ISSUE_LABEL = "/do-issue";
 const MAX_EXISTING_ISSUE_PAGES = 20;
 const REQUIRED_SECTION_HEADINGS = [
   "### Summary",
@@ -161,7 +160,8 @@ const readDedupMarker = (issueBody) => {
   return match ? match[1] : null;
 };
 
-const isRepositoryIssue = (issue) => !issue || typeof issue !== "object" || !("pull_request" in issue);
+export const isRepositoryIssue = (issue) =>
+  Boolean(issue) && typeof issue === "object" && !("pull_request" in issue);
 
 export const parseFindingMarkdown = (raw, filePath) => {
   const titleMatch = raw.match(/^#\s+(.+)$/m);
@@ -361,7 +361,7 @@ export const createRepositoryIssue = async ({
     body: JSON.stringify({
       title: `[${finding.severity.toUpperCase()}] ${safeTitle}`,
       body,
-      labels: [BUG_LABEL, DO_ISSUE_LABEL],
+      labels: [BUG_LABEL],
     }),
   });
 
@@ -432,8 +432,9 @@ const buildEmailSubject = ({
   skippedCount,
   failedCount,
   malformedCount,
+  operatorAlertsCount,
 }) => {
-  if (failedCount > 0 || malformedCount > 0) {
+  if (failedCount > 0 || malformedCount > 0 || operatorAlertsCount > 0) {
     if (findingsCount === 0 && malformedCount > 0) {
       return `[ALERT] bug-finder:recent (${agentLabel}) malformed output for ${repo}`;
     }
@@ -463,6 +464,7 @@ const sendSummaryEmail = async ({
   skipped,
   failed,
   malformed,
+  operatorAlerts,
   reachedPageCap,
   runUrl,
   sessionLogLinks,
@@ -479,6 +481,7 @@ const sendSummaryEmail = async ({
     skippedCount: skipped.length,
     failedCount: failed.length,
     malformedCount: malformed.length,
+    operatorAlertsCount: operatorAlerts.length,
   });
   const textSections = [
     `Repository: ${repo}`,
@@ -507,6 +510,9 @@ const sendSummaryEmail = async ({
     "",
     "Malformed findings:",
     ...(malformed.length === 0 ? ["- none"] : malformed.map((message) => `- ${message}`)),
+    "",
+    "Operator alerts:",
+    ...(operatorAlerts.length === 0 ? ["- none"] : operatorAlerts.map((message) => `- ${message}`)),
     "",
     "Issue creation failures:",
     ...(failed.length === 0
@@ -580,6 +586,14 @@ const sendSummaryEmail = async ({
           : malformed.map((message) => `<li>${escapeHtml(message)}</li>`).join("")
       }
     </ul>
+    <h3 style="margin:16px 0 8px;">Operator alerts</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        operatorAlerts.length === 0
+          ? "<li>none</li>"
+          : operatorAlerts.map((message) => `<li>${escapeHtml(message)}</li>`).join("")
+      }
+    </ul>
     <h3 style="margin:16px 0 8px;">Issue creation failures</h3>
     <ul style="margin:0 0 16px;padding-left:20px;">
       ${
@@ -647,14 +661,25 @@ export const main = async () => {
   const agentLabel = agentKind === "claude" ? "Claude" : "Codex";
   const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
   const runUrl = runId ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
+  const agentStepOutcome =
+    agentKind === "claude"
+      ? process.env.CLAUDE_STEP_OUTCOME?.trim() || "skipped"
+      : process.env.CODEX_STEP_OUTCOME?.trim() || "skipped";
+  const operatorAlerts =
+    agentStepOutcome === "success" || agentStepOutcome === "skipped"
+      ? []
+      : [
+          `${agentLabel} bug finder step ended with outcome "${agentStepOutcome}" before issue publication finished.`,
+        ];
 
   await appendStepSummary(`Findings reviewed: ${findings.length}`);
   await appendStepSummary(`Malformed finding files: ${malformed.length}`);
+  await appendStepSummary(`Agent step outcome: ${agentStepOutcome}`);
 
   if (findings.length === 0) {
     console.log("No confirmed critical/high bugs to file.");
     await appendStepSummary("Created issues: 0");
-    if (malformed.length > 0) {
+    if (malformed.length > 0 || operatorAlerts.length > 0) {
       await sendSummaryEmail({
         repo,
         agentLabel,
@@ -663,6 +688,7 @@ export const main = async () => {
         skipped: [],
         failed: [],
         malformed,
+        operatorAlerts,
         reachedPageCap: false,
         runUrl,
         sessionLogLinks,
@@ -671,13 +697,36 @@ export const main = async () => {
         mailgunDomain,
         fromEmail,
       });
-      throw new Error(malformed.join("\n"));
+      throw new Error([...malformed, ...operatorAlerts].join("\n"));
     }
     return;
   }
 
-  const token = requireEnv("BUG_FINDER_GITHUB_TOKEN");
+  const token = process.env.BUG_FINDER_GITHUB_TOKEN?.trim() || "";
   const apiBaseUrl = process.env.GITHUB_API_URL?.trim() || "https://api.github.com";
+  if (!token) {
+    operatorAlerts.push(
+      "Issue publisher did not receive a GitHub issues token, so findings could not be filed automatically.",
+    );
+    await sendSummaryEmail({
+      repo,
+      agentLabel,
+      findings,
+      created: [],
+      skipped: [],
+      failed: [],
+      malformed,
+      operatorAlerts,
+      reachedPageCap: false,
+      runUrl,
+      sessionLogLinks,
+      recipients,
+      mailgunApiKey,
+      mailgunDomain,
+      fromEmail,
+    });
+    throw new Error(operatorAlerts.join("\n"));
+  }
 
   await ensureLabel({
     apiBaseUrl,
@@ -686,14 +735,6 @@ export const main = async () => {
     label: BUG_LABEL,
     description: "Bug found by the nightly bug-finder:recent workflow",
   });
-  await ensureLabel({
-    apiBaseUrl,
-    repo,
-    token,
-    label: DO_ISSUE_LABEL,
-    description: "Kick off the issue-to-PR workflow for this issue",
-  });
-
   const { issues: existing, reachedPageCap } = await fetchExistingIssues({ apiBaseUrl, repo, token });
   const existingByDedupKey = new Map(
     existing
@@ -770,28 +811,33 @@ export const main = async () => {
     }
   }
 
-  await sendSummaryEmail({
-    repo,
-    agentLabel,
-    findings,
-    created,
-    skipped,
-    failed,
-    malformed,
-    reachedPageCap,
-    runUrl,
-    sessionLogLinks,
-    recipients,
-    mailgunApiKey,
-    mailgunDomain,
-    fromEmail,
-  });
+  const shouldSendSummaryEmail =
+    created.length > 0 || failed.length > 0 || malformed.length > 0 || operatorAlerts.length > 0;
+  if (shouldSendSummaryEmail) {
+    await sendSummaryEmail({
+      repo,
+      agentLabel,
+      findings,
+      created,
+      skipped,
+      failed,
+      malformed,
+      operatorAlerts,
+      reachedPageCap,
+      runUrl,
+      sessionLogLinks,
+      recipients,
+      mailgunApiKey,
+      mailgunDomain,
+      fromEmail,
+    });
+  }
 
   console.log(
     `Processed ${findings.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s), ${failed.length} failed.`,
   );
 
-  const terminalErrors = [...malformed, ...failed.map((entry) => entry.error)];
+  const terminalErrors = [...malformed, ...operatorAlerts, ...failed.map((entry) => entry.error)];
   if (terminalErrors.length > 0) {
     throw new Error(terminalErrors.join("\n"));
   }
