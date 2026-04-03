@@ -894,11 +894,14 @@ const recordAutomationRunOutcomeInternal = async (
   if (params.workspace_id !== undefined && run.workspace_id !== params.workspace_id) {
     throw new Error("AutomationRunWorkspaceMismatch");
   }
+  const runStatus = normalizeAutomationRunStatus(run);
   const existingOutcome = toAutomationRunOutcomeView(run);
   if (existingOutcome) {
     const canReplaceFallbackOutcome =
       existingOutcome.source === AUTOMATION_RUN_OUTCOME_SOURCE.fallbackMissing &&
-      params.source === AUTOMATION_RUN_OUTCOME_SOURCE.agentRecorded;
+      params.source === AUTOMATION_RUN_OUTCOME_SOURCE.agentRecorded &&
+      isAutomationRunTerminalStatus(runStatus) &&
+      params.success === (runStatus === AUTOMATION_RUN_STATUS.succeeded);
     if (canReplaceFallbackOutcome) {
       const record = buildAutomationRunOutcomeRecord(params);
       await ctx.db.patch(run._id, record.patch);
