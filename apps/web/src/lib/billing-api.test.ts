@@ -216,6 +216,7 @@ describe("start-owned billing api", () => {
         managed_payments: {
           enabled: true,
         },
+        allow_promotion_codes: true,
         line_items: [{ price: "price_starter_test", quantity: 1 }],
         client_reference_id: "org_test",
       }),

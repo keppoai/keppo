@@ -832,6 +832,7 @@ export const handleBillingCheckoutRequest = async (
       mode: "subscription",
       success_url: successUrl,
       cancel_url: cancelUrl,
+      allow_promotion_codes: true,
       line_items: [{ price: priceId, quantity: 1 }],
       client_reference_id: resolvedOrg.orgId,
       metadata: {
