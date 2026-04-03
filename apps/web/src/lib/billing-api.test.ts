@@ -515,6 +515,15 @@ describe("start-owned billing api", () => {
       ignored: true,
     });
     expect(deps.convex.addPurchasedAutomationRuns).not.toHaveBeenCalled();
+    expect(deps.convex.completeApiDedupeKey).toHaveBeenCalledWith({
+      scope: "webhook_delivery",
+      dedupeKey: "stripe-billing:automation-run-topup-purchase:pi_run_topup_invalid",
+    });
+    expect(deps.convex.completeApiDedupeKey).toHaveBeenCalledWith({
+      scope: "webhook_delivery",
+      dedupeKey: "stripe-billing:evt_run_topup_invalid",
+    });
+    expect(deps.convex.releaseApiDedupeKey).not.toHaveBeenCalled();
   });
 
   it("provisions bundled gateway keys on paid subscription updates", async () => {

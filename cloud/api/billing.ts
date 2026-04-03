@@ -2041,6 +2041,7 @@ export const handleStripeBillingWebhookRequest = async (
     return jsonResponse(request, { received: true, duplicate: true });
   }
 
+  let response: Response | null = null;
   try {
     if (
       event.type === "checkout.session.completed" ||
@@ -2127,38 +2128,40 @@ export const handleStripeBillingWebhookRequest = async (
                 toolCallTimeMs,
               });
               await completeBusinessDedupeKey(deps, businessKey);
-              return jsonResponse(request, { received: true, ignored: true });
+              response = jsonResponse(request, { received: true, ignored: true });
             }
-            const validatedTier = tier as BillingTier;
-            await deps.convex.addPurchasedAutomationRuns({
-              orgId,
-              tier: validatedTier,
-              multiplier,
-              runs,
-              toolCalls,
-              toolCallTimeMs,
-              priceCents,
-              stripePaymentIntentId: readCheckoutPaymentIntentId(session),
-            });
-            await deps.convex.createAuditEvent({
-              orgId,
-              actorType: AUDIT_ACTOR_TYPE.system,
-              actorId: "stripe",
-              eventType: AUDIT_EVENT_TYPES.billingAutomationRunTopupCheckoutCompleted,
-              payload: {
-                stripe_event_id: event.id,
-                stripe_event_type: event.type,
-                stripe_checkout_session_id: session.id,
+            if (!response) {
+              const validatedTier = tier as BillingTier;
+              await deps.convex.addPurchasedAutomationRuns({
+                orgId,
                 tier: validatedTier,
                 multiplier,
                 runs,
-                tool_calls: toolCalls,
-                tool_call_time_ms: toolCallTimeMs,
-                price_cents: priceCents,
-                stripe_payment_intent_id: readCheckoutPaymentIntentId(session),
-              },
-            });
-            await completeBusinessDedupeKey(deps, businessKey);
+                toolCalls,
+                toolCallTimeMs,
+                priceCents,
+                stripePaymentIntentId: readCheckoutPaymentIntentId(session),
+              });
+              await deps.convex.createAuditEvent({
+                orgId,
+                actorType: AUDIT_ACTOR_TYPE.system,
+                actorId: "stripe",
+                eventType: AUDIT_EVENT_TYPES.billingAutomationRunTopupCheckoutCompleted,
+                payload: {
+                  stripe_event_id: event.id,
+                  stripe_event_type: event.type,
+                  stripe_checkout_session_id: session.id,
+                  tier: validatedTier,
+                  multiplier,
+                  runs,
+                  tool_calls: toolCalls,
+                  tool_call_time_ms: toolCallTimeMs,
+                  price_cents: priceCents,
+                  stripe_payment_intent_id: readCheckoutPaymentIntentId(session),
+                },
+              });
+              await completeBusinessDedupeKey(deps, businessKey);
+            }
           } catch (error) {
             await releaseBusinessDedupeKey(deps, businessKey);
             throw error;
@@ -2412,7 +2415,7 @@ export const handleStripeBillingWebhookRequest = async (
     return jsonResponse(request, { error: { code: "webhook_processing_failed", message } }, 500);
   }
 
-  return jsonResponse(request, { received: true, duplicate: false });
+  return response ?? jsonResponse(request, { received: true, duplicate: false });
 };
 
 export const dispatchBillingRequest = async (
