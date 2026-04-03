@@ -224,6 +224,21 @@ export async function appendAutomationRunLogBatch(
   });
 }
 
+export async function storeAutomationRunSessionTrace(
+  client: ConvexHttpClient,
+  params: {
+    automationRunId: string;
+    relativePath: string;
+    contentBase64: string;
+  },
+): Promise<{ stored: boolean }> {
+  return (await client.action(refs.storeAutomationRunSessionTrace, {
+    automation_run_id: params.automationRunId,
+    relative_path: params.relativePath,
+    content_base64: params.contentBase64,
+  })) as { stored: boolean };
+}
+
 export type OrgAiKey = {
   id: string;
   org_id: string;

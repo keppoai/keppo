@@ -6,6 +6,7 @@ import {
   dispatchStartOwnedAutomationRuntimeRequest,
   handleInternalAutomationCompleteRequest,
   handleInternalAutomationDispatchRequest,
+  handleInternalAutomationSessionArtifactRequest,
   handleInternalAutomationTerminateRequest,
 } from "./automation-runtime";
 import { hasValidAutomationCallbackSignature } from "./api-runtime/routes/automations.ts";
@@ -66,6 +67,7 @@ const createDeps = () => {
     getAutomationRunDispatchContext: vi.fn().mockResolvedValue(null),
     getOrgAiKey: vi.fn().mockResolvedValue(null),
     issueAutomationWorkspaceCredential: vi.fn().mockResolvedValue("keppo_secret_test"),
+    storeAutomationRunSessionTrace: vi.fn().mockResolvedValue({ stored: true }),
     updateAutomationRunStatus: vi.fn().mockResolvedValue(undefined),
     upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
   };
@@ -273,6 +275,7 @@ describe("start-owned automation runtime handlers", () => {
       runtime: {
         network_access: "mcp_only",
         env: expect.objectContaining({
+          KEPPO_AUTOMATION_RUN_ID: "arun_dispatch_test",
           OPENAI_API_KEY: "openai-secret-test",
           KEPPO_MCP_BEARER_TOKEN: "keppo_secret_test",
           KEPPO_MCP_SERVER_URL: expect.stringContaining(
@@ -284,7 +287,7 @@ describe("start-owned automation runtime handlers", () => {
       },
     });
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
     expect(dispatchArg.runtime.command).toContain("<memory>");
@@ -292,8 +295,12 @@ describe("start-owned automation runtime handlers", () => {
       "Remember the operator prefers concise summaries.",
     );
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
+    expect(dispatchArg.runtime.command).toContain("trap '_keppo_on_term' TERM INT");
     expect(dispatchArg.runtime.callbacks.log_url).toContain("/internal/automations/log?");
     expect(dispatchArg.runtime.callbacks.complete_url).toContain("/internal/automations/complete?");
+    expect(dispatchArg.runtime.callbacks.session_artifact_url).toContain(
+      "/internal/automations/session-artifact?",
+    );
     expect(deps.convex.issueAutomationWorkspaceCredential).toHaveBeenCalledWith({
       workspaceId: "ws_test",
       automationRunId: "arun_dispatch_test",
@@ -527,9 +534,10 @@ describe("start-owned automation runtime handlers", () => {
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.network_access).toBe("mcp_and_web");
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2'",
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
     expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
+    expect(dispatchArg.runtime.command).not.toContain('sandbox_mode="workspace-write"');
   });
 
   it("dispatches bundled runs through the gateway and deducts runtime credits", async () => {
@@ -628,8 +636,9 @@ describe("start-owned automation runtime handlers", () => {
       OPENAI_BASE_URL: "https://gateway.keppo.test",
     });
     expect(dispatchArg.runtime.command).toContain(
-      "codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider=\"keppo_openai_api\"' --model 'gpt-5.2'",
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
+    expect(dispatchArg.runtime.command).toContain('model_provider="keppo_openai_api"');
     expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
   });
 
@@ -1477,6 +1486,203 @@ describe("start-owned automation runtime handlers", () => {
         ]),
       }),
     );
+  });
+
+  it("classifies real codex exec --json lines into structured run events", async () => {
+    const deps = createDeps();
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_dispatch_test",
+        automation_id: "automation_dispatch_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_dispatch_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Daily triage",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_dispatch_test", dispatch_token: "dispatch_token_test" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    const callbacks =
+      deps.sandboxProvider.dispatch.mock.calls[0]?.[0]?.runtime?.callbacks ??
+      ({} as Record<string, string>);
+    const logResponse = await dispatchStartOwnedAutomationRuntimeRequest(
+      withJson(callbacks.log_url.replace("http://127.0.0.1", ""), {
+        automation_run_id: "arun_dispatch_test",
+        lines: [
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+            content: '{"type":"thread.started","thread_id":"019d5482-fac0-76a2-a051-3f0e3c79ea8f"}',
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+            content:
+              '{"type":"item.completed","item":{"id":"item_0","type":"reasoning","text":"**Executing shell commands**\\n\\nI will run `pwd` to confirm the current directory, then return only that path."}}',
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+            content:
+              '{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}',
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+            content:
+              '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/private/tmp/work\\n","exit_code":0,"status":"completed"}}',
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+            content:
+              '{"type":"item.completed","item":{"id":"item_2","type":"agent_message","text":"/private/tmp/work"}}',
+          },
+          {
+            level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+            content:
+              '{"type":"turn.completed","usage":{"input_tokens":28132,"cached_input_tokens":17536,"output_tokens":325}}',
+          },
+        ],
+      }),
+      deps,
+    );
+
+    expect(logResponse?.status).toBe(200);
+    expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automationRunId: "arun_dispatch_test",
+        lines: expect.arrayContaining([
+          expect.objectContaining({
+            eventType: "system",
+            eventData: expect.objectContaining({
+              message: "Codex thread started.",
+              source: "codex_json",
+            }),
+          }),
+          expect.objectContaining({
+            eventType: "thinking",
+            eventData: expect.objectContaining({
+              source: "codex_json",
+            }),
+          }),
+          expect.objectContaining({
+            eventType: "tool_call",
+            eventData: {
+              tool_name: "command_execution",
+              args: {
+                command: "/bin/zsh -lc pwd",
+              },
+              source: "codex_json",
+            },
+          }),
+          expect.objectContaining({
+            eventType: "tool_call",
+            eventData: expect.objectContaining({
+              tool_name: "command_execution",
+              status: "success",
+              is_result: true,
+              result_text: "/private/tmp/work\n",
+              exit_code: 0,
+              source: "codex_json",
+            }),
+          }),
+          expect.objectContaining({
+            eventType: "output",
+            eventData: {
+              text: "/private/tmp/work",
+              format: "text",
+              source: "codex_json",
+            },
+          }),
+          expect.objectContaining({
+            eventType: "system",
+            eventData: expect.objectContaining({
+              message: "Codex turn completed.",
+              usage: {
+                input_tokens: 28132,
+                cached_input_tokens: 17536,
+                output_tokens: 325,
+              },
+            }),
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it("accepts signed session trace callbacks and stores the uploaded artifact privately", async () => {
+    const deps = createDeps();
+    const request = withJson(
+      "/internal/automations/session-artifact?automation_run_id=arun_test&expires=4102444800000&signature=" +
+        createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+          .update("/internal/automations/session-artifact:arun_test:4102444800000")
+          .digest("hex"),
+      {
+        automation_run_id: "arun_test",
+        relative_path: "sessions/2026/04/03/rollout-test.jsonl",
+        content_base64: Buffer.from('{"type":"thread.started"}\n', "utf8").toString("base64"),
+      },
+    );
+
+    const response = await handleInternalAutomationSessionArtifactRequest(request, deps);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      stored: true,
+    });
+    expect(deps.convex.storeAutomationRunSessionTrace).toHaveBeenCalledWith({
+      automationRunId: "arun_test",
+      relativePath: "sessions/2026/04/03/rollout-test.jsonl",
+      contentBase64: Buffer.from('{"type":"thread.started"}\n', "utf8").toString("base64"),
+    });
   });
 
   it("claims only the Start-owned internal automation runtime paths", async () => {

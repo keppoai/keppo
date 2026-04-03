@@ -411,6 +411,59 @@ describe("run log view model", () => {
     });
   });
 
+  it("merges codex --json command execution items into one tool-call bubble", () => {
+    const events = toRunEvents([
+      {
+        seq: 1,
+        level: "stdout",
+        content:
+          '{"type":"item.started","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"","exit_code":null,"status":"in_progress"}}',
+        timestamp: "2026-03-07T00:00:00.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "command_execution",
+          args: {
+            command: "/bin/zsh -lc pwd",
+          },
+          source: "codex_json",
+        },
+      },
+      {
+        seq: 2,
+        level: "stdout",
+        content:
+          '{"type":"item.completed","item":{"id":"item_1","type":"command_execution","command":"/bin/zsh -lc pwd","aggregated_output":"/private/tmp/work\\n","exit_code":0,"status":"completed"}}',
+        timestamp: "2026-03-07T00:00:01.000Z",
+        event_type: "tool_call",
+        event_data: {
+          tool_name: "command_execution",
+          args: {
+            command: "/bin/zsh -lc pwd",
+          },
+          status: "success",
+          is_result: true,
+          result_text: "/private/tmp/work\n",
+          exit_code: 0,
+          source: "codex_json",
+        },
+      },
+    ]);
+
+    expect(events).toHaveLength(1);
+    expect(events[0]).toMatchObject({
+      type: "tool_call",
+      toolName: "command_execution",
+      args: {
+        command: "/bin/zsh -lc pwd",
+      },
+      status: "success",
+      result: "/private/tmp/work\n",
+      resultText: "/private/tmp/work\n",
+      resultFormat: "text",
+      lastSeq: 2,
+    });
+  });
+
   it("merges automation-source tool payloads with Codex mcp lifecycle lines", () => {
     const events = toRunEvents([
       {

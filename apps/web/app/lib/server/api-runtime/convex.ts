@@ -64,6 +64,7 @@ import {
   getOrgAiKey as getOrgAiKeyImpl,
   ingestProviderEvent as ingestProviderEventImpl,
   matchAndQueueAutomationTriggers as matchAndQueueAutomationTriggersImpl,
+  storeAutomationRunSessionTrace as storeAutomationRunSessionTraceImpl,
   upsertBundledOrgAiKey as upsertBundledOrgAiKeyImpl,
   upsertOpenAiOauthKey as upsertOpenAiOauthKeyImpl,
   updateAutomationRunStatus as updateAutomationRunStatusImpl,
@@ -1050,6 +1051,14 @@ export class ConvexInternalClient {
     }>;
   }): Promise<void> {
     return appendAutomationRunLogBatchImpl(this.resilientClient, params);
+  }
+
+  async storeAutomationRunSessionTrace(params: {
+    automationRunId: string;
+    relativePath: string;
+    contentBase64: string;
+  }): Promise<{ stored: boolean }> {
+    return storeAutomationRunSessionTraceImpl(this.resilientClient, params);
   }
 
   async getOrgAiKey(params: {

@@ -11,7 +11,7 @@ const RUNNER_DIR = `${SANDBOX_WORKDIR}/.keppo-automation-runner`;
 const RUNNER_BIN_DIR = `${RUNNER_DIR}/node_modules/.bin`;
 const ENTRYPOINT_PATH = `${SANDBOX_WORKDIR}/keppo-automation-runner.mjs`;
 const SETUP_TIMEOUT_BUFFER_MS = 60_000;
-const TERMINATION_GRACE_MS = 2_000;
+const TERMINATION_GRACE_MS = 5_000;
 const SANDBOX_HANDLE_SEPARATOR = "::";
 const PINNED_CODEX_PACKAGE = "@openai/codex@0.118.0";
 
@@ -222,6 +222,7 @@ const buildRunnerEntrypoint = (): string => {
     'const RUNNER_BIN_DIR = process.env.KEPPO_RUNNER_BIN_DIR ?? "";',
     'const VERCEL_AUTOMATION_BYPASS_SECRET = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";',
     'const TIMEOUT_MS = Math.max(1, Number.parseInt(process.env.KEPPO_TIMEOUT_MS ?? "300000", 10) || 300000);',
+    'const TIMEOUT_GRACE_MS = Math.max(1, Number.parseInt(process.env.KEPPO_TIMEOUT_GRACE_MS ?? "5000", 10) || 5000);',
     "",
     "const runId = (() => {",
     "  try {",
@@ -308,7 +309,8 @@ const buildRunnerEntrypoint = (): string => {
     "",
     "const timeoutHandle = setTimeout(() => {",
     "  timedOut = true;",
-    '  child.kill("SIGKILL");',
+    '  child.kill("SIGTERM");',
+    '  setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
     "}, TIMEOUT_MS);",
     "timeoutHandle.unref?.();",
     "",
@@ -330,7 +332,7 @@ const buildRunnerEntrypoint = (): string => {
     "  }",
     "  cancelled = true;",
     '  child.kill("SIGTERM");',
-    '  setTimeout(() => child.kill("SIGKILL"), 5000).unref?.();',
+    '  setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
     "};",
     "",
     'process.on("SIGTERM", forwardTermination);',
@@ -430,8 +432,10 @@ export class VercelSandboxProvider implements SandboxProvider {
       KEPPO_RUNNER_COMMAND: config.runtime.command,
       KEPPO_RUNNER_BIN_DIR: RUNNER_BIN_DIR,
       KEPPO_TIMEOUT_MS: String(config.timeout_ms),
+      KEPPO_TIMEOUT_GRACE_MS: String(TERMINATION_GRACE_MS),
       KEPPO_LOG_CALLBACK_URL: config.runtime.callbacks.log_url,
       KEPPO_COMPLETE_CALLBACK_URL: config.runtime.callbacks.complete_url,
+      KEPPO_SESSION_ARTIFACT_CALLBACK_URL: config.runtime.callbacks.session_artifact_url,
       KEPPO_AUTOMATION_RUN_ID: runId,
       ...(config.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET
         ? { VERCEL_AUTOMATION_BYPASS_SECRET: config.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET }

@@ -271,8 +271,10 @@ export const storageIdsForResetRow = (
   if (table !== "automation_runs") {
     return [];
   }
-  const storageId = row.log_storage_id;
-  return typeof storageId === "string" ? [storageId as Id<"_storage">] : [];
+  const storageIds = [row.log_storage_id, row.session_trace_storage_id].filter(
+    (value): value is string => typeof value === "string",
+  );
+  return storageIds as Id<"_storage">[];
 };
 
 const E2E_AUTH_RESET_PAGE_SIZE = 250;

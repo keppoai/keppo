@@ -485,6 +485,8 @@ export default defineSchema({
     outcome_source: v.optional(v.union(automationRunOutcomeSourceValidator, v.null())),
     outcome_recorded_at: v.optional(v.union(v.string(), v.null())),
     log_storage_id: v.optional(v.union(v.id("_storage"), v.null())),
+    session_trace_storage_id: v.optional(v.union(v.id("_storage"), v.null())),
+    session_trace_relative_path: v.optional(v.union(v.string(), v.null())),
     created_at: v.optional(v.string()),
     // Legacy imported runs may omit workspace_id; new writes should always include it.
     workspace_id: v.optional(v.string()),

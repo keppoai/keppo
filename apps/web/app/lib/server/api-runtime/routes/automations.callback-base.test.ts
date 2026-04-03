@@ -35,19 +35,28 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("builds the current Codex exec runner command shape", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_only",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }' 'Review open issues'`,
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "byok",
+      credentialKind: "secret",
+      networkAccess: "mcp_only",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
+    expect(command).toContain('sandbox_mode="workspace-write"');
+    expect(command).toContain("sandbox_workspace_write={ network_access = false }");
+    expect(command).toContain("Review open issues");
+    expect(command).toContain("trap '_keppo_on_term' TERM INT");
+    expect(command).toContain('kill -TERM "$_keppo_runner_child_pid" 2>/dev/null || true');
+    expect(command).toContain("sh -lc 'codex exec --json --skip-git-repo-check");
+    expect(command).toContain("KEPPO_SESSION_ARTIFACT_CALLBACK_URL");
+    expect(command).toContain("relative_path");
+    expect(command).toContain("KEPPO_TIMEOUT_GRACE_MS:-5000");
   });
 
   it("wraps automation prompts with the record_outcome runtime contract", () => {
@@ -74,19 +83,21 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("leaves Codex network access at the default when the automation allows web access", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_and_web",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --model 'gpt-5.2' 'Review open issues'`,
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "byok",
+      credentialKind: "secret",
+      networkAccess: "mcp_and_web",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
+    expect(command).toContain("Review open issues");
+    expect(command).not.toContain('sandbox_mode="workspace-write"');
   });
 
   it("disallows Claude web tools when the automation is MCP-only", () => {
@@ -122,19 +133,21 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("routes bundled OpenAI Codex runs through the custom HTTPS-only provider", () => {
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "bundled",
-        credentialKind: "secret",
-        networkAccess: "mcp_and_web",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      aiModelProvider: "openai",
+      aiKeyMode: "bundled",
+      credentialKind: "secret",
+      networkAccess: "mcp_and_web",
+      model: "gpt-5.2",
+      prompt: "Review open issues",
+    });
+
+    expect(command).toContain(
+      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
     );
+    expect(command).toContain('model_provider="keppo_openai_api"');
+    expect(command).toContain("Review open issues");
   });
 
   it("keeps the bootstrap command secret-free and separate from the runner command", () => {
@@ -190,9 +203,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         model: "gpt-5.2",
         prompt: "Review open issues",
       }),
-    ).toBe(
-      `codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox --config 'model_provider="keppo_openai_api"' --model 'gpt-5.2' 'Review open issues'`,
-    );
+    ).toContain('model_provider="keppo_openai_api"');
 
     expect(
       buildRunnerAuthBootstrapCommand({

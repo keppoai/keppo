@@ -326,7 +326,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Structured log events:
   - `automation_run_logs` table includes optional `event_type` and `event_data` fields.
   - event types: `system`, `automation_config`, `thinking`, `tool_call`, `output`, `error`.
-  - log ingestion classifies raw sandbox output into structured events via pattern matching, including Codex `mcp: keppo/search_tools started`, `mcp: keppo/search_tools (completed)`, `mcp: keppo/execute_code started`, and `mcp: keppo/execute_code (completed)` lifecycle lines.
+  - log ingestion classifies raw sandbox output into structured events via pattern matching plus Codex `--json` parsing, including verified `thread.started`, `item.started`, `item.completed`, and `turn.completed` records and Codex `mcp: keppo/search_tools started`, `mcp: keppo/search_tools (completed)`, `mcp: keppo/execute_code started`, and `mcp: keppo/execute_code (completed)` lifecycle lines.
   - when an automation-authenticated MCP request executes `search_tools` or `execute_code`, the MCP route also appends narrow structured `tool_call` logs with the actual request payload and result summary so grouped timeline cards can show operator-useful details even though raw Codex lifecycle lines do not contain them.
   - legacy runs without event fields fall back to `raw` type rendering in the chat UI.
 - Log viewer behavior:

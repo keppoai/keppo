@@ -2,10 +2,12 @@ import { makeFunctionReference, paginationOptsValidator } from "convex/server";
 import { v } from "convex/values";
 import { type Doc, type Id } from "./_generated/dataModel";
 import {
+  internalAction,
   internalMutation,
   internalQuery,
   mutation,
   query,
+  type ActionCtx,
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
@@ -68,6 +70,9 @@ const refs = {
   getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
   emitNotificationForOrg: makeFunctionReference<"mutation">("notifications:emitNotificationForOrg"),
   dispatchAutomationRun: automationSchedulerRefs.dispatchAutomationRun,
+  finalizeAutomationRunSessionTraceStorage: makeFunctionReference<"mutation">(
+    "automation_runs:finalizeAutomationRunSessionTraceStorage",
+  ),
 };
 
 const MANUAL_AUTOMATION_TRIGGER_ROLES = [USER_ROLE.owner, USER_ROLE.admin] as const;
@@ -190,6 +195,8 @@ type AutomationRunRow = Doc<"automation_runs"> & {
   outcome_recorded_at: string | null;
   created_at: string;
   log_storage_id: Id<"_storage"> | null;
+  session_trace_storage_id: Id<"_storage"> | null;
+  session_trace_relative_path: string | null;
 };
 
 const requireAutomationRunShape = (run: Doc<"automation_runs"> | null): AutomationRunRow => {
@@ -216,6 +223,8 @@ const requireAutomationRunShape = (run: Doc<"automation_runs"> | null): Automati
     outcome_recorded_at: run.outcome_recorded_at ?? null,
     created_at: run.created_at ?? run.started_at,
     log_storage_id: run.log_storage_id ?? null,
+    session_trace_storage_id: run.session_trace_storage_id ?? null,
+    session_trace_relative_path: run.session_trace_relative_path ?? null,
   };
 };
 
@@ -697,6 +706,8 @@ const createAutomationRunInternal = async (
     outcome_source: null,
     outcome_recorded_at: null,
     log_storage_id: null,
+    session_trace_storage_id: null,
+    session_trace_relative_path: null,
     created_at: createdAt,
     mcp_session_id: null,
     client_type: "other",
@@ -884,6 +895,82 @@ const appendAutomationRunLogInternal = async (
   });
   // Single-element batch always produces exactly one result
   return results[0]!;
+};
+
+const MAX_AUTOMATION_RUN_SESSION_TRACE_BYTES = 5 * 1024 * 1024;
+const MAX_AUTOMATION_RUN_SESSION_TRACE_BASE64_LENGTH =
+  Math.ceil(MAX_AUTOMATION_RUN_SESSION_TRACE_BYTES / 3) * 4 + 4;
+
+const isValidSessionTraceRelativePath = (value: string): boolean => {
+  const normalized = value.trim().replace(/\\/g, "/");
+  if (!normalized.startsWith("sessions/")) {
+    return false;
+  }
+  const segments = normalized.split("/");
+  if (segments.length < 2) {
+    return false;
+  }
+  if (segments.some((segment) => segment.length === 0 || segment === "." || segment === "..")) {
+    return false;
+  }
+  return /\.(json|jsonl)$/u.test(normalized);
+};
+
+const decodeSessionTraceBase64 = (value: string): Buffer => {
+  const trimmed = value.trim();
+  if (
+    trimmed.length === 0 ||
+    trimmed.length > MAX_AUTOMATION_RUN_SESSION_TRACE_BASE64_LENGTH ||
+    !/^[A-Za-z0-9+/=]+$/u.test(trimmed)
+  ) {
+    throw new Error("AutomationRunSessionTraceInvalidContent");
+  }
+  const bytes = Buffer.from(trimmed, "base64");
+  if (bytes.byteLength === 0 || bytes.byteLength > MAX_AUTOMATION_RUN_SESSION_TRACE_BYTES) {
+    throw new Error("AutomationRunSessionTraceInvalidContent");
+  }
+  return bytes;
+};
+
+const inferSessionTraceContentType = (relativePath: string): string => {
+  return relativePath.endsWith(".jsonl") ? "application/x-ndjson" : "application/json";
+};
+
+const finalizeAutomationRunSessionTraceStorageInternal = async (
+  ctx: MutationCtx,
+  args: {
+    automation_run_id: string;
+    storage_id: Id<"_storage">;
+    relative_path: string;
+  },
+): Promise<{ stored: boolean }> => {
+  const row = await ctx.db
+    .query("automation_runs")
+    .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+    .unique();
+  const run = requireAutomationRunShape(row);
+  const rowId = row!._id;
+  if (run.session_trace_storage_id) {
+    return { stored: false };
+  }
+
+  await ctx.db.patch(rowId, {
+    session_trace_storage_id: args.storage_id,
+    session_trace_relative_path: args.relative_path,
+  });
+  await appendAutomationRunLogInternal(ctx, {
+    automation_run_id: args.automation_run_id,
+    level: "system",
+    content: `Stored Codex session trace artifact (${args.relative_path}).`,
+    event_type: "system",
+    event_data: {
+      message: `Stored Codex session trace artifact (${args.relative_path}).`,
+      kind: "codex_session_trace",
+      relative_path: args.relative_path,
+    },
+  });
+
+  return { stored: true };
 };
 
 const recordAutomationRunOutcomeInternal = async (
@@ -1450,6 +1537,58 @@ export const appendAutomationRunLogBatch = internalMutation({
   returns: v.array(automationRunLogLineValidator),
   handler: async (ctx, args) => {
     return await appendAutomationRunLogBatchInternal(ctx, args);
+  },
+});
+
+export const finalizeAutomationRunSessionTraceStorage = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    storage_id: v.id("_storage"),
+    relative_path: v.string(),
+  },
+  returns: v.object({
+    stored: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    return await finalizeAutomationRunSessionTraceStorageInternal(ctx, args);
+  },
+});
+
+export const storeAutomationRunSessionTrace = internalAction({
+  args: {
+    automation_run_id: v.string(),
+    relative_path: v.string(),
+    content_base64: v.string(),
+  },
+  returns: v.object({
+    stored: v.boolean(),
+  }),
+  handler: async (ctx: ActionCtx, args) => {
+    if (!isValidSessionTraceRelativePath(args.relative_path)) {
+      throw new Error("AutomationRunSessionTraceInvalidPath");
+    }
+
+    const bytes = decodeSessionTraceBase64(args.content_base64);
+    const storageId = await ctx.storage.store(
+      new Blob([new Uint8Array(bytes)], {
+        type: inferSessionTraceContentType(args.relative_path),
+      }),
+    );
+
+    try {
+      const result = await ctx.runMutation(refs.finalizeAutomationRunSessionTraceStorage, {
+        automation_run_id: args.automation_run_id,
+        storage_id: storageId,
+        relative_path: args.relative_path,
+      });
+      if (!result.stored) {
+        await ctx.storage.delete(storageId).catch(() => undefined);
+      }
+      return result;
+    } catch (error) {
+      await ctx.storage.delete(storageId).catch(() => undefined);
+      throw error;
+    }
   },
 });
 

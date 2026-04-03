@@ -47,6 +47,8 @@ const baseConfig = {
         "http://localhost:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "http://localhost:8787/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
+      session_artifact_url:
+        "http://localhost:8787/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
     },
   },
   timeout_ms: 120_000,
@@ -166,6 +168,7 @@ describe("DockerSandboxProvider", () => {
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_MCP_SERVER_URL=http://host.docker.internal:8787/mcp/ws_test",
     );
+    expect(runCall?.args.join(" ")).toContain("KEPPO_TIMEOUT_GRACE_MS=5000");
     expect(runCall?.args).toContain("-lc");
     const shellCommand = runCall?.args[runCall.args.length - 1] ?? "";
     expect(shellCommand).toContain(
@@ -173,6 +176,9 @@ describe("DockerSandboxProvider", () => {
     );
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_LOG_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
+    );
+    expect(runCall?.args.join(" ")).toContain(
+      "KEPPO_SESSION_ARTIFACT_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
     );
     expect(fetchFn).toHaveBeenCalledWith(
       baseConfig.runtime.callbacks.log_url,
@@ -292,6 +298,12 @@ describe("DockerSandboxProvider", () => {
         return child;
       }
 
+      if (args[0] === "stop") {
+        const child = new FakeChildProcess();
+        queueMicrotask(() => child.emit("close", 0));
+        return child;
+      }
+
       if (args[0] === "rm") {
         const child = new FakeChildProcess();
         queueMicrotask(() => child.emit("close", 0));
@@ -305,7 +317,7 @@ describe("DockerSandboxProvider", () => {
     const result = await provider.dispatch(baseConfig);
     await provider.terminate(result.sandbox_id);
 
-    expect(spawnCalls.some((args) => args[0] === "rm")).toBe(true);
+    expect(spawnCalls.some((args) => args[0] === "stop")).toBe(true);
 
     const activeWaitChild = waitChildren[0];
     activeWaitChild?.stdout?.write("137\n");
