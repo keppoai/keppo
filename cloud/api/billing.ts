@@ -285,7 +285,7 @@ const toStripeStatus = (status: string | null | undefined): SubscriptionStatus =
   return SUBSCRIPTION_STATUS.active;
 };
 
-const toTierFromPriceId = (priceId: string | null | undefined): SubscriptionTier => {
+const toTierFromPriceId = (priceId: string | null | undefined): BillingTier | null => {
   const env = getEnv();
   const starterPrice = env.STRIPE_STARTER_PRICE_ID;
   const proPrice = env.STRIPE_PRO_PRICE_ID;
@@ -295,7 +295,29 @@ const toTierFromPriceId = (priceId: string | null | undefined): SubscriptionTier
   if (priceId && proPrice && priceId === proPrice) {
     return SUBSCRIPTION_TIER.pro;
   }
-  return SUBSCRIPTION_TIER.free;
+  return null;
+};
+
+const requireKnownStripeSubscriptionTier = (params: {
+  eventType: Stripe.Event["type"];
+  stripeEventId: string;
+  stripeSubscriptionId: string;
+  priceId: string | null | undefined;
+  orgId?: string;
+}): BillingTier => {
+  const tier = toTierFromPriceId(params.priceId);
+  if (tier) {
+    return tier;
+  }
+
+  console.error("billing.webhook.subscription_tier_unresolved", {
+    eventType: params.eventType,
+    stripeEventId: params.stripeEventId,
+    stripeSubscriptionId: params.stripeSubscriptionId,
+    ...(params.orgId ? { orgId: params.orgId } : {}),
+    priceId: params.priceId ?? null,
+  });
+  throw new Error("Stripe subscription price does not match a known Keppo tier.");
 };
 
 const getTierPriceId = (tier: BillingTier): string | null => {
@@ -1531,7 +1553,7 @@ export const handleBillingSubscriptionChangeRequest = async (
     }
 
     const liveTier = toTierFromPriceId(currentPriceId);
-    if (liveTier === SUBSCRIPTION_TIER.free) {
+    if (!liveTier) {
       return jsonResponse(
         request,
         {
@@ -1917,7 +1939,7 @@ export const handleBillingSubscriptionPendingRequest = async (
       });
     }
     const pendingTier = toTierFromPriceId(nextPriceId);
-    if (pendingTier === SUBSCRIPTION_TIER.free || pendingTier === toTierFromPriceId(firstPriceId)) {
+    if (!pendingTier || pendingTier === toTierFromPriceId(firstPriceId)) {
       return jsonResponse(request, {
         cancel_at_period_end: false,
         pending_tier: null,
@@ -2290,11 +2312,18 @@ export const handleStripeBillingWebhookRequest = async (
               subscriptionId: subscription.id,
             });
             const priceId =
-              subscription.items.data[0]?.price.id ??
-              (typeof session.metadata?.tier === "string"
-                ? getTierPriceId(session.metadata.tier === "pro" ? "pro" : "starter")
+              readSubscriptionItemPriceId(subscription) ??
+              (session.metadata?.tier === SUBSCRIPTION_TIER.starter ||
+              session.metadata?.tier === SUBSCRIPTION_TIER.pro
+                ? getTierPriceId(session.metadata.tier)
                 : null);
-            const tier = toTierFromPriceId(priceId);
+            const tier = requireKnownStripeSubscriptionTier({
+              eventType: event.type,
+              stripeEventId: event.id,
+              stripeSubscriptionId: subscription.id,
+              orgId,
+              priceId,
+            });
             const status = toStripeStatus(subscription.status);
             const stripeCustomerId =
               typeof subscription.customer === "string"
@@ -2360,7 +2389,13 @@ export const handleStripeBillingWebhookRequest = async (
         subscriptionId: subscription.id,
         ...(existing?.org_id ? { orgId: existing.org_id } : {}),
       });
-      const tier = toTierFromPriceId(subscription.items.data[0]?.price.id ?? null);
+      const tier = requireKnownStripeSubscriptionTier({
+        eventType: event.type,
+        stripeEventId: event.id,
+        stripeSubscriptionId: subscription.id,
+        ...(existing?.org_id ? { orgId: existing.org_id } : {}),
+        priceId: readSubscriptionItemPriceId(subscription),
+      });
       const nextStatus = toStripeStatus(subscription.status);
       await deps.convex.setSubscriptionStatusByStripeSubscription({
         stripeSubscriptionId: subscription.id,
