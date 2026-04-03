@@ -13,8 +13,8 @@ const refs = {
   recordAutomationRunOutcome: makeFunctionReference<"mutation">(
     "automation_runs:recordAutomationRunOutcome",
   ),
-  storeAutomationRunSessionTrace: makeFunctionReference<"action">(
-    "automation_runs:storeAutomationRunSessionTrace",
+  recordAutomationRunTrace: makeFunctionReference<"mutation">(
+    "automation_runs:recordAutomationRunTrace",
   ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
@@ -82,9 +82,9 @@ describe("convex automation lifecycle functions", () => {
     ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
   });
 
-  it("stores a private codex session trace once and records a system log", async () => {
+  it("records an OpenAI trace reference once and logs the trace status", async () => {
     const t = createConvexTestHarness();
-    const orgId = "org_convex_automation_session_trace";
+    const orgId = "org_convex_automation_trace";
     const fixture = await seedAutomationFixture(t, orgId);
 
     const createdRun = await t.mutation(refs.createAutomationRun, {
@@ -92,19 +92,22 @@ describe("convex automation lifecycle functions", () => {
       trigger_type: "manual",
     });
 
-    const firstStore = await t.action(refs.storeAutomationRunSessionTrace, {
+    const firstStore = await t.mutation(refs.recordAutomationRunTrace, {
       automation_run_id: createdRun.id,
-      relative_path: "sessions/2026/04/03/rollout-test.jsonl",
-      content_base64: Buffer.from('{"type":"thread.started"}\n', "utf8").toString("base64"),
+      export_status: "exported",
+      trace_id: "trace_test_1",
+      group_id: "automation:automation_test",
+      workflow_name: "Keppo automation",
+      last_response_id: "resp_test_1",
     });
-    const secondStore = await t.action(refs.storeAutomationRunSessionTrace, {
+    const secondStore = await t.mutation(refs.recordAutomationRunTrace, {
       automation_run_id: createdRun.id,
-      relative_path: "sessions/2026/04/03/rollout-second.jsonl",
-      content_base64: Buffer.from('{"type":"turn.completed"}\n', "utf8").toString("base64"),
+      export_status: "failed",
+      error_message: "should not overwrite",
     });
 
-    expect(firstStore).toEqual({ stored: true });
-    expect(secondStore).toEqual({ stored: false });
+    expect(firstStore).toEqual({ recorded: true });
+    expect(secondStore).toEqual({ recorded: false });
 
     const storedState = await t.run(async (ctx) => {
       const run = await ctx.db
@@ -121,14 +124,13 @@ describe("convex automation lifecycle functions", () => {
       };
     });
 
-    expect(storedState.run?.session_trace_relative_path).toBe(
-      "sessions/2026/04/03/rollout-test.jsonl",
-    );
-    expect(storedState.run?.session_trace_storage_id).toBeTruthy();
+    expect(storedState.run?.trace_id).toBe("trace_test_1");
+    expect(storedState.run?.trace_group_id).toBe("automation:automation_test");
+    expect(storedState.run?.trace_workflow_name).toBe("Keppo automation");
+    expect(storedState.run?.trace_last_response_id).toBe("resp_test_1");
+    expect(storedState.run?.trace_export_status).toBe("exported");
     expect(
-      storedState.logs.filter((line) =>
-        line.content.includes("Stored Codex session trace artifact"),
-      ),
+      storedState.logs.filter((line) => line.content.includes("Recorded OpenAI trace reference")),
     ).toHaveLength(1);
   });
 

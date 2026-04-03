@@ -216,6 +216,13 @@ export const AUTOMATION_RUN_OUTCOME_SOURCE = {
   agentRecorded: "agent_recorded",
   fallbackMissing: "fallback_missing",
 } as const satisfies Record<string, AutomationRunOutcomeSource>;
+export const AUTOMATION_RUN_TRACE_EXPORT_STATUSES = ["exported", "disabled", "failed"] as const;
+export type AutomationRunTraceExportStatus = (typeof AUTOMATION_RUN_TRACE_EXPORT_STATUSES)[number];
+export const AUTOMATION_RUN_TRACE_EXPORT_STATUS = {
+  exported: "exported",
+  disabled: "disabled",
+  failed: "failed",
+} as const satisfies Record<string, AutomationRunTraceExportStatus>;
 export const AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH = 2000;
 export const AUTOMATION_MEMORY_MAX_LENGTH = 20_000;
 export const AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS = 60_000;
@@ -599,6 +606,7 @@ export const AUTOMATION_ROUTE_STATUSES = [
   "missing_ai_key",
   "dispatch_failed",
   "log_failed",
+  "trace_failed",
   "complete_failed",
   "invalid_signature",
 ] as const;
@@ -621,6 +629,7 @@ export const AUTOMATION_ROUTE_STATUS = {
   missingAiKey: "missing_ai_key",
   dispatchFailed: "dispatch_failed",
   logFailed: "log_failed",
+  traceFailed: "trace_failed",
   completeFailed: "complete_failed",
   invalidSignature: "invalid_signature",
 } as const satisfies Record<string, AutomationRouteStatus>;

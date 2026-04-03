@@ -34,29 +34,14 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     ).not.toThrow();
   });
 
-  it("builds the current Codex exec runner command shape", () => {
+  it("builds the managed Agents SDK runner command shape", () => {
     const command = buildRunnerCommand({
       runnerType: "chatgpt_codex",
+      providerMode: "docker",
       aiModelProvider: "openai",
-      aiKeyMode: "byok",
-      credentialKind: "secret",
-      networkAccess: "mcp_only",
-      model: "gpt-5.2",
-      prompt: "Review open issues",
     });
 
-    expect(command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
-    );
-    expect(command).toContain('sandbox_mode="workspace-write"');
-    expect(command).toContain("sandbox_workspace_write={ network_access = false }");
-    expect(command).toContain("Review open issues");
-    expect(command).toContain("trap '_keppo_on_term' TERM INT");
-    expect(command).toContain('kill -TERM "$_keppo_runner_child_pid" 2>/dev/null || true');
-    expect(command).toContain("sh -lc 'codex exec --json --skip-git-repo-check");
-    expect(command).toContain("KEPPO_SESSION_ARTIFACT_CALLBACK_URL");
-    expect(command).toContain("relative_path");
-    expect(command).toContain("KEPPO_TIMEOUT_GRACE_MS:-5000");
+    expect(command).toBe("node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'");
   });
 
   it("wraps automation prompts with the record_outcome runtime contract", () => {
@@ -82,74 +67,38 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     expect(prompt).not.toContain("</memory>");
   });
 
-  it("leaves Codex network access at the default when the automation allows web access", () => {
+  it("uses the Vercel runner entrypoint inside the managed runner directory", () => {
     const command = buildRunnerCommand({
       runnerType: "chatgpt_codex",
+      providerMode: "vercel",
       aiModelProvider: "openai",
-      aiKeyMode: "byok",
-      credentialKind: "secret",
-      networkAccess: "mcp_and_web",
-      model: "gpt-5.2",
-      prompt: "Review open issues",
     });
 
-    expect(command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
+    expect(command).toBe(
+      "node '/vercel/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     );
-    expect(command).toContain("Review open issues");
-    expect(command).not.toContain('sandbox_mode="workspace-write"');
   });
 
-  it("still builds a Codex command when legacy runner metadata says claude_code", () => {
+  it("still builds the Agents SDK command when legacy runner metadata says claude_code", () => {
     const command = buildRunnerCommand({
       runnerType: "claude_code",
+      providerMode: "docker",
       aiModelProvider: "openai",
-      aiKeyMode: "byok",
-      credentialKind: "secret",
-      networkAccess: "mcp_only",
-      model: "gpt-5.2",
-      prompt: "Review open issues",
     });
 
-    expect(command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
-    );
-    expect(command).toContain("Review open issues");
-    expect(command).toContain('sandbox_mode="workspace-write"');
+    expect(command).toBe("node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'");
   });
 
   it("rejects Anthropic automation models for sandbox runs", () => {
     expect(() =>
       buildRunnerCommand({
         runnerType: "claude_code",
+        providerMode: "docker",
         aiModelProvider: "anthropic",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_only",
-        model: "claude-sonnet-4-6",
-        prompt: "Review open issues",
       }),
     ).toThrow(
-      "automation_route_failed: Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+      "automation_route_failed: Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
     );
-  });
-
-  it("routes bundled OpenAI Codex runs through the custom HTTPS-only provider", () => {
-    const command = buildRunnerCommand({
-      runnerType: "chatgpt_codex",
-      aiModelProvider: "openai",
-      aiKeyMode: "bundled",
-      credentialKind: "secret",
-      networkAccess: "mcp_and_web",
-      model: "gpt-5.2",
-      prompt: "Review open issues",
-    });
-
-    expect(command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
-    );
-    expect(command).toContain('model_provider="keppo_openai_api"');
-    expect(command).toContain("Review open issues");
   });
 
   it("keeps the bootstrap command secret-free and separate from the runner command", () => {
@@ -158,12 +107,10 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         runnerType: "claude_code",
         providerMode: "docker",
       }),
-    ).toBe(
-      `mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home' && codex mcp add keppo --url "$KEPPO_MCP_SERVER_URL" --bearer-token-env-var KEPPO_MCP_BEARER_TOKEN`,
-    );
+    ).toBe("true");
   });
 
-  it("builds the auth bootstrap command for Codex BYOK", () => {
+  it("does not require a separate auth bootstrap command for BYOK", () => {
     expect(
       buildRunnerAuthBootstrapCommand({
         runnerType: "chatgpt_codex",
@@ -172,52 +119,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         aiKeyMode: "byok",
         credentialKind: "secret",
       }),
-    ).toBe(
-      `mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home' && printenv OPENAI_API_KEY | codex login --with-api-key`,
-    );
-  });
-
-  it("configures a custom HTTPS-only OpenAI provider for bundled runs", () => {
-    expect(
-      buildRunnerAuthBootstrapCommand({
-        runnerType: "chatgpt_codex",
-        providerMode: "docker",
-        aiModelProvider: "openai",
-        aiKeyMode: "bundled",
-        credentialKind: "secret",
-      }),
-    ).toBe(
-      `mkdir -p '/sandbox/.keppo-codex-home/.codex' && export HOME='/sandbox/.keppo-codex-home' && touch "$HOME/.codex/config.toml" && printf '\\n[model_providers.keppo_openai_api]\\nname = "Keppo OpenAI API"\\nbase_url = "%s"\\nenv_key = "OPENAI_API_KEY"\\nwire_api = "responses"\\nrequires_openai_auth = false\\nsupports_websockets = false\\n' "$OPENAI_BASE_URL" >> "$HOME/.codex/config.toml" && chmod 600 "$HOME/.codex/config.toml"`,
-    );
-  });
-
-  it("configures the fake OpenAI base URL via the custom HTTPS-only provider in E2E", () => {
-    vi.stubEnv("KEPPO_E2E_MODE", "true");
-    vi.stubEnv("KEPPO_E2E_OPENAI_BASE_URL", "http://127.0.0.1:9901");
-
-    expect(
-      buildRunnerCommand({
-        runnerType: "chatgpt_codex",
-        aiModelProvider: "openai",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-        networkAccess: "mcp_and_web",
-        model: "gpt-5.2",
-        prompt: "Review open issues",
-      }),
-    ).toContain('model_provider="keppo_openai_api"');
-
-    expect(
-      buildRunnerAuthBootstrapCommand({
-        runnerType: "chatgpt_codex",
-        providerMode: "docker",
-        aiModelProvider: "openai",
-        aiKeyMode: "byok",
-        credentialKind: "secret",
-      }),
-    ).toBe(
-      `mkdir -p '/sandbox/.keppo-codex-home/.codex' && export HOME='/sandbox/.keppo-codex-home' && touch "$HOME/.codex/config.toml" && printf '\\n[model_providers.keppo_openai_api]\\nname = "Keppo OpenAI API"\\nbase_url = "%s"\\nenv_key = "OPENAI_API_KEY"\\nwire_api = "responses"\\nrequires_openai_auth = false\\nsupports_websockets = false\\n' "$KEPPO_E2E_OPENAI_BASE_URL" >> "$HOME/.codex/config.toml" && chmod 600 "$HOME/.codex/config.toml"`,
-    );
+    ).toBe("true");
   });
 
   it("allows Codex with an OpenAI BYOK key", () => {
@@ -248,11 +150,11 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         aiKeyMode: "byok",
       }),
     ).toThrow(
-      "automation_route_failed: Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+      "automation_route_failed: Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
     );
   });
 
-  it("builds the OpenAI OAuth auth bootstrap command shape", () => {
+  it("does not require a separate OpenAI OAuth auth bootstrap command shape", () => {
     expect(
       buildRunnerAuthBootstrapCommand({
         runnerType: "chatgpt_codex",
@@ -261,20 +163,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         aiKeyMode: "subscription_token",
         credentialKind: "openai_oauth",
       }),
-    ).toBe(
-      `mkdir -p '/sandbox/.keppo-codex-home/.codex' && export HOME='/sandbox/.keppo-codex-home' && printf '%s' "$OPENAI_CODEX_AUTH_JSON" > "$HOME/.codex/auth.json" && chmod 600 "$HOME/.codex/auth.json"`,
-    );
-  });
-
-  it("uses the Vercel sandbox workdir for Codex home", () => {
-    expect(
-      buildRunnerBootstrapCommand({
-        runnerType: "chatgpt_codex",
-        providerMode: "vercel",
-      }),
-    ).toBe(
-      `mkdir -p '/vercel/sandbox/.keppo-codex-home' && export HOME='/vercel/sandbox/.keppo-codex-home' && codex mcp add keppo --url "$KEPPO_MCP_SERVER_URL" --bearer-token-env-var KEPPO_MCP_BEARER_TOKEN`,
-    );
+    ).toBe("true");
   });
 
   it("resolves the default automation MCP URL to a workspace route", () => {

@@ -20,7 +20,7 @@
 - Automation configs and runs live in Convex.
 - Provider-trigger configs persist a provider id, provider trigger key, schema version, structured filter payload, preferred/fallback delivery modes, and provider-managed subscription state instead of only flat event strings.
 - API dispatches automation runs to a sandbox provider selected by `KEPPO_SANDBOX_PROVIDER` (`docker`, `vercel`, or `unikraft`).
-- Automation configs may still store legacy runner metadata (`chatgpt_codex` or `claude_code`), but sandbox execution always dispatches through the managed Codex runner and rejects Anthropic/Claude automation models fail-closed.
+- Automation configs may still store legacy runner metadata (`chatgpt_codex` or `claude_code`), but sandbox execution always dispatches through the managed `openai-agents-js` runner and rejects Anthropic/Claude automation models fail-closed.
 - Sandboxes stream logs and completion back through signed callback routes; termination is a separate internal route.
 
 ## Code Mode
@@ -85,35 +85,33 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - `POST /internal/automations/dispatch`
   - `POST /internal/automations/terminate`
   - `POST /internal/automations/log`
-  - `POST /internal/automations/session-artifact`
+  - `POST /internal/automations/trace`
   - `POST /internal/automations/complete`
 - `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the targeted `automation_run_id`; the runtime must reject requests that cannot claim that short-lived per-run token before decrypting org-scoped AI credentials, claims become invalid once the run leaves `pending`, and scheduler retries must reuse the exact recent in-flight token for a pending run rather than replacing or recomputing it. If a reused claim later returns `404 run_not_found`, the scheduler must retry with a fresh claim instead of leaving the run pending indefinitely.
 - Sandbox provider interface is environment-switched (`docker` for local, `vercel` or `unikraft` for production-tier deployments) with contract:
-  - `dispatch({ bootstrap: { command, env, network_access }, runtime: { command, env, network_access, callbacks }, timeout_ms })`
+  - `dispatch({ bootstrap: { command, env, network_access }, runtime: { command, env, network_access, callbacks, runner }, timeout_ms })`
   - `terminate(sandbox_id)`
 - Local `docker` sandbox provider behavior:
   - builds or reuses the local sandbox image from `apps/web/app/lib/server/api-runtime/sandbox/Dockerfile`,
   - launches each automation run in a real detached Docker container instead of a host subprocess,
   - rewrites loopback MCP/callback targets (`localhost`, `127.0.0.1`, `::1`) to `host.docker.internal` for in-container reachability,
-  - uses a soft-stop grace window before force-removing timed-out or terminated containers so the in-sandbox runner wrapper can attempt a final Codex session-artifact upload,
+  - materializes the repo-owned runner entrypoint from the base64 source payload inside `/sandbox/.keppo-automation-runner/` before executing `KEPPO_RUNNER_COMMAND`,
   - streams container stdout/stderr back through the existing signed log callback and posts terminal completion from the api-runtime host after `docker wait`,
   - stores `sandbox_id` as the Start-owned runtime sandbox handle used for later container termination.
 - Production `vercel` sandbox provider behavior:
   - creates a Vercel Sandbox VM with separate bootstrap/runtime stages,
-  - keeps bootstrap env minimal and restricted to package-registry networking while installing the pinned Codex CLI (`@openai/codex@0.118.0`),
+  - keeps bootstrap env minimal and restricted to package-registry networking while installing the explicit managed runner packages from `runtime.runner.install_packages` (currently `@openai/agents@0.8.2`),
+  - writes both the shared sandbox wrapper and the repo-owned runner source into the VM before execution,
   - launches an in-sandbox Node wrapper that executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
-  - escalates timeouts and terminate requests from `SIGTERM` to `SIGKILL` only after a short grace window so the runner shell can upload the latest Codex session artifact before the VM is stopped,
-  - maps the saved automation `network_access` mode into both sandbox egress policy and the managed Codex runner flags (`codex exec` uses `--config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'` for `mcp_only` and otherwise relies on the default network-enabled behavior for `mcp_and_web`),
   - stores `sandbox_id` as an opaque sandbox-handle that includes the detached command identifier so terminate requests can signal the runner process before stopping the VM,
-  - when Deployment Protection is enabled in `preview` or `staging`, uses `VERCEL_AUTOMATION_BYPASS_SECRET` for Convex dispatch/terminate requests and sandbox-origin callback traffic, and appends the same bypass token to sandbox MCP URLs because the runner CLI can only consume the MCP endpoint as a URL; `production` does not inject or propagate that bypass secret,
-  - constrains `mcp_only` runs to the MCP host, callback host, and model-provider API host(s); `mcp_and_web` remains unrestricted.
+  - when Deployment Protection is enabled in `preview` or `staging`, uses `VERCEL_AUTOMATION_BYPASS_SECRET` for Convex dispatch/terminate requests and sandbox-origin callback traffic, and appends the same bypass token to sandbox MCP URLs; `production` does not inject or propagate that bypass secret,
+  - constrains `mcp_only` runs to the MCP host, callback host, model-provider API host(s), and OpenAI trace-export host when tracing is enabled; `mcp_and_web` remains unrestricted.
 - Production `unikraft` sandbox provider behavior:
   - creates a Unikraft Cloud MicroVM from an OCI image referenced by `UNIKRAFT_SANDBOX_IMAGE`,
-  - injects the composed runner command and the signed log/completion callback URLs through environment variables (`KEPPO_RUNNER_COMMAND`, `KEPPO_LOG_CALLBACK_URL`, `KEPPO_COMPLETE_CALLBACK_URL`, `KEPPO_TIMEOUT_MS`),
-  - reuses the same automation sandbox image contract as Docker, so the guest entrypoint reads `KEPPO_RUNNER_COMMAND` and launches the requested runner inside the MicroVM; image-based Codex runs inherit the same pinned `@openai/codex@0.118.0` install as the local Docker sandbox image,
+  - injects the composed runner command, signed log/trace/completion callback URLs, and the base64 runner source through environment variables (`KEPPO_RUNNER_COMMAND`, `KEPPO_LOG_CALLBACK_URL`, `KEPPO_TRACE_CALLBACK_URL`, `KEPPO_COMPLETE_CALLBACK_URL`, `KEPPO_TIMEOUT_MS`),
+  - reuses the same automation sandbox image contract as Docker, so the guest entrypoint materializes the runner source and launches the requested Node entrypoint inside the MicroVM,
   - polls instance logs through the Unikraft REST API and forwards bounded stdout batches to `/internal/automations/log`,
   - posts terminal completion from the host after the instance reaches a terminal state or is cancelled/timed out,
-  - uses the Unikraft drain-timeout stop path before deletion so timed-out or cancelled runs get a last chance to upload the newest Codex session artifact from inside the guest,
   - deletes the instance on completion, timeout, or cancellation instead of relying on persistent VM state,
   - does not enforce instance-level egress policy; `mcp_only` versus `mcp_and_web` continues to be enforced at the runner/tooling layer.
 - Code Mode `unikraft` sandbox behavior:
@@ -130,13 +128,13 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - create automation-attributed MCP session identity and update run lifecycle to `running`,
   - issue an automation-scoped workspace credential whose auth metadata includes the owning `automation_run_id` so automation-only MCP tools can be enforced at runtime,
   - revoke automation-issued credentials on terminal lifecycle transitions and reject them at MCP auth time if the referenced run is missing, workspace-mismatched, or already terminal,
-  - wrap the saved automation prompt with runtime-owned instructions that require a final `record_outcome({ success, summary })` tool call exactly once, define approval-waiting as `success=true` when the requested work is otherwise complete, and inject non-empty automation memory inside a `<memory>...</memory>` block ahead of the task prompt.
+  - wrap the saved automation prompt with runtime-owned instructions that require a final `record_outcome({ success, summary })` tool call exactly once, define approval-waiting as `success=true` when the requested work is otherwise complete, and inject non-empty automation memory inside a `<memory>...</memory>` block ahead of the task prompt,
+  - derive stable run-scoped OpenAI trace identifiers server-side and pass them into the sandbox runner together with trace-export configuration.
 - Callback/log contract:
   - log/complete callback URLs are HMAC-signed and include run-scoped expiry metadata.
-  - ChatGPT Codex automation runs invoke `codex exec --json` so live sandbox stdout is a structured JSONL event stream rather than only human-oriented stderr text.
-  - Codex runner commands are wrapped in a shell that traps graceful termination, asks the child runner to stop, waits briefly, and then attempts a final upload of the newest Codex session file before exiting.
-  - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`; Codex `--json` records are classified into the existing structured event types (`system`, `thinking`, `tool_call`, `output`, `error`) before persistence.
-  - `/internal/automations/session-artifact` accepts a signed upload of the newest Codex session file from `$HOME/.codex/sessions/**/*.json|jsonl`, stores it in private Convex storage, and records only metadata plus a short system log line in the run timeline. Normal exits and graceful timeout/termination paths both use this same callback.
+  - sandboxed OpenAI automation runs execute a repo-owned `openai-agents-js` runner over the HTTP Responses transport, not `codex exec`.
+  - `/internal/automations/log` appends bounded log lines through `automation_runs:appendAutomationRunLog`; the runner sends explicit `event_type` and `event_data` metadata for the existing structured event types (`system`, `thinking`, `tool_call`, `output`, `error`) and the server keeps the old line-classification path only as a legacy fallback.
+  - `/internal/automations/trace` accepts a signed run-scoped payload that records `trace_id`, `group_id`, `workflow_name`, `last_response_id`, and trace export status on `automation_runs`, plus a short system/error log line describing the export result.
   - `/internal/automations/complete` transitions run to terminal state via `automation_runs:updateAutomationRunStatus`, retries transient persistence failures with exponential backoff before surfacing a typed `complete_failed` response, and logs the failed terminal write with the run id and intended terminal status when retries are exhausted.
   - automation-backed MCP sessions expose three internal tools unavailable to normal MCP clients: `record_outcome`, `add_memory`, and `edit_memory`.
   - `add_memory` appends durable context onto the owning automation's shared memory string and fails once the automation would exceed `20,000` characters, with guidance to remove or compact older content first.

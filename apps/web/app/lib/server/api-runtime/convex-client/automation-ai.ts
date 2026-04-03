@@ -16,6 +16,7 @@ import type {
   AutomationRunLogLevel,
   AutomationRunOutcomeSource,
   AutomationRunStatus,
+  AutomationRunTraceExportStatus,
   AutomationRunTriggerType,
   AutomationRunnerType,
   AutomationStatus,
@@ -222,6 +223,29 @@ export async function appendAutomationRunLogBatch(
       ...(line.eventData !== undefined ? { event_data: line.eventData } : {}),
     })),
   });
+}
+
+export async function recordAutomationRunTrace(
+  client: ConvexHttpClient,
+  params: {
+    automationRunId: string;
+    exportStatus: AutomationRunTraceExportStatus;
+    traceId?: string;
+    groupId?: string;
+    workflowName?: string;
+    lastResponseId?: string;
+    errorMessage?: string;
+  },
+): Promise<{ recorded: boolean }> {
+  return (await client.mutation(refs.recordAutomationRunTrace, {
+    automation_run_id: params.automationRunId,
+    export_status: params.exportStatus,
+    ...(params.traceId !== undefined ? { trace_id: params.traceId } : {}),
+    ...(params.groupId !== undefined ? { group_id: params.groupId } : {}),
+    ...(params.workflowName !== undefined ? { workflow_name: params.workflowName } : {}),
+    ...(params.lastResponseId !== undefined ? { last_response_id: params.lastResponseId } : {}),
+    ...(params.errorMessage !== undefined ? { error_message: params.errorMessage } : {}),
+  })) as { recorded: boolean };
 }
 
 export async function storeAutomationRunSessionTrace(

@@ -71,7 +71,7 @@
   - Server-side OAuth connect state for org-scoped integrations also stores the initiating user binding, and callback completion revalidates that same user still has owner/admin integration-management rights before shared credentials are written.
 - Stuck-run safety:
   - sandbox providers enforce timeout with a short graceful-stop window first, then escalate to a hard stop if the runner does not exit.
-  - the in-sandbox Codex runner wrapper uses that grace window to attempt a final private session-artifact upload before the provider completes timeout teardown.
+  - the in-sandbox automation runner uses that grace window only to flush any remaining logs or trace-export work before the provider completes timeout teardown; durable trace references are recorded through the signed `/internal/automations/trace` callback instead of filesystem artifact uploads.
   - Convex reaper cron (`automation_scheduler:reapStaleRuns`) marks stale runs `timed_out` and requests sandbox termination.
 
 ### Automation credential and key protection

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { VercelSandboxProvider } from "../../../../../../../cloud/api/sandbox/vercel.js";
 import { buildRunnerCommand } from "../routes/automations";
+import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
 
 const baseConfig = {
   bootstrap: {
@@ -9,16 +10,11 @@ const baseConfig = {
     network_access: "package_registry_only" as const,
   },
   runtime: {
-    bootstrap_command:
-      "mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home'",
+    bootstrap_command: "true",
     command: buildRunnerCommand({
       runnerType: "chatgpt_codex",
+      providerMode: "vercel",
       aiModelProvider: "openai",
-      aiKeyMode: "byok",
-      credentialKind: "secret",
-      networkAccess: "mcp_only",
-      model: "gpt-5.2",
-      prompt: "hello",
     }),
     env: {},
     network_access: "mcp_only" as const,
@@ -27,9 +23,10 @@ const baseConfig = {
         "https://api.keppo.ai/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "https://api.keppo.ai/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
-      session_artifact_url:
-        "https://api.keppo.ai/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
+      trace_url:
+        "https://api.keppo.ai/internal/automations/trace?automation_run_id=arun_test&expires=1&signature=abc",
     },
+    runner: buildSandboxRunnerContract("vercel"),
   },
   timeout_ms: 120_000,
 };
@@ -92,7 +89,7 @@ describe("VercelSandboxProvider", () => {
           "--no-fund",
           "--prefix",
           "/vercel/sandbox/.keppo-automation-runner",
-          "@openai/codex@0.118.0",
+          "@openai/agents@0.8.2",
         ],
         env: {},
       }),
@@ -106,15 +103,20 @@ describe("VercelSandboxProvider", () => {
           KEPPO_RUNNER_BOOTSTRAP_COMMAND: baseConfig.runtime.bootstrap_command,
           KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
           KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
-          KEPPO_SESSION_ARTIFACT_CALLBACK_URL: baseConfig.runtime.callbacks.session_artifact_url,
+          KEPPO_TRACE_CALLBACK_URL: baseConfig.runtime.callbacks.trace_url,
           KEPPO_TIMEOUT_GRACE_MS: "5000",
         }),
       }),
     );
     const writtenEntrypoint = writeFiles.mock.calls[0]?.[0]?.[0];
-    expect(writtenEntrypoint?.path).toBe("/vercel/sandbox/keppo-automation-runner.mjs");
+    expect(writtenEntrypoint?.path).toBe("/vercel/sandbox/keppo-automation-runner-wrapper.mjs");
     expect(Buffer.from(writtenEntrypoint?.content ?? "").toString("utf8")).toContain(
       'child.kill("SIGTERM");',
+    );
+    const writtenRunner = writeFiles.mock.calls[0]?.[0]?.[1];
+    expect(writtenRunner?.path).toBe(baseConfig.runtime.runner.entrypoint_path);
+    expect(Buffer.from(writtenRunner?.content ?? "").toString("utf8")).toContain(
+      'from "@openai/agents"',
     );
     expect(updateNetworkPolicy).toHaveBeenCalledTimes(1);
     expect(writeFiles).toHaveBeenCalledTimes(1);
@@ -168,7 +170,7 @@ describe("VercelSandboxProvider", () => {
     expect(createArg?.env).not.toHaveProperty("KEPPO_MCP_BEARER_TOKEN");
     expect(createArg?.env).not.toHaveProperty("KEPPO_LOG_CALLBACK_URL");
     expect(createArg?.env).not.toHaveProperty("KEPPO_COMPLETE_CALLBACK_URL");
-    expect(createArg?.env).not.toHaveProperty("KEPPO_SESSION_ARTIFACT_CALLBACK_URL");
+    expect(createArg?.env).not.toHaveProperty("KEPPO_TRACE_CALLBACK_URL");
   });
 
   it("allowlists the configured OpenAI base URL host for mcp_only runs", async () => {
@@ -210,12 +212,13 @@ describe("VercelSandboxProvider", () => {
         env: {
           OPENAI_API_KEY: "secret",
           OPENAI_BASE_URL: "https://llm-gateway.dyad.sh/v1",
+          KEPPO_OPENAI_TRACING_API_KEY: "trace-secret",
         },
       },
     });
 
     expect(updateNetworkPolicy).toHaveBeenCalledWith({
-      allow: ["api.keppo.ai", "llm-gateway.dyad.sh"],
+      allow: ["api.keppo.ai", "api.openai.com", "llm-gateway.dyad.sh"],
     });
   });
 

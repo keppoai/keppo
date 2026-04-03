@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AUTOMATION_RUN_STATUS } from "@keppo/shared/automations";
+import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
 
 const baseConfig = {
   bootstrap: {
@@ -10,8 +11,8 @@ const baseConfig = {
     network_access: "package_registry_only" as const,
   },
   runtime: {
-    bootstrap_command: "export HOME=/sandbox/home",
-    command: "codex exec 'hello'",
+    bootstrap_command: "true",
+    command: "node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     env: {
       OPENAI_API_KEY: "secret",
     },
@@ -21,9 +22,10 @@ const baseConfig = {
         "https://api.keppo.ai/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "https://api.keppo.ai/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
-      session_artifact_url:
-        "https://api.keppo.ai/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
+      trace_url:
+        "https://api.keppo.ai/internal/automations/trace?automation_run_id=arun_test&expires=1&signature=abc",
     },
+    runner: buildSandboxRunnerContract("unikraft"),
   },
   timeout_ms: 50,
 };
@@ -91,10 +93,13 @@ describe("UnikraftSandboxProvider", () => {
         env: expect.objectContaining({
           BOOTSTRAP_ENV: "1",
           OPENAI_API_KEY: "secret",
-          KEPPO_RUNNER_COMMAND: "true && export HOME=/sandbox/home && codex exec 'hello'",
+          KEPPO_RUNNER_COMMAND:
+            "true && true && node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
           KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
           KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
-          KEPPO_SESSION_ARTIFACT_CALLBACK_URL: baseConfig.runtime.callbacks.session_artifact_url,
+          KEPPO_TRACE_CALLBACK_URL: baseConfig.runtime.callbacks.trace_url,
+          KEPPO_RUNNER_ENTRYPOINT_PATH:
+            "/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
           KEPPO_TIMEOUT_MS: "50",
           KEPPO_TIMEOUT_GRACE_MS: "5000",
         }),

@@ -1,12 +1,11 @@
 import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
 import {
-  AI_KEY_CREDENTIAL_KIND,
-  AI_KEY_MODE,
   AI_MODEL_PROVIDER,
   AUTOMATION_RUN_CONFIG_KEYS,
   AUTOMATION_RUN_EVENT_TYPE,
   AUTOMATION_RUN_EVENT_TYPES,
   AUTOMATION_RUN_LOG_LEVELS,
+  AUTOMATION_RUN_TRACE_EXPORT_STATUSES,
   AUTOMATION_ROUTE_ERROR_CODES,
   createAutomationRouteError,
   isAutomationRunStatus,
@@ -21,8 +20,8 @@ import {
   type AutomationRunEventType,
   type AutomationRunLogLevel,
   type AutomationRunTerminalStatus,
+  type AutomationRunTraceExportStatus,
   type AutomationRunnerType,
-  type NetworkAccessMode,
 } from "@keppo/shared/automations";
 import {
   isJsonRecord,
@@ -31,11 +30,15 @@ import {
 } from "@keppo/shared/providers/boundaries/json";
 import { getEnv, getRawEnv } from "../env.js";
 import type { AutomationSandboxProviderMode } from "../sandbox/index.js";
+import { resolveSandboxRunnerEntrypointPath } from "../sandbox/agents-sdk-runner.js";
 
 const VERCEL_PROTECTION_BYPASS_PARAM = "x-vercel-protection-bypass";
 const VERCEL_PROTECTION_BYPASS_HEADER = "x-vercel-protection-bypass";
 const automationRunLogLevelSet = new Set<AutomationRunLogLevel>(AUTOMATION_RUN_LOG_LEVELS);
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
+const automationRunTraceExportStatusSet = new Set<AutomationRunTraceExportStatus>(
+  AUTOMATION_RUN_TRACE_EXPORT_STATUSES,
+);
 
 type StoredOpenAiOauthPayload = {
   version: 1;
@@ -537,30 +540,17 @@ export const hasValidAutomationCallbackSignature = (
 
 export const buildRunnerCommand = (params: {
   runnerType: AutomationRunnerType;
+  providerMode: AutomationSandboxProviderMode;
   aiModelProvider?: AiModelProvider;
-  aiKeyMode?: AiKeyMode;
-  credentialKind?: AiKeyCredentialKind;
-  networkAccess: NetworkAccessMode;
-  prompt: string;
-  model: string;
 }): string => {
   void params.runnerType;
   if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
     );
   }
-  const networkFlag =
-    params.networkAccess === "mcp_only"
-      ? ` --config 'sandbox_mode="workspace-write"' --config 'sandbox_workspace_write={ network_access = false }'`
-      : "";
-  const automationApprovalBypassFlag = " --dangerously-bypass-approvals-and-sandbox";
-  const customOpenAiProviderArgs = shouldUseCodexCustomOpenAiProvider(params)
-    ? ` --config 'model_provider="${CODEX_CUSTOM_OPENAI_PROVIDER_ID}"'`
-    : "";
-  const codexCommand = `codex exec --json --skip-git-repo-check${automationApprovalBypassFlag}${customOpenAiProviderArgs} --model ${shellQuote(params.model)}${networkFlag} ${shellQuote(params.prompt)}`;
-  return buildManagedCodexRunnerCommand(codexCommand);
+  return `node ${shellQuote(resolveSandboxRunnerEntrypointPath(params.providerMode))}`;
 };
 
 export const buildAutomationRunnerPrompt = (prompt: string, memory?: string | null): string => {
@@ -589,168 +579,13 @@ export const buildAutomationRunnerPrompt = (prompt: string, memory?: string | nu
   ].join("\n");
 };
 
-const resolveCodexHomeDir = (providerMode: AutomationSandboxProviderMode): string => {
-  return providerMode === "vercel"
-    ? "/vercel/sandbox/.keppo-codex-home"
-    : "/sandbox/.keppo-codex-home";
-};
-
-const CODEX_CUSTOM_OPENAI_PROVIDER_ID = "keppo_openai_api";
-
-const buildCodexSessionArtifactUploadScript = (): string => {
-  return [
-    'const fs = require("node:fs");',
-    'const path = require("node:path");',
-    'const callbackUrl = process.env.KEPPO_SESSION_ARTIFACT_CALLBACK_URL ?? "";',
-    'const runId = process.env.KEPPO_AUTOMATION_RUN_ID ?? "";',
-    'const homeDir = process.env.HOME ?? "";',
-    'const bypassSecret = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";',
-    "const MAX_BYTES = 5 * 1024 * 1024;",
-    'const sessionsDir = path.join(homeDir, ".codex", "sessions");',
-    "",
-    "const walkSessionFiles = (dir, files = []) => {",
-    "  if (!dir || !fs.existsSync(dir)) {",
-    "    return files;",
-    "  }",
-    "  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {",
-    "    const fullPath = path.join(dir, entry.name);",
-    "    if (entry.isDirectory()) {",
-    "      walkSessionFiles(fullPath, files);",
-    "    } else if (entry.isFile() && /\\.(json|jsonl)$/u.test(entry.name)) {",
-    "      files.push(fullPath);",
-    "    }",
-    "  }",
-    "  return files;",
-    "};",
-    "",
-    "(async () => {",
-    "  if (!callbackUrl || !runId || !homeDir) {",
-    "    return;",
-    "  }",
-    "  const sessionPath = walkSessionFiles(sessionsDir)",
-    "    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs)[0];",
-    "  if (!sessionPath) {",
-    "    return;",
-    "  }",
-    "  const stat = fs.statSync(sessionPath);",
-    "  if (!Number.isFinite(stat.size) || stat.size <= 0 || stat.size > MAX_BYTES) {",
-    "    return;",
-    "  }",
-    '  const relativePath = path.posix.join("sessions", ...path.relative(sessionsDir, sessionPath).split(path.sep));',
-    '  const contentBase64 = fs.readFileSync(sessionPath).toString("base64");',
-    "  await fetch(callbackUrl, {",
-    '    method: "POST",',
-    "    headers: {",
-    '      "content-type": "application/json",',
-    '      ...(bypassSecret ? { "x-vercel-protection-bypass": bypassSecret } : {}),',
-    "    },",
-    "    body: JSON.stringify({",
-    "      automation_run_id: runId,",
-    "      relative_path: relativePath,",
-    "      content_base64: contentBase64,",
-    "    }),",
-    "  });",
-    "})().catch(() => {});",
-  ].join("\n");
-};
-
-const buildCodexSessionArtifactUploadCommand = (): string => {
-  return [
-    '_keppo_runner_callback_url="${KEPPO_SESSION_ARTIFACT_CALLBACK_URL:-}"',
-    'if [ -n "$_keppo_runner_callback_url" ]; then',
-    `  node -e ${shellQuote(buildCodexSessionArtifactUploadScript())} || true`,
-    "fi",
-  ].join("\n");
-};
-
-const buildManagedCodexRunnerCommand = (codexCommand: string): string => {
-  return [
-    "{",
-    "  _keppo_upload_session_artifact() {",
-    buildCodexSessionArtifactUploadCommand()
-      .split("\n")
-      .map((line) => `    ${line}`)
-      .join("\n"),
-    "  }",
-    "",
-    '  _keppo_runner_child_pid=""',
-    '  _keppo_runner_stopping="0"',
-    '  _keppo_runner_grace_ms="${KEPPO_TIMEOUT_GRACE_MS:-5000}"',
-    '  case "$_keppo_runner_grace_ms" in',
-    '    ""|*[!0-9]*) _keppo_runner_grace_ms=5000 ;;',
-    "  esac",
-    "  _keppo_runner_grace_seconds=$(((_keppo_runner_grace_ms + 999) / 1000))",
-    '  if [ "$_keppo_runner_grace_seconds" -lt 1 ]; then',
-    "    _keppo_runner_grace_seconds=1",
-    "  fi",
-    "",
-    "  _keppo_wait_for_runner_exit() {",
-    '    if [ -z "$_keppo_runner_child_pid" ]; then',
-    "      return 0",
-    "    fi",
-    '    _keppo_runner_remaining="$_keppo_runner_grace_seconds"',
-    '    while [ "$_keppo_runner_remaining" -gt 0 ] && kill -0 "$_keppo_runner_child_pid" 2>/dev/null; do',
-    "      sleep 1",
-    "      _keppo_runner_remaining=$((_keppo_runner_remaining - 1))",
-    "    done",
-    '    wait "$_keppo_runner_child_pid" >/dev/null 2>&1 || true',
-    "  }",
-    "",
-    "  _keppo_on_term() {",
-    '    if [ "$_keppo_runner_stopping" = "1" ]; then',
-    "      return",
-    "    fi",
-    '    _keppo_runner_stopping="1"',
-    '    if [ -n "$_keppo_runner_child_pid" ]; then',
-    '      kill -TERM "$_keppo_runner_child_pid" 2>/dev/null || true',
-    "      _keppo_wait_for_runner_exit",
-    "    fi",
-    "    _keppo_upload_session_artifact",
-    "    exit 143",
-    "  }",
-    "",
-    "  trap '_keppo_on_term' TERM INT",
-    `  sh -lc ${shellQuote(codexCommand)} &`,
-    '  _keppo_runner_child_pid="$!"',
-    '  wait "$_keppo_runner_child_pid"',
-    '  _keppo_runner_exit="$?"',
-    "  _keppo_upload_session_artifact",
-    '  exit "$_keppo_runner_exit"',
-    "}",
-  ].join("\n");
-};
-
-const shouldUseCodexCustomOpenAiProvider = (params: {
-  aiModelProvider?: AiModelProvider;
-  aiKeyMode?: AiKeyMode;
-  credentialKind?: AiKeyCredentialKind;
-}): boolean => {
-  if (params.aiModelProvider !== AI_MODEL_PROVIDER.openai) {
-    return false;
-  }
-  if (
-    params.aiKeyMode === AI_KEY_MODE.subscriptionToken &&
-    params.credentialKind === AI_KEY_CREDENTIAL_KIND.openaiOauth
-  ) {
-    return false;
-  }
-  const fakeOpenAiBaseUrl = getEnv().KEPPO_E2E_MODE
-    ? (getEnv().KEPPO_E2E_OPENAI_BASE_URL?.trim() ?? "")
-    : "";
-  return params.aiKeyMode === AI_KEY_MODE.bundled || fakeOpenAiBaseUrl.length > 0;
-};
-
 export const buildRunnerBootstrapCommand = (params: {
   runnerType: AutomationRunnerType;
   providerMode: AutomationSandboxProviderMode;
 }): string => {
   void params.runnerType;
-  const codexHomeDir = resolveCodexHomeDir(params.providerMode);
-  return [
-    `mkdir -p ${shellQuote(codexHomeDir)}`,
-    `export HOME=${shellQuote(codexHomeDir)}`,
-    `codex mcp add keppo --url "$KEPPO_MCP_SERVER_URL" --bearer-token-env-var KEPPO_MCP_BEARER_TOKEN`,
-  ].join(" && ");
+  void params.providerMode;
+  return "true";
 };
 
 export const buildRunnerAuthBootstrapCommand = (params: {
@@ -764,45 +599,13 @@ export const buildRunnerAuthBootstrapCommand = (params: {
   if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
     );
   }
-  const codexHomeDir = resolveCodexHomeDir(params.providerMode);
-  const fakeOpenAiBaseUrl = getEnv().KEPPO_E2E_MODE
-    ? (getEnv().KEPPO_E2E_OPENAI_BASE_URL?.trim() ?? "")
-    : "";
-  const usesOpenAiOauth =
-    params.aiModelProvider === AI_MODEL_PROVIDER.openai &&
-    params.aiKeyMode === AI_KEY_MODE.subscriptionToken &&
-    params.credentialKind === AI_KEY_CREDENTIAL_KIND.openaiOauth;
-  if (usesOpenAiOauth) {
-    return [
-      `mkdir -p ${shellQuote(`${codexHomeDir}/.codex`)}`,
-      `export HOME=${shellQuote(codexHomeDir)}`,
-      `printf '%s' "$OPENAI_CODEX_AUTH_JSON" > "$HOME/.codex/auth.json"`,
-      `chmod 600 "$HOME/.codex/auth.json"`,
-    ].join(" && ");
-  }
-  const baseUrlEnvVar =
-    params.aiModelProvider === AI_MODEL_PROVIDER.openai && params.aiKeyMode === AI_KEY_MODE.bundled
-      ? "OPENAI_BASE_URL"
-      : fakeOpenAiBaseUrl.length > 0
-        ? "KEPPO_E2E_OPENAI_BASE_URL"
-        : null;
-  if (baseUrlEnvVar) {
-    return [
-      `mkdir -p ${shellQuote(`${codexHomeDir}/.codex`)}`,
-      `export HOME=${shellQuote(codexHomeDir)}`,
-      `touch "$HOME/.codex/config.toml"`,
-      `printf '\\n[model_providers.${CODEX_CUSTOM_OPENAI_PROVIDER_ID}]\\nname = "Keppo OpenAI API"\\nbase_url = "%s"\\nenv_key = "OPENAI_API_KEY"\\nwire_api = "responses"\\nrequires_openai_auth = false\\nsupports_websockets = false\\n' "$${baseUrlEnvVar}" >> "$HOME/.codex/config.toml"`,
-      `chmod 600 "$HOME/.codex/config.toml"`,
-    ].join(" && ");
-  }
-  return [
-    `mkdir -p ${shellQuote(codexHomeDir)}`,
-    `export HOME=${shellQuote(codexHomeDir)}`,
-    `printenv OPENAI_API_KEY | codex login --with-api-key`,
-  ].join(" && ");
+  void params.providerMode;
+  void params.aiKeyMode;
+  void params.credentialKind;
+  return "true";
 };
 
 export const assertRunnerAuthSupported = (params: {
@@ -815,7 +618,7 @@ export const assertRunnerAuthSupported = (params: {
   if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
     );
   }
 };
@@ -1315,6 +1118,61 @@ export const parseLogPayload = (
         };
       })
       .filter((row): row is ParsedLogLine => Boolean(row)),
+  };
+};
+
+export const parseTracePayload = (
+  value: unknown,
+): {
+  automation_run_id: string;
+  export_status: AutomationRunTraceExportStatus;
+  trace_id?: string;
+  group_id?: string;
+  workflow_name?: string;
+  last_response_id?: string;
+  error_message?: string;
+} => {
+  const body = value as Record<string, unknown>;
+  const automationRunId = parseAutomationRunId(value);
+  const exportStatus =
+    typeof body.export_status === "string" &&
+    automationRunTraceExportStatusSet.has(body.export_status as AutomationRunTraceExportStatus)
+      ? (body.export_status as AutomationRunTraceExportStatus)
+      : null;
+  if (!exportStatus) {
+    throw createAutomationRouteError(
+      "invalid_payload",
+      "export_status must be exported, disabled, or failed",
+    );
+  }
+  const traceId =
+    typeof body.trace_id === "string" && body.trace_id.trim().length > 0
+      ? body.trace_id.trim()
+      : undefined;
+  const groupId =
+    typeof body.group_id === "string" && body.group_id.trim().length > 0
+      ? body.group_id.trim()
+      : undefined;
+  const workflowName =
+    typeof body.workflow_name === "string" && body.workflow_name.trim().length > 0
+      ? body.workflow_name.trim()
+      : undefined;
+  const lastResponseId =
+    typeof body.last_response_id === "string" && body.last_response_id.trim().length > 0
+      ? body.last_response_id.trim()
+      : undefined;
+  const errorMessage =
+    typeof body.error_message === "string" && body.error_message.trim().length > 0
+      ? body.error_message.trim()
+      : undefined;
+  return {
+    automation_run_id: automationRunId,
+    export_status: exportStatus,
+    ...(traceId ? { trace_id: traceId } : {}),
+    ...(groupId ? { group_id: groupId } : {}),
+    ...(workflowName ? { workflow_name: workflowName } : {}),
+    ...(lastResponseId ? { last_response_id: lastResponseId } : {}),
+    ...(errorMessage ? { error_message: errorMessage } : {}),
   };
 };
 

@@ -7,10 +7,16 @@ export interface SandboxStageConfig {
   env: Record<string, string>;
 }
 
+export interface SandboxRunnerConfig {
+  entrypoint_path: string;
+  install_packages: string[];
+  source_text: string;
+}
+
 export interface SandboxRuntimeCallbacks {
   log_url: string;
   complete_url: string;
-  session_artifact_url: string;
+  trace_url: string;
 }
 
 export interface SandboxConfig {
@@ -21,6 +27,7 @@ export interface SandboxConfig {
     bootstrap_command?: string;
     network_access: NetworkAccessMode;
     callbacks: SandboxRuntimeCallbacks;
+    runner: SandboxRunnerConfig;
   };
   timeout_ms: number;
 }

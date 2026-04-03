@@ -191,6 +191,8 @@ const apiEnvSchema = z
     VERCEL_AUTOMATION_BYPASS_SECRET: optionalString,
     KEPPO_API_INTERNAL_BASE_URL: optionalString,
     OPENAI_API_KEY: optionalString,
+    KEPPO_OPENAI_TRACING_API_KEY: optionalString,
+    KEPPO_OPENAI_TRACING_ENDPOINT: optionalString,
     KEPPO_AUTOMATION_MODEL_AUTO: optionalString,
     KEPPO_AUTOMATION_MODEL_FRONTIER: optionalString,
     KEPPO_AUTOMATION_MODEL_BALANCED: optionalString,

@@ -89,6 +89,7 @@ export const refs = {
   updateAutomationRunStatus: adminRef(internal.automation_runs.updateAutomationRunStatus),
   appendAutomationRunLog: adminRef(internal.automation_runs.appendAutomationRunLog),
   appendAutomationRunLogBatch: adminRef(internal.automation_runs.appendAutomationRunLogBatch),
+  recordAutomationRunTrace: adminRef(internal.automation_runs.recordAutomationRunTrace),
   storeAutomationRunSessionTrace: adminRef(
     makeFunctionReference<"action">("automation_runs:storeAutomationRunSessionTrace"),
   ),

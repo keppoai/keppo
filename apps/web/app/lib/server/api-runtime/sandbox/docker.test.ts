@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { PassThrough } from "node:stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DockerSandboxProvider, resetDockerSandboxStateForTests } from "./docker.js";
+import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
 
 const resolveRepoRootPath = (): string => {
   let current = resolve(process.cwd());
@@ -34,9 +35,8 @@ const baseConfig = {
     network_access: "package_registry_only" as const,
   },
   runtime: {
-    bootstrap_command:
-      "mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home'",
-    command: "codex exec --model 'gpt-5.2' 'hello'",
+    bootstrap_command: "true",
+    command: "node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     env: {
       OPENAI_API_KEY: "openai-key",
       KEPPO_MCP_SERVER_URL: "http://localhost:8787/mcp/ws_test",
@@ -47,9 +47,10 @@ const baseConfig = {
         "http://localhost:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
       complete_url:
         "http://localhost:8787/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
-      session_artifact_url:
-        "http://localhost:8787/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
+      trace_url:
+        "http://localhost:8787/internal/automations/trace?automation_run_id=arun_test&expires=1&signature=abc",
     },
+    runner: buildSandboxRunnerContract("docker"),
   },
   timeout_ms: 120_000,
 };
@@ -88,7 +89,8 @@ describe("DockerSandboxProvider", () => {
     expect(dockerfile).toContain(
       "RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh",
     );
-    expect(dockerfile).toContain("@openai/codex@0.118.0");
+    expect(dockerfile).toContain("@openai/agents@0.8.2");
+    expect(dockerfile).toContain("KEPPO_RUNNER_SOURCE_BASE64");
   });
 
   it("launches the runner in Docker and rewrites loopback URLs for container reachability", async () => {
@@ -117,7 +119,7 @@ describe("DockerSandboxProvider", () => {
       if (args[0] === "logs") {
         const child = new FakeChildProcess();
         queueMicrotask(() => {
-          child.stdout?.write("hello from codex\n");
+          child.stdout?.write("hello from runner\n");
           child.emit("close", 0);
         });
         return child;
@@ -172,13 +174,16 @@ describe("DockerSandboxProvider", () => {
     expect(runCall?.args).toContain("-lc");
     const shellCommand = runCall?.args[runCall.args.length - 1] ?? "";
     expect(shellCommand).toContain(
-      "true && mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home' && codex exec --model 'gpt-5.2' 'hello'",
+      "true && true && node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     );
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_LOG_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
     );
     expect(runCall?.args.join(" ")).toContain(
-      "KEPPO_SESSION_ARTIFACT_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/session-artifact?automation_run_id=arun_test&expires=1&signature=abc",
+      "KEPPO_TRACE_CALLBACK_URL=http://host.docker.internal:8787/internal/automations/trace?automation_run_id=arun_test&expires=1&signature=abc",
+    );
+    expect(runCall?.args.join(" ")).toContain(
+      "KEPPO_RUNNER_ENTRYPOINT_PATH=/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
     );
     expect(fetchFn).toHaveBeenCalledWith(
       baseConfig.runtime.callbacks.log_url,
@@ -300,7 +305,7 @@ describe("DockerSandboxProvider", () => {
       if (args[0] === "logs") {
         const child = new FakeChildProcess();
         queueMicrotask(() => {
-          child.stdout?.write("hello from codex\n");
+          child.stdout?.write("hello from runner\n");
           child.emit("close", 0);
         });
         return child;

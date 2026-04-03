@@ -20,6 +20,7 @@ import {
   automationRunLogLevelValidator,
   automationRunEventTypeValidator,
   automationRunOutcomeSourceValidator,
+  automationRunTraceExportStatusValidator,
   automationProviderTriggerMigrationStateValidator,
   automationProviderTriggerValidator,
   aiModelProviderValidator,
@@ -36,6 +37,7 @@ import {
   AUTOMATION_RUN_STATUS,
   AUTOMATION_RUN_OUTCOME_SOURCE,
   AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH,
+  AUTOMATION_RUN_TRACE_EXPORT_STATUS,
   RUN_TRIGGER_TYPE,
   RUN_STATUS,
   SUBSCRIPTION_TIER,
@@ -45,6 +47,7 @@ import {
   isAutomationRunTerminalStatus,
   type AutomationRunOutcomeSource,
   type AutomationRunStatus,
+  type AutomationRunTraceExportStatus,
   type RunStatus,
   type RunTriggerType,
 } from "./domain_constants";
@@ -90,6 +93,16 @@ const automationRunOutcomeViewValidator = v.object({
   recorded_at: v.string(),
 });
 
+const automationRunTraceViewValidator = v.object({
+  trace_id: v.union(v.string(), v.null()),
+  group_id: v.union(v.string(), v.null()),
+  workflow_name: v.union(v.string(), v.null()),
+  last_response_id: v.union(v.string(), v.null()),
+  export_status: automationRunTraceExportStatusValidator,
+  error_message: v.union(v.string(), v.null()),
+  recorded_at: v.string(),
+});
+
 const automationRunViewValidator = v.object({
   id: v.string(),
   automation_id: v.string(),
@@ -104,6 +117,7 @@ const automationRunViewValidator = v.object({
   sandbox_id: v.union(v.string(), v.null()),
   mcp_session_id: v.union(v.string(), v.null()),
   outcome: v.union(automationRunOutcomeViewValidator, v.null()),
+  trace: v.union(automationRunTraceViewValidator, v.null()),
   log_storage_id: v.union(v.id("_storage"), v.null()),
   created_at: v.string(),
 });
@@ -197,6 +211,13 @@ type AutomationRunRow = Doc<"automation_runs"> & {
   log_storage_id: Id<"_storage"> | null;
   session_trace_storage_id: Id<"_storage"> | null;
   session_trace_relative_path: string | null;
+  trace_id: string | null;
+  trace_group_id: string | null;
+  trace_workflow_name: string | null;
+  trace_last_response_id: string | null;
+  trace_export_status: AutomationRunTraceExportStatus | null;
+  trace_error_message: string | null;
+  trace_recorded_at: string | null;
 };
 
 const requireAutomationRunShape = (run: Doc<"automation_runs"> | null): AutomationRunRow => {
@@ -225,6 +246,13 @@ const requireAutomationRunShape = (run: Doc<"automation_runs"> | null): Automati
     log_storage_id: run.log_storage_id ?? null,
     session_trace_storage_id: run.session_trace_storage_id ?? null,
     session_trace_relative_path: run.session_trace_relative_path ?? null,
+    trace_id: run.trace_id ?? null,
+    trace_group_id: run.trace_group_id ?? null,
+    trace_workflow_name: run.trace_workflow_name ?? null,
+    trace_last_response_id: run.trace_last_response_id ?? null,
+    trace_export_status: run.trace_export_status ?? null,
+    trace_error_message: run.trace_error_message ?? null,
+    trace_recorded_at: run.trace_recorded_at ?? null,
   };
 };
 
@@ -255,6 +283,36 @@ const toAutomationRunOutcomeView = (
   };
 };
 
+const toAutomationRunTraceView = (
+  run: AutomationRunRow,
+): {
+  trace_id: string | null;
+  group_id: string | null;
+  workflow_name: string | null;
+  last_response_id: string | null;
+  export_status: AutomationRunTraceExportStatus;
+  error_message: string | null;
+  recorded_at: string;
+} | null => {
+  if (
+    typeof run.trace_export_status !== "string" ||
+    typeof run.trace_recorded_at !== "string" ||
+    run.trace_recorded_at.trim().length === 0
+  ) {
+    return null;
+  }
+
+  return {
+    trace_id: run.trace_id,
+    group_id: run.trace_group_id,
+    workflow_name: run.trace_workflow_name,
+    last_response_id: run.trace_last_response_id,
+    export_status: run.trace_export_status,
+    error_message: run.trace_error_message,
+    recorded_at: run.trace_recorded_at,
+  };
+};
+
 const toAutomationRunView = (
   run: AutomationRunRow,
 ): {
@@ -276,6 +334,15 @@ const toAutomationRunView = (
     source: AutomationRunOutcomeSource;
     recorded_at: string;
   } | null;
+  trace: {
+    trace_id: string | null;
+    group_id: string | null;
+    workflow_name: string | null;
+    last_response_id: string | null;
+    export_status: AutomationRunTraceExportStatus;
+    error_message: string | null;
+    recorded_at: string;
+  } | null;
   log_storage_id: Id<"_storage"> | null;
   created_at: string;
 } => {
@@ -293,6 +360,7 @@ const toAutomationRunView = (
     sandbox_id: run.sandbox_id ?? null,
     mcp_session_id: run.mcp_session_id ?? null,
     outcome: toAutomationRunOutcomeView(run),
+    trace: toAutomationRunTraceView(run),
     log_storage_id: run.log_storage_id,
     created_at: run.created_at,
   };
@@ -708,6 +776,13 @@ const createAutomationRunInternal = async (
     log_storage_id: null,
     session_trace_storage_id: null,
     session_trace_relative_path: null,
+    trace_id: null,
+    trace_group_id: null,
+    trace_workflow_name: null,
+    trace_last_response_id: null,
+    trace_export_status: null,
+    trace_error_message: null,
+    trace_recorded_at: null,
     created_at: createdAt,
     mcp_session_id: null,
     client_type: "other",
@@ -971,6 +1046,79 @@ const finalizeAutomationRunSessionTraceStorageInternal = async (
   });
 
   return { stored: true };
+};
+
+const buildTraceLogMessage = (args: {
+  export_status: AutomationRunTraceExportStatus;
+  trace_id?: string;
+  error_message?: string;
+}): string => {
+  if (args.export_status === AUTOMATION_RUN_TRACE_EXPORT_STATUS.exported) {
+    return args.trace_id
+      ? `Recorded OpenAI trace reference (${args.trace_id}).`
+      : "Recorded OpenAI trace reference.";
+  }
+  if (args.export_status === AUTOMATION_RUN_TRACE_EXPORT_STATUS.disabled) {
+    return "OpenAI trace export was disabled for this automation run.";
+  }
+  return args.error_message
+    ? `OpenAI trace export failed: ${args.error_message}`
+    : "OpenAI trace export failed.";
+};
+
+const recordAutomationRunTraceInternal = async (
+  ctx: MutationCtx,
+  args: {
+    automation_run_id: string;
+    export_status: AutomationRunTraceExportStatus;
+    trace_id?: string;
+    group_id?: string;
+    workflow_name?: string;
+    last_response_id?: string;
+    error_message?: string;
+  },
+): Promise<{ recorded: boolean }> => {
+  const row = await ctx.db
+    .query("automation_runs")
+    .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+    .unique();
+  const run = requireAutomationRunShape(row);
+  const rowId = row!._id;
+  if (run.trace_recorded_at) {
+    return { recorded: false };
+  }
+
+  const recordedAt = nowIso();
+  await ctx.db.patch(rowId, {
+    trace_id: args.trace_id ?? null,
+    trace_group_id: args.group_id ?? null,
+    trace_workflow_name: args.workflow_name ?? null,
+    trace_last_response_id: args.last_response_id ?? null,
+    trace_export_status: args.export_status,
+    trace_error_message: args.error_message ?? null,
+    trace_recorded_at: recordedAt,
+  });
+
+  const message = buildTraceLogMessage(args);
+  await appendAutomationRunLogInternal(ctx, {
+    automation_run_id: args.automation_run_id,
+    level: args.export_status === AUTOMATION_RUN_TRACE_EXPORT_STATUS.failed ? "stderr" : "system",
+    content: message,
+    event_type:
+      args.export_status === AUTOMATION_RUN_TRACE_EXPORT_STATUS.failed ? "error" : "system",
+    event_data: {
+      message,
+      kind: "openai_trace",
+      export_status: args.export_status,
+      ...(args.trace_id ? { trace_id: args.trace_id } : {}),
+      ...(args.group_id ? { group_id: args.group_id } : {}),
+      ...(args.workflow_name ? { workflow_name: args.workflow_name } : {}),
+      ...(args.last_response_id ? { last_response_id: args.last_response_id } : {}),
+      ...(args.error_message ? { error_message: args.error_message } : {}),
+    },
+  });
+
+  return { recorded: true };
 };
 
 const recordAutomationRunOutcomeInternal = async (
@@ -1551,6 +1699,24 @@ export const finalizeAutomationRunSessionTraceStorage = internalMutation({
   }),
   handler: async (ctx, args) => {
     return await finalizeAutomationRunSessionTraceStorageInternal(ctx, args);
+  },
+});
+
+export const recordAutomationRunTrace = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    export_status: automationRunTraceExportStatusValidator,
+    trace_id: v.optional(v.string()),
+    group_id: v.optional(v.string()),
+    workflow_name: v.optional(v.string()),
+    last_response_id: v.optional(v.string()),
+    error_message: v.optional(v.string()),
+  },
+  returns: v.object({
+    recorded: v.boolean(),
+  }),
+  handler: async (ctx, args) => {
+    return await recordAutomationRunTraceInternal(ctx, args);
   },
 });
 
