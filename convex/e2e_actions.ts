@@ -11,6 +11,7 @@ import {
   DEFAULT_ACTION_BEHAVIOR,
   E2E_ACTION_TRIGGER_STATUS,
   RULE_EFFECT,
+  TOOL_CALL_STATUS,
 } from "./domain_constants";
 import {
   classifyAction,
@@ -260,6 +261,113 @@ export const triggerWriteAction = mutation({
     }
 
     return { actionId, status: E2E_ACTION_TRIGGER_STATUS.approvalRequired };
+  },
+});
+
+export const createGroupedPendingActions = mutation({
+  args: {
+    workspaceId: v.string(),
+    toolName: v.string(),
+    payloadPreviews: v.array(jsonRecordValidator),
+    actionType: v.optional(v.string()),
+    riskLevel: v.optional(actionRiskValidator),
+  },
+  returns: v.object({
+    runId: v.string(),
+    actionIds: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    await requireE2EIdentity(ctx);
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_custom_id", (q) => q.eq("id", args.workspaceId))
+      .first();
+    if (!workspace) {
+      throw new Error("Workspace not found");
+    }
+
+    if (args.payloadPreviews.length === 0) {
+      throw new Error("At least one payload preview is required");
+    }
+
+    const inferred = classifyAction(args.toolName);
+    const runId = `run_${Math.random().toString(16).slice(2, 12)}`;
+    const createdAt = nowIso();
+    const actionIds: string[] = [];
+
+    await ctx.db.insert("automation_runs", {
+      id: runId,
+      workspace_id: args.workspaceId,
+      mcp_session_id: null,
+      client_type: "chatgpt",
+      metadata: {
+        source: "e2e_grouped_actions",
+        action_count: args.payloadPreviews.length,
+        last_activity_at: createdAt,
+      },
+      started_at: createdAt,
+      ended_at: null,
+      status: "active",
+    });
+
+    for (const [index, payloadPreview] of args.payloadPreviews.entries()) {
+      const actionId = `act_${Math.random().toString(16).slice(2, 12)}`;
+      const toolCallId = `tcall_${Math.random().toString(16).slice(2, 12)}`;
+      const normalizedPayloadEnc = await encryptSecretValue(
+        JSON.stringify(payloadPreview),
+        "sensitive_blob",
+      );
+      actionIds.push(actionId);
+
+      await ctx.db.insert("tool_calls", {
+        id: toolCallId,
+        automation_run_id: runId,
+        tool_name: args.toolName,
+        input_redacted: payloadPreview,
+        output_redacted: null,
+        status: TOOL_CALL_STATUS.approvalRequired,
+        raw_input_blob_id: null,
+        raw_output_blob_id: null,
+        latency_ms: 0,
+        created_at: createdAt,
+      });
+
+      await ctx.db.insert("actions", {
+        id: actionId,
+        workspace_id: args.workspaceId,
+        automation_run_id: runId,
+        tool_call_id: toolCallId,
+        action_type: args.actionType ?? inferred.actionType,
+        risk_level: (args.riskLevel ?? inferred.riskLevel) as RiskLevel,
+        normalized_payload_enc: normalizedPayloadEnc,
+        payload_preview: payloadPreview,
+        payload_purged_at: null,
+        status: ACTION_STATUS.pending,
+        idempotency_key: `idem_${actionId}`,
+        created_at: createdAt,
+        resolved_at: null,
+        result_redacted: null,
+      });
+
+      await insertAudit(
+        ctx,
+        workspace.org_id,
+        "automation",
+        "run_e2e_grouped",
+        AUDIT_EVENT_TYPES.actionCreated,
+        {
+          action_id: actionId,
+          automation_run_id: runId,
+          tool_name: args.toolName,
+          sequence: index,
+        },
+      );
+    }
+
+    return {
+      runId,
+      actionIds,
+    };
   },
 });
 

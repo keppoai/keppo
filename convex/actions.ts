@@ -95,6 +95,9 @@ const dismissApprovalNotifications = async (ctx: MutationCtx, actionId: string) 
 
 const actionValidator = v.object({
   id: v.string(),
+  automation_run_id: v.string(),
+  automation_name: v.union(v.string(), v.null()),
+  automation_run_started_at: v.union(v.string(), v.null()),
   action_type: v.string(),
   risk_level: actionRiskValidator,
   status: actionStatusValidator,
@@ -148,6 +151,9 @@ const auditEventValidator = v.object({
 
 type ActionView = {
   id: string;
+  automation_run_id: string;
+  automation_name: string | null;
+  automation_run_started_at: string | null;
   action_type: string;
   risk_level: ActionRiskLevel;
   status: ActionStatus;
@@ -201,6 +207,9 @@ type AuditEventView = {
 
 const actionViewFields = [
   "id",
+  "automation_run_id",
+  "automation_name",
+  "automation_run_started_at",
   "action_type",
   "risk_level",
   "status",
@@ -262,6 +271,38 @@ const toPolicyDecision = (decision: PolicyDecisionView) =>
   pickFields(decision, policyDecisionViewFields);
 
 const toAuditEvent = (event: AuditEventView) => pickFields(event, auditEventViewFields);
+
+const toActionView = (
+  action: {
+    id: string;
+    automation_run_id: string;
+    action_type: string;
+    risk_level: ActionRiskLevel;
+    status: ActionStatus;
+    payload_preview: Record<string, unknown>;
+    result_redacted: Record<string, unknown> | null;
+    idempotency_key: string;
+    created_at: string;
+    resolved_at: string | null;
+  },
+  runContext?: {
+    automation_name: string | null;
+    automation_run_started_at: string | null;
+  },
+): ActionView => ({
+  id: action.id,
+  automation_run_id: action.automation_run_id,
+  automation_name: runContext?.automation_name ?? null,
+  automation_run_started_at: runContext?.automation_run_started_at ?? null,
+  action_type: action.action_type,
+  risk_level: action.risk_level,
+  status: action.status,
+  payload_preview: action.payload_preview,
+  result_redacted: action.result_redacted,
+  idempotency_key: action.idempotency_key,
+  created_at: action.created_at,
+  resolved_at: action.resolved_at,
+});
 
 const insertAuditEvent = async (
   ctx: MutationCtx,
@@ -375,6 +416,9 @@ const listWorkspaceActions = async (
 ): Promise<
   Array<{
     id: string;
+    automation_run_id: string;
+    automation_name: string | null;
+    automation_run_started_at: string | null;
     action_type: string;
     risk_level: ActionRiskLevel;
     status: ActionStatus;
@@ -399,7 +443,54 @@ const listWorkspaceActions = async (
         .order("desc")
         .take(WORKSPACE_ACTION_LIST_LIMIT);
 
-  return rows.map(toAction);
+  const uniqueRunIds = [...new Set(rows.map((row) => row.automation_run_id))];
+  const runs = await Promise.all(
+    uniqueRunIds.map(async (runId) => {
+      const run = await ctx.db
+        .query("automation_runs")
+        .withIndex("by_custom_id", (q) => q.eq("id", runId))
+        .unique();
+      return [runId, run] as const;
+    }),
+  );
+  const uniqueAutomationIds = [
+    ...new Set(
+      runs
+        .map(([, run]) => run?.automation_id)
+        .filter((automationId): automationId is string => typeof automationId === "string"),
+    ),
+  ];
+  const automations = await Promise.all(
+    uniqueAutomationIds.map(async (automationId) => {
+      const automation = await ctx.db
+        .query("automations")
+        .withIndex("by_custom_id", (q) => q.eq("id", automationId))
+        .unique();
+      return [automationId, automation] as const;
+    }),
+  );
+  const automationNameById = new Map(
+    automations.map(([automationId, automation]) => [
+      automationId,
+      automation?.name?.trim() ? automation.name.trim() : null,
+    ]),
+  );
+  const runContextByRunId = new Map(
+    runs.map(([runId, run]) => [
+      runId,
+      {
+        automation_name:
+          run?.automation_id && automationNameById.has(run.automation_id)
+            ? (automationNameById.get(run.automation_id) ?? null)
+            : null,
+        automation_run_started_at: run?.started_at ?? null,
+      },
+    ]),
+  );
+
+  return rows.map((row) =>
+    toAction(toActionView(row, runContextByRunId.get(row.automation_run_id))),
+  );
 };
 
 export const listByWorkspace = query({
@@ -479,9 +570,21 @@ export const getActionDetail = query({
       .collect();
 
     const timeline = await listActionTimeline(ctx, resolved.workspace.org_id, args.actionId);
+    const automationId = resolved.run?.automation_id ?? null;
+    const automation = automationId
+      ? await ctx.db
+          .query("automations")
+          .withIndex("by_custom_id", (q) => q.eq("id", automationId))
+          .unique()
+      : null;
 
     return {
-      action: toAction(resolved.action),
+      action: toAction(
+        toActionView(resolved.action, {
+          automation_name: automation?.name?.trim() ? automation.name.trim() : null,
+          automation_run_started_at: resolved.run?.started_at ?? null,
+        }),
+      ),
       normalized_payload: normalizedPayload,
       approvals: approvals.map(toApproval),
       cel_rule_matches: celRuleMatches.map(toCelRuleMatch),

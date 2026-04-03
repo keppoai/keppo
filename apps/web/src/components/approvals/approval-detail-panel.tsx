@@ -17,6 +17,14 @@ type ApprovalFeedback = {
   onAction?: () => void;
 } | null;
 
+type ApprovalGroupContext = {
+  automation_run_id: string;
+  automation_name: string | null;
+  automation_run_started_at: string | null;
+  visible_action_count: number;
+  visible_pending_count: number;
+};
+
 const joinStringList = (value: unknown): string | null => {
   if (typeof value === "string" && value.trim()) {
     return value.trim();
@@ -36,6 +44,8 @@ const getRecordValue = (source: unknown, key: string): unknown => {
   }
   return (source as Record<string, unknown>)[key];
 };
+
+const formatRunId = (runId: string): string => runId.replace(/^run_/, "").slice(0, 8);
 
 const summarizePayloadPreview = (
   payloadPreview: unknown,
@@ -70,6 +80,7 @@ const summarizePayloadPreview = (
 interface ApprovalDetailPanelProps {
   actionId: string | null;
   details: ActionDetailResponse | null;
+  groupContext: ApprovalGroupContext | null;
   onApprove: (id: string) => Promise<void> | void;
   onRequestReject: (ids: string[]) => void;
   canApprove: boolean;
@@ -84,6 +95,7 @@ interface ApprovalDetailPanelProps {
 export function ApprovalDetailPanel({
   actionId,
   details,
+  groupContext,
   onApprove,
   onRequestReject,
   canApprove,
@@ -116,6 +128,7 @@ export function ApprovalDetailPanel({
   const payload = details.normalized_payload ?? payloadPreview;
   const output = action.result_redacted ?? {};
   const payloadSummary = summarizePayloadPreview(payloadPreview);
+  const shortRunId = formatRunId(action.automation_run_id);
   const nextStep =
     status === "pending"
       ? riskLevel === "critical" || riskLevel === "high"
@@ -205,7 +218,7 @@ export function ApprovalDetailPanel({
 
           <div className="rounded-2xl border bg-muted/25 px-4 py-4">
             <p className="text-sm font-semibold">Review checklist</p>
-            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               <div className="rounded-xl border bg-background px-3 py-3">
                 <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Created</p>
                 <p className="mt-2 text-sm font-medium">
@@ -223,6 +236,17 @@ export function ApprovalDetailPanel({
                   Review state
                 </p>
                 <p className="mt-2 text-sm font-medium">{approvalSummary}</p>
+              </div>
+              <div className="rounded-xl border bg-background px-3 py-3">
+                <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Run</p>
+                <p className="mt-2 text-sm font-medium">
+                  {action.automation_name?.trim() || `Run ${shortRunId}`}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {groupContext
+                    ? `${groupContext.visible_pending_count} pending of ${groupContext.visible_action_count} visible`
+                    : `Run ${shortRunId}`}
+                </p>
               </div>
             </div>
           </div>
@@ -303,8 +327,22 @@ export function ApprovalDetailPanel({
               <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
                 <dt className="text-muted-foreground">ID</dt>
                 <dd className="font-mono text-xs">{actionId}</dd>
+                <dt className="text-muted-foreground">Run</dt>
+                <dd className="font-mono text-xs">{action.automation_run_id}</dd>
+                {action.automation_name ? (
+                  <>
+                    <dt className="text-muted-foreground">Automation</dt>
+                    <dd>{action.automation_name}</dd>
+                  </>
+                ) : null}
                 <dt className="text-muted-foreground">Idempotency</dt>
                 <dd className="font-mono text-xs">{action.idempotency_key}</dd>
+                {action.automation_run_started_at ? (
+                  <>
+                    <dt className="text-muted-foreground">Run started</dt>
+                    <dd>{fullTimestamp(action.automation_run_started_at)}</dd>
+                  </>
+                ) : null}
                 {createdAt ? (
                   <>
                     <dt className="text-muted-foreground">Created</dt>

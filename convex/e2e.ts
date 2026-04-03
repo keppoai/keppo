@@ -39,6 +39,7 @@ import {
   approveAction as approveActionImpl,
   backdateActionForMaintenance as backdateActionForMaintenanceImpl,
   backdateRunActivityForAction as backdateRunActivityForActionImpl,
+  createGroupedPendingActions as createGroupedPendingActionsImpl,
   createCelRule as createCelRuleImpl,
   getAction as getActionImpl,
   listAuditEvents as listAuditEventsImpl,
@@ -57,6 +58,7 @@ export const countNamespaceRecords = countNamespaceRecordsImpl;
 export const createAutomationForWorkspace = createAutomationForWorkspaceImpl;
 export const createAutomationViaContract = createAutomationViaContractImpl;
 export const createCelRule = createCelRuleImpl;
+export const createGroupedPendingActions = createGroupedPendingActionsImpl;
 export const createInviteCodeForTesting = createInviteCodeForTestingImpl;
 export const createWorkspace = createWorkspaceImpl;
 export const createWorkspaceForOrgWithLimitCheck = createWorkspaceForOrgWithLimitCheckImpl;

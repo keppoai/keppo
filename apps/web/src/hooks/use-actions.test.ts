@@ -24,12 +24,14 @@ describe("useActions", () => {
     expect(result.current.selectedActionVisible).toBe(false);
   });
 
-  it("keeps mutation payloads stable and clears stale selections when the action disappears", async () => {
+  it("keeps mutation payloads stable and preserves the inspected action when it leaves the list", async () => {
     const approveActionMutation = vi.fn(async () => undefined);
     const rejectActionMutation = vi.fn(async () => undefined);
     const actionRow = {
       id: "action_1",
-      workspace_id: "ws_1",
+      automation_run_id: "run_1",
+      automation_name: "Daily Digest",
+      automation_run_started_at: "2026-03-08T00:00:00.000Z",
       action_type: "gmail.sendEmail",
       risk_level: "high",
       status: "pending",
@@ -49,8 +51,11 @@ describe("useActions", () => {
             ? null
             : {
                 action: actionRow,
-                approval: null,
-                auditEvents: [],
+                normalized_payload: {},
+                approvals: [],
+                cel_rule_matches: [],
+                policy_decisions: [],
+                timeline: [],
               },
       },
       mutationHandlers: {
@@ -88,7 +93,9 @@ describe("useActions", () => {
     rerender();
 
     await waitFor(() => {
-      expect(result.current.selectedActionId).toBeNull();
+      expect(result.current.selectedActionId).toBe("action_1");
+      expect(result.current.selectedActionVisible).toBe(false);
+      expect(result.current.actionDetails?.action.id).toBe("action_1");
     });
   });
 
