@@ -8,6 +8,7 @@ import {
   AI_CREDIT_EXPIRY_DAYS,
   AI_CREDIT_PACKAGES,
   AI_CREDIT_USAGE_SOURCE,
+  AUTOMATION_MEMORY_MAX_LENGTH,
   AUTOMATION_RUN_PACKAGES,
   AUTOMATION_RUN_TOPUP_EXPIRY_DAYS,
   AI_KEY_MODE,
@@ -19,10 +20,12 @@ import {
   AUTOMATION_PROVIDER_TRIGGER_MIGRATION_STATUS,
   AUTOMATION_PROVIDER_TRIGGER_SCHEMA_VERSION,
   AUTOMATION_PROVIDER_TRIGGER_SUBSCRIPTION_STATUS,
+  appendAutomationMemory,
   buildLegacyEventProviderTrigger,
   buildLegacyEventProviderTriggerMigrationState,
   computeAutomationPromptHash,
   convertAiCreditsToDyadGatewayBudgetUsd,
+  editAutomationMemory,
   getAiKeyModeLabel,
   getAiModelProviderLabel,
   getAiCreditAllowance,
@@ -32,6 +35,7 @@ import {
   isAutomationLimitReached,
   isAutomationMermaidStale,
   isConcurrencyLimitReached,
+  normalizeAutomationMemory,
   isRunPeriodLimitReached,
   resolveAutomationExecutionReadiness,
   supportsBundledAiRuntime,
@@ -248,5 +252,41 @@ describe("automations", () => {
         mermaidPromptHash: promptHash,
       }),
     ).toBe(true);
+  });
+
+  it("normalizes, appends, and edits automation memory with shared helpers", () => {
+    expect(normalizeAutomationMemory("  First line\r\nSecond line  ")).toBe(
+      "First line\nSecond line",
+    );
+    expect(appendAutomationMemory("Existing note", "New note")).toBe("Existing note\n\nNew note");
+    expect(
+      editAutomationMemory({
+        currentMemory: "alpha\nbeta\nalpha",
+        search: "alpha",
+        replace: "gamma",
+        replaceAll: true,
+      }),
+    ).toEqual({
+      memory: "gamma\nbeta\ngamma",
+      replacements: 2,
+    });
+  });
+
+  it("rejects ambiguous or oversized automation memory edits", () => {
+    expect(() =>
+      editAutomationMemory({
+        currentMemory: "alpha\nalpha",
+        search: "alpha",
+        replace: "gamma",
+      }),
+    ).toThrow("automation_memory_search_ambiguous");
+
+    expect(() =>
+      appendAutomationMemory("kept", " ".repeat(AUTOMATION_MEMORY_MAX_LENGTH + 1)),
+    ).toThrow("automation_memory_required");
+
+    expect(() => appendAutomationMemory("", "x".repeat(AUTOMATION_MEMORY_MAX_LENGTH + 1))).toThrow(
+      "automation_memory_too_long",
+    );
   });
 });

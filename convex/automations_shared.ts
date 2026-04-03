@@ -83,6 +83,7 @@ export const automationValidator = v.object({
   slug: v.string(),
   name: v.string(),
   description: v.string(),
+  memory: v.string(),
   mermaid_content: v.union(v.string(), v.null()),
   mermaid_prompt_hash: v.union(v.string(), v.null()),
   status: automationStatusValidator,
@@ -150,6 +151,7 @@ export const automationViewFields = [
   "slug",
   "name",
   "description",
+  "memory",
   "mermaid_content",
   "mermaid_prompt_hash",
   "status",
@@ -223,6 +225,7 @@ export const toAutomationConfigVersionView = (config: Doc<"automation_config_ver
 
 export const toAutomationView = (automation: Doc<"automations">) => ({
   ...pickFields(automation, automationViewFields),
+  memory: automation.memory ?? "",
   mermaid_content: automation.mermaid_content ?? null,
   mermaid_prompt_hash: automation.mermaid_prompt_hash ?? null,
 });

@@ -128,6 +128,33 @@ type InternalToolHandlerDeps = {
       startedAt: number;
     },
   ) => Promise<void>;
+  addAutomationMemory: (
+    ctx: ActionCtx,
+    params: {
+      workspaceId: string;
+      automationRunId: string;
+      memory: string;
+    },
+  ) => Promise<{
+    memory: string;
+    memory_length: number;
+    remaining_characters: number;
+  }>;
+  editAutomationMemory: (
+    ctx: ActionCtx,
+    params: {
+      workspaceId: string;
+      automationRunId: string;
+      search: string;
+      replace: string;
+      replaceAll?: boolean;
+    },
+  ) => Promise<{
+    memory: string;
+    memory_length: number;
+    remaining_characters: number;
+    replacements: number;
+  }>;
   recordAutomationRunOutcome: (
     ctx: ActionCtx,
     params: {
@@ -162,6 +189,46 @@ const toRequestedToolList = (value: unknown): string[] => {
     return [];
   }
   return value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+};
+
+const requireAutomationRunId = (
+  automationRunId: string | undefined,
+  toolName: string,
+  createWorkerExecutionError: (code: WorkerExecutionErrorCode, message: string) => Error,
+): string => {
+  const normalized = automationRunId?.trim();
+  if (!normalized) {
+    throw createWorkerExecutionError(
+      "execution_failed",
+      `${toolName} is only available inside automation runs.`,
+    );
+  }
+  return normalized;
+};
+
+const normalizeAutomationMemoryMutationError = (toolName: string, error: unknown): string => {
+  const message = error instanceof Error ? error.message.trim() : "";
+  switch (message) {
+    case "automation_memory_required: Memory text is required.":
+      return `${toolName} requires non-empty memory text.`;
+    case "automation_memory_too_long: Automation memory must be 20000 characters or fewer.":
+      return "Automation memory must be 20,000 characters or fewer.";
+    case "automation_memory_limit_exceeded: Automation memory cannot exceed 20000 characters. Use edit_memory to remove or compact older memory before adding more.":
+      return "Automation memory would exceed 20,000 characters. Use edit_memory to remove or compact older memory before adding more.";
+    case "automation_memory_search_required: edit_memory requires a non-empty search string.":
+      return "edit_memory requires a non-empty search string.";
+    case "automation_memory_search_not_found: edit_memory could not find the provided search string in automation memory.":
+      return "edit_memory could not find the provided search string in automation memory.";
+    case "automation_memory_search_ambiguous: edit_memory found multiple matches. Use a more specific search string or set replace_all to true.":
+      return "edit_memory found multiple matches. Use a more specific search string or set replace_all to true.";
+    case "AutomationRunWorkspaceMismatch":
+      return `${toolName} does not match the active workspace.`;
+    case "AutomationRunNotFound":
+    case "AutomationNotFound":
+      return `${toolName} could not load automation memory for this run.`;
+    default:
+      return message || `Failed to execute ${toolName}.`;
+  }
 };
 
 export const createInternalToolCallHandler = (deps: InternalToolHandlerDeps) => {
@@ -212,6 +279,132 @@ export const createInternalToolCallHandler = (deps: InternalToolHandlerDeps) => 
       return {
         actions: pending,
       };
+    }
+
+    if (tool.name === "add_memory") {
+      const automationRunId = requireAutomationRunId(
+        payload.automationRunId,
+        tool.name,
+        deps.createWorkerExecutionError,
+      );
+      const normalizedInput = toJsonRecord(
+        tool.input_schema.parse(payload.input),
+        `${tool.name} normalized input failed validation.`,
+        deps.createWorkerExecutionError,
+      );
+      const memory = typeof normalizedInput.memory === "string" ? normalizedInput.memory : "";
+
+      const toolCall = await deps.createToolCall(ctx, {
+        runId: payload.runId,
+        toolName: tool.name,
+        inputRedacted: {
+          memory_length: memory.trim().length,
+        },
+      });
+
+      try {
+        const updated = await deps.addAutomationMemory(ctx, {
+          workspaceId: payload.workspaceId,
+          automationRunId,
+          memory,
+        });
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.completed,
+          outputRedacted: {
+            status: "updated",
+            operation: "append",
+            memory_length: updated.memory_length,
+            remaining_characters: updated.remaining_characters,
+          },
+          startedAt,
+        });
+        return {
+          status: "updated",
+          operation: "append",
+          memory_length: updated.memory_length,
+          remaining_characters: updated.remaining_characters,
+        };
+      } catch (error) {
+        const normalizedMessage = normalizeAutomationMemoryMutationError(tool.name, error);
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.failed,
+          outputRedacted: {
+            status: "failed",
+            error: normalizedMessage,
+          },
+          startedAt,
+        });
+        throw deps.createWorkerExecutionError("execution_failed", normalizedMessage);
+      }
+    }
+
+    if (tool.name === "edit_memory") {
+      const automationRunId = requireAutomationRunId(
+        payload.automationRunId,
+        tool.name,
+        deps.createWorkerExecutionError,
+      );
+      const normalizedInput = toJsonRecord(
+        tool.input_schema.parse(payload.input),
+        `${tool.name} normalized input failed validation.`,
+        deps.createWorkerExecutionError,
+      );
+      const search = typeof normalizedInput.search === "string" ? normalizedInput.search : "";
+      const replace = typeof normalizedInput.replace === "string" ? normalizedInput.replace : "";
+      const replaceAll = normalizedInput.replace_all === true;
+
+      const toolCall = await deps.createToolCall(ctx, {
+        runId: payload.runId,
+        toolName: tool.name,
+        inputRedacted: {
+          search_length: search.length,
+          replace_length: replace.length,
+          replace_all: replaceAll,
+        },
+      });
+
+      try {
+        const updated = await deps.editAutomationMemory(ctx, {
+          workspaceId: payload.workspaceId,
+          automationRunId,
+          search,
+          replace,
+          replaceAll,
+        });
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.completed,
+          outputRedacted: {
+            status: "updated",
+            operation: "replace",
+            replacements: updated.replacements,
+            memory_length: updated.memory_length,
+            remaining_characters: updated.remaining_characters,
+          },
+          startedAt,
+        });
+        return {
+          status: "updated",
+          operation: "replace",
+          replacements: updated.replacements,
+          memory_length: updated.memory_length,
+          remaining_characters: updated.remaining_characters,
+        };
+      } catch (error) {
+        const normalizedMessage = normalizeAutomationMemoryMutationError(tool.name, error);
+        await deps.finalizeToolCallRecord(ctx, {
+          toolCallId: toolCall.id,
+          status: TOOL_CALL_STATUS.failed,
+          outputRedacted: {
+            status: "failed",
+            error: normalizedMessage,
+          },
+          startedAt,
+        });
+        throw deps.createWorkerExecutionError("execution_failed", normalizedMessage);
+      }
     }
 
     if (tool.name === "keppo.request_more_access") {

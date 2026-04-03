@@ -635,7 +635,7 @@ export const handleInternalAutomationDispatchRequest = async (
       credentialKind: key.credential_kind,
       networkAccess: context.config.network_access,
       model: resolvedModel.aiModelName,
-      prompt: buildAutomationRunnerPrompt(context.config.prompt),
+      prompt: buildAutomationRunnerPrompt(context.config.prompt, context.automation.memory),
     });
     const bootstrapCommand = buildRunnerBootstrapCommand({
       runnerType: resolvedModel.runnerType,

@@ -427,6 +427,7 @@ export default defineSchema({
     slug: v.string(),
     name: v.string(),
     description: v.string(),
+    memory: v.optional(v.string()),
     mermaid_content: v.optional(v.union(v.string(), v.null())),
     mermaid_prompt_hash: v.optional(v.union(v.string(), v.null())),
     status: automationStatusValidator,

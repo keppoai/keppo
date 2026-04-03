@@ -125,6 +125,7 @@ describe("automation public view contracts", () => {
     expectExactKeys(created.automation, automationViewFields);
     expectExactKeys(created.config_version, automationConfigVersionViewFields);
     expect(created.automation.current_config_version_id).toBe(created.config_version.id);
+    expect(created.automation.memory).toBe("");
     expect(created.automation.mermaid_prompt_hash).toMatch(/^[a-f0-9]{8}$/);
 
     const fetched = await authT.query(refs.getAutomation, {
@@ -164,9 +165,11 @@ describe("automation public view contracts", () => {
 
     const updatedMeta = await authT.mutation(refs.updateAutomationMeta, {
       automation_id: created.automation.id,
+      memory: "Remember to use concise operator-facing summaries.",
       mermaid_content: "flowchart TD\nB-->C",
     });
     expectExactKeys(updatedMeta, automationViewFields);
+    expect(updatedMeta.memory).toBe("Remember to use concise operator-facing summaries.");
     expect(updatedMeta.mermaid_content).toBe("flowchart TD\nB-->C");
     expect(updatedMeta.mermaid_prompt_hash).toBeTruthy();
 

@@ -278,6 +278,7 @@ export type Automation = {
   slug: string;
   name: string;
   description: string;
+  memory: string;
   mermaid_content: string | null;
   mermaid_prompt_hash: string | null;
   status: AutomationStatus;
@@ -470,6 +471,7 @@ const parseAutomation = (value: unknown): Automation | null => {
     slug: asString(value.slug),
     name: asString(value.name),
     description: asString(value.description),
+    memory: asString(value.memory),
     mermaid_content: asNullableString(value.mermaid_content),
     mermaid_prompt_hash: asNullableString(value.mermaid_prompt_hash),
     status: parseAutomationStatus(value.status),

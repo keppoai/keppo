@@ -6,6 +6,8 @@ import { internalAction } from "../_generated/server";
 import { allTools, CODE_MODE_TOOLS, createWorkerExecutionError } from "../mcp_node_shared";
 import { safeParsePayload, safeRunQuery, validationMessage } from "../safe_convex";
 
+const AUTOMATION_ONLY_TOOL_NAMES = new Set(["record_outcome", "add_memory", "edit_memory"]);
+
 type AnyInternalQueryReference = FunctionReference<"query", "internal">;
 
 type CatalogTool = {
@@ -95,7 +97,9 @@ export const createCatalogActions = (deps: CatalogActionDeps) => ({
       );
       const customTools = parseCustomTools(args.workspaceId, customToolsRaw);
 
-      const baseTools = (workspace?.code_mode_enabled ?? true) ? CODE_MODE_TOOLS : allTools;
+      const baseTools = (
+        (workspace?.code_mode_enabled ?? true) ? CODE_MODE_TOOLS : allTools
+      ).filter((tool) => !AUTOMATION_ONLY_TOOL_NAMES.has(tool.name));
       const merged = [
         ...baseTools.map((tool) => ({
           name: tool.name,

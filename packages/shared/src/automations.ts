@@ -217,7 +217,107 @@ export const AUTOMATION_RUN_OUTCOME_SOURCE = {
   fallbackMissing: "fallback_missing",
 } as const satisfies Record<string, AutomationRunOutcomeSource>;
 export const AUTOMATION_RUN_OUTCOME_SUMMARY_MAX_LENGTH = 2000;
+export const AUTOMATION_MEMORY_MAX_LENGTH = 20_000;
 export const AUTOMATION_DISPATCH_TOKEN_REUSE_WINDOW_MS = 60_000;
+
+const normalizeAutomationMemoryLineEndings = (value: string): string =>
+  value.replace(/\r\n?/g, "\n");
+
+const automationMemoryLimitMessage = (): string =>
+  `automation_memory_too_long: Automation memory must be ${String(AUTOMATION_MEMORY_MAX_LENGTH)} characters or fewer.`;
+
+export const normalizeAutomationMemory = (value: string | null | undefined): string => {
+  const normalized = normalizeAutomationMemoryLineEndings(value ?? "").trim();
+  if (normalized.length > AUTOMATION_MEMORY_MAX_LENGTH) {
+    throw new Error(automationMemoryLimitMessage());
+  }
+  return normalized;
+};
+
+export const normalizeAutomationMemorySnippet = (value: string): string => {
+  const normalized = normalizeAutomationMemoryLineEndings(value).trim();
+  if (normalized.length === 0) {
+    throw new Error("automation_memory_required: Memory text is required.");
+  }
+  if (normalized.length > AUTOMATION_MEMORY_MAX_LENGTH) {
+    throw new Error(automationMemoryLimitMessage());
+  }
+  return normalized;
+};
+
+export const appendAutomationMemory = (
+  currentMemory: string | null | undefined,
+  addition: string,
+): string => {
+  const current = normalizeAutomationMemory(currentMemory);
+  const next = current
+    ? `${current}\n\n${normalizeAutomationMemorySnippet(addition)}`
+    : normalizeAutomationMemorySnippet(addition);
+  if (next.length > AUTOMATION_MEMORY_MAX_LENGTH) {
+    throw new Error(
+      `automation_memory_limit_exceeded: Automation memory cannot exceed ${String(AUTOMATION_MEMORY_MAX_LENGTH)} characters. Use edit_memory to remove or compact older memory before adding more.`,
+    );
+  }
+  return next;
+};
+
+const countLiteralOccurrences = (haystack: string, needle: string): number => {
+  if (needle.length === 0) {
+    return 0;
+  }
+  let count = 0;
+  let index = 0;
+  while (true) {
+    const foundAt = haystack.indexOf(needle, index);
+    if (foundAt < 0) {
+      return count;
+    }
+    count += 1;
+    index = foundAt + needle.length;
+  }
+};
+
+export const editAutomationMemory = (params: {
+  currentMemory: string | null | undefined;
+  search: string;
+  replace: string;
+  replaceAll?: boolean;
+}): { memory: string; replacements: number } => {
+  const current = normalizeAutomationMemory(params.currentMemory);
+  const search = normalizeAutomationMemoryLineEndings(params.search);
+  const replace = normalizeAutomationMemoryLineEndings(params.replace);
+  if (search.length === 0) {
+    throw new Error(
+      "automation_memory_search_required: edit_memory requires a non-empty search string.",
+    );
+  }
+
+  const replacements = countLiteralOccurrences(current, search);
+  if (replacements === 0) {
+    throw new Error(
+      "automation_memory_search_not_found: edit_memory could not find the provided search string in automation memory.",
+    );
+  }
+  if (params.replaceAll !== true && replacements !== 1) {
+    throw new Error(
+      "automation_memory_search_ambiguous: edit_memory found multiple matches. Use a more specific search string or set replace_all to true.",
+    );
+  }
+
+  const next =
+    params.replaceAll === true
+      ? current.split(search).join(replace)
+      : current.replace(search, replace);
+  const normalizedNext = normalizeAutomationMemory(next);
+  if (normalizedNext.length > AUTOMATION_MEMORY_MAX_LENGTH) {
+    throw new Error(automationMemoryLimitMessage());
+  }
+
+  return {
+    memory: normalizedNext,
+    replacements: params.replaceAll === true ? replacements : 1,
+  };
+};
 
 const automationRunStatusSet = new Set<AutomationRunStatus>(AUTOMATION_RUN_STATUSES);
 

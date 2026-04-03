@@ -149,6 +149,7 @@ describe.sequential("Local Convex Automation Integration", () => {
 
     expectExactKeys(contract.created.automation, automationViewFields);
     expectExactKeys(contract.created.config_version, automationConfigVersionViewFields);
+    expect(contract.created.automation.memory).toBe("");
     expectExactKeys(contract.detail.automation, automationViewFields);
     expectExactKeys(contract.detail.current_config_version, automationConfigVersionViewFields);
     expectExactKeys(contract.list_entry.automation, automationViewFields);
@@ -165,6 +166,7 @@ describe.sequential("Local Convex Automation Integration", () => {
 
     expectExactKeys(created.created.automation, automationViewFields);
     expectExactKeys(created.created.config_version, automationConfigVersionViewFields);
+    expect(created.created.automation.memory).toBe("");
     expect(created.created.warning).toBeNull();
   });
 

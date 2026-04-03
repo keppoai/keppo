@@ -51,12 +51,26 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
   });
 
   it("wraps automation prompts with the record_outcome runtime contract", () => {
-    const prompt = buildAutomationRunnerPrompt("Review open issues");
+    const prompt = buildAutomationRunnerPrompt(
+      "Review open issues",
+      "Remember that the operator wants concise summaries.",
+    );
 
     expect(prompt).toContain("record_outcome({ success, summary })");
+    expect(prompt).toContain("add_memory or edit_memory");
     expect(prompt).toContain("exactly once as your final tool call");
     expect(prompt).toContain("Waiting only for a human approval");
+    expect(prompt).toContain("<memory>");
+    expect(prompt).toContain("Remember that the operator wants concise summaries.");
+    expect(prompt).toContain("</memory>");
     expect(prompt).toContain("Automation task:\nReview open issues");
+  });
+
+  it("omits the memory block when automation memory is empty", () => {
+    const prompt = buildAutomationRunnerPrompt("Review open issues", "");
+
+    expect(prompt).not.toContain("<memory>");
+    expect(prompt).not.toContain("</memory>");
   });
 
   it("leaves Codex network access at the default when the automation allows web access", () => {

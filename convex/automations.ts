@@ -1,7 +1,13 @@
 import { makeFunctionReference, paginationOptsValidator } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { type Doc } from "./_generated/dataModel";
-import { mutation, query, type MutationCtx, type QueryCtx } from "./_generated/server";
+import {
+  internalMutation,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from "./_generated/server";
 import {
   insertAudit,
   nowIso,
@@ -50,12 +56,16 @@ import {
 import { cascadeDeleteAutomationDescendants } from "./cascade";
 import { getAiCreditBalanceForOrg } from "./ai_credits";
 import {
+  AUTOMATION_MEMORY_MAX_LENGTH,
+  appendAutomationMemory,
   buildLegacyEventProviderTrigger,
   buildLegacyEventProviderTriggerMigrationState,
   coerceAutomationModelClass,
   computeAutomationPromptHash,
+  editAutomationMemory,
   getAiModelProviderLabel,
   inferAutomationModelClassFromLegacyFields,
+  normalizeAutomationMemory,
   resolveAutomationExecutionReadiness,
 } from "../packages/shared/src/automations.js";
 import { getTierConfig } from "../packages/shared/src/subscriptions.js";
@@ -81,6 +91,13 @@ const AUTOMATION_CONFIG_RATE_LIMIT = {
   limit: 40,
   windowMs: 15 * 60 * 1_000,
 } as const;
+
+const normalizeAutomationMemoryForPatch = (value: string | undefined): string | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  return normalizeAutomationMemory(value);
+};
 
 const orgAutomationKeyUsageValidator = v.object({
   provider: aiModelProviderValidator,
@@ -642,6 +659,7 @@ export const createAutomationCore = async (
       maxLength: AUTOMATION_DESCRIPTION_MAX_LENGTH,
       allowEmpty: true,
     }),
+    memory: "",
     mermaid_content: normalizeMermaidContent(args.mermaid_content) ?? null,
     mermaid_prompt_hash: resolveMermaidPromptHash({
       prompt: config.prompt,
@@ -1107,6 +1125,7 @@ export const updateAutomationMeta = mutation({
     automation_id: v.string(),
     name: v.optional(v.string()),
     description: v.optional(v.string()),
+    memory: v.optional(v.string()),
     mermaid_content: v.optional(v.string()),
     prompt: v.optional(v.string()),
   },
@@ -1118,8 +1137,14 @@ export const updateAutomationMeta = mutation({
     ]);
     const name = args.name?.trim();
     const description = args.description?.trim();
+    const memory = normalizeAutomationMemoryForPatch(args.memory);
     const mermaidContent = args.mermaid_content?.trim();
-    if (name === undefined && description === undefined && mermaidContent === undefined) {
+    if (
+      name === undefined &&
+      description === undefined &&
+      memory === undefined &&
+      mermaidContent === undefined
+    ) {
       return toAutomationView(resolved.automation);
     }
 
@@ -1137,6 +1162,7 @@ export const updateAutomationMeta = mutation({
             maxLength: AUTOMATION_DESCRIPTION_MAX_LENGTH,
             allowEmpty: true,
           });
+    const nextMemory = memory;
     const nextMermaidContent =
       mermaidContent === undefined ? undefined : normalizeMermaidContent(mermaidContent);
     let currentPrompt: string | undefined;
@@ -1179,6 +1205,11 @@ export const updateAutomationMeta = mutation({
             description: nextDescription,
           }
         : {}),
+      ...(nextMemory !== undefined
+        ? {
+            memory: nextMemory,
+          }
+        : {}),
       ...(nextMermaidContent !== undefined
         ? {
             mermaid_content: nextMermaidContent,
@@ -1206,6 +1237,11 @@ export const updateAutomationMeta = mutation({
               description: nextDescription,
             }
           : {}),
+        ...(nextMemory !== undefined
+          ? {
+              memory_length: nextMemory.length,
+            }
+          : {}),
         ...(nextMermaidContent !== undefined
           ? {
               mermaid_content: nextMermaidContent,
@@ -1223,6 +1259,98 @@ export const updateAutomationMeta = mutation({
       throw new Error("AutomationNotFound");
     }
     return toAutomationView(updated);
+  },
+});
+
+const resolveAutomationForMemoryMutation = async (
+  ctx: MutationCtx,
+  args: {
+    automation_run_id: string;
+    workspace_id?: string;
+  },
+) => {
+  const run = await ctx.db
+    .query("automation_runs")
+    .withIndex("by_custom_id", (q) => q.eq("id", args.automation_run_id))
+    .unique();
+  const automationId = run?.automation_id;
+  const workspaceId = run?.workspace_id;
+  if (!automationId || !workspaceId) {
+    throw new Error("AutomationRunNotFound");
+  }
+  if (args.workspace_id && args.workspace_id !== workspaceId) {
+    throw new Error("AutomationRunWorkspaceMismatch");
+  }
+
+  const automation = await ctx.db
+    .query("automations")
+    .withIndex("by_custom_id", (q) => q.eq("id", automationId))
+    .unique();
+  if (!automation || automation.workspace_id !== workspaceId) {
+    throw new Error("AutomationNotFound");
+  }
+
+  return { run, automation };
+};
+
+export const addAutomationMemoryForRun = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    workspace_id: v.optional(v.string()),
+    memory: v.string(),
+  },
+  returns: v.object({
+    memory: v.string(),
+    memory_length: v.number(),
+    remaining_characters: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { automation } = await resolveAutomationForMemoryMutation(ctx, args);
+    const nextMemory = appendAutomationMemory(automation.memory ?? "", args.memory);
+    await ctx.db.patch(automation._id, {
+      memory: nextMemory,
+      updated_at: nowIso(),
+    });
+    return {
+      memory: nextMemory,
+      memory_length: nextMemory.length,
+      remaining_characters: AUTOMATION_MEMORY_MAX_LENGTH - nextMemory.length,
+    };
+  },
+});
+
+export const editAutomationMemoryForRun = internalMutation({
+  args: {
+    automation_run_id: v.string(),
+    workspace_id: v.optional(v.string()),
+    search: v.string(),
+    replace: v.string(),
+    replace_all: v.optional(v.boolean()),
+  },
+  returns: v.object({
+    memory: v.string(),
+    memory_length: v.number(),
+    remaining_characters: v.number(),
+    replacements: v.number(),
+  }),
+  handler: async (ctx, args) => {
+    const { automation } = await resolveAutomationForMemoryMutation(ctx, args);
+    const edited = editAutomationMemory({
+      currentMemory: automation.memory ?? "",
+      search: args.search,
+      replace: args.replace,
+      ...(args.replace_all === undefined ? {} : { replaceAll: args.replace_all }),
+    });
+    await ctx.db.patch(automation._id, {
+      memory: edited.memory,
+      updated_at: nowIso(),
+    });
+    return {
+      memory: edited.memory,
+      memory_length: edited.memory.length,
+      remaining_characters: AUTOMATION_MEMORY_MAX_LENGTH - edited.memory.length,
+      replacements: edited.replacements,
+    };
   },
 });
 
