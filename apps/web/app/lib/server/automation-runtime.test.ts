@@ -306,11 +306,95 @@ describe("start-owned automation runtime handlers", () => {
       workspaceId: "ws_test",
       automationRunId: "arun_dispatch_test",
     });
+    expect(deps.convex.createRun).toHaveBeenCalledWith({
+      workspaceId: "ws_test",
+      sessionId: expect.stringContaining("automation_automation_dispatch_test_"),
+      clientType: "chatgpt",
+      metadata: {
+        automation_run_id: "arun_dispatch_test",
+        automation_id: "automation_dispatch_test",
+      },
+    });
     expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         automationRunId: "arun_dispatch_test",
         status: "running",
         sandboxId: "sandbox_test",
+      }),
+    );
+  });
+
+  it("fails closed when the resolved automation model is Anthropic because sandboxes always use Codex", async () => {
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_AUTOMATION_MODEL_VALUE: "claude-sonnet-4-6",
+    } as never);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_anthropic_dispatch_test",
+        automation_id: "automation_anthropic_dispatch_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_anthropic_dispatch_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Claude dispatch",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        {
+          automation_run_id: "arun_anthropic_dispatch_test",
+          dispatch_token: "dispatch_token_test",
+        },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "dispatch_failed",
+      error_code: "automation_route_failed",
+      error:
+        "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+    });
+    expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
+    expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automationRunId: "arun_anthropic_dispatch_test",
+        status: "cancelled",
+        errorMessage: expect.stringContaining(
+          "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+        ),
       }),
     );
   });

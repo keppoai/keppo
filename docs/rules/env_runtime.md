@@ -73,6 +73,7 @@
 ## Sandbox plumbing
 
 - Remote sandboxes should receive a minimal, sandbox-valid `PATH`, not the host machine `PATH`.
+- Sandbox providers must not infer which CLI package to install by parsing the first token of `runtime.command`; managed runner commands may be wrapped shell blocks for signal handling and artifact upload, so keep the installed runner package explicit in the sandbox contract.
 - Docker sandboxes must rewrite host loopback URLs to `host.docker.internal` or an equivalent gateway alias.
 - Local Code Mode should default to the sandbox provider, not a silent in-process fallback.
 - Bundled Codex OpenAI runs that point `OPENAI_BASE_URL` at the Dyad gateway must disable Codex `responses_websockets`; that gateway only supports the HTTP Responses transport, so bundled automation dispatch should pass `--disable responses_websockets` on `codex exec`.

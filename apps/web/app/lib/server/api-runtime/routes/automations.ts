@@ -8,7 +8,6 @@ import {
   AUTOMATION_RUN_EVENT_TYPES,
   AUTOMATION_RUN_LOG_LEVELS,
   AUTOMATION_ROUTE_ERROR_CODES,
-  AUTOMATION_RUNNER_TYPE,
   createAutomationRouteError,
   isAutomationRunStatus,
   isAutomationRunTerminalStatus,
@@ -545,12 +544,12 @@ export const buildRunnerCommand = (params: {
   prompt: string;
   model: string;
 }): string => {
-  if (params.runnerType === AUTOMATION_RUNNER_TYPE.claudeCode) {
-    const toolPermissionFlag =
-      params.networkAccess === "mcp_only"
-        ? ` --disallowed-tools ${shellQuote("WebFetch,WebSearch")}`
-        : "";
-    return `claude --model ${shellQuote(params.model)} --mcp-server "$KEPPO_MCP_SERVER_URL"${toolPermissionFlag} -p ${shellQuote(params.prompt)}`;
+  void params.runnerType;
+  if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
+    throw createAutomationRouteError(
+      "automation_route_failed",
+      "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+    );
   }
   const networkFlag =
     params.networkAccess === "mcp_only"
@@ -745,9 +744,7 @@ export const buildRunnerBootstrapCommand = (params: {
   runnerType: AutomationRunnerType;
   providerMode: AutomationSandboxProviderMode;
 }): string => {
-  if (params.runnerType === AUTOMATION_RUNNER_TYPE.claudeCode) {
-    return "true";
-  }
+  void params.runnerType;
   const codexHomeDir = resolveCodexHomeDir(params.providerMode);
   return [
     `mkdir -p ${shellQuote(codexHomeDir)}`,
@@ -763,8 +760,12 @@ export const buildRunnerAuthBootstrapCommand = (params: {
   aiKeyMode?: AiKeyMode;
   credentialKind?: AiKeyCredentialKind;
 }): string => {
-  if (params.runnerType !== AUTOMATION_RUNNER_TYPE.chatgptCodex) {
-    return "true";
+  void params.runnerType;
+  if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
+    throw createAutomationRouteError(
+      "automation_route_failed",
+      "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+    );
   }
   const codexHomeDir = resolveCodexHomeDir(params.providerMode);
   const fakeOpenAiBaseUrl = getEnv().KEPPO_E2E_MODE
@@ -809,7 +810,14 @@ export const assertRunnerAuthSupported = (params: {
   aiModelProvider: AiModelProvider;
   aiKeyMode: AiKeyMode;
 }): void => {
-  void params;
+  void params.runnerType;
+  void params.aiKeyMode;
+  if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
+    throw createAutomationRouteError(
+      "automation_route_failed",
+      "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+    );
+  }
 };
 
 export const resolveAutomationMcpServerUrl = (
