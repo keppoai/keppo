@@ -8,6 +8,7 @@ export const getDispatchAuditContextArgsValidator = v.object({
 export const dispatchAutomationRunArgsValidator = v.object({
   runId: v.string(),
   namespace: v.optional(v.string()),
+  retryAttempt: v.optional(v.number()),
 });
 
 export const terminateAutomationRunArgsValidator = v.object({
@@ -19,8 +20,25 @@ export const buildGetDispatchAuditContextArgs = (runId: string) => ({
   runId,
 });
 
-export const buildDispatchAutomationRunArgs = (runId: string, namespace?: string) =>
-  namespace === undefined ? { runId } : { runId, namespace };
+export const buildDispatchAutomationRunArgs = (
+  runId: string,
+  namespace?: string,
+  retryAttempt?: number,
+) => {
+  const args =
+    namespace === undefined
+      ? { runId }
+      : {
+          runId,
+          namespace,
+        };
+  return retryAttempt === undefined
+    ? args
+    : {
+        ...args,
+        retryAttempt,
+      };
+};
 
 export const buildTerminateAutomationRunArgs = (runId: string, namespace?: string) =>
   namespace === undefined ? { runId } : { runId, namespace };
