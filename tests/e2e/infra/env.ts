@@ -56,7 +56,10 @@ export const buildWorkerEnv = (params: WorkerEnvParams): WorkerEnv => {
   const queueBrokerBase = `http://127.0.0.1:${params.ports.queueBroker}`;
   const useFakeOpenAiResponses = process.env.KEPPO_E2E_OPENAI_RESPONSES_FAKE === "1";
   const convexSiteUrl = process.env.KEPPO_CONVEX_SITE_URL ?? toLocalConvexSiteUrl(params.convexUrl);
-  const cronToken = readUsableTestEnv(process.env.KEPPO_CRON_SECRET) ?? "keppo-e2e-cron-secret";
+  // Local E2E automation dispatch derives the internal bearer from the worker index.
+  // Keep the dashboard and queue-broker env aligned with that contract instead of
+  // inheriting a generic dotenv/CI cron secret that the Convex-side dispatcher will not use.
+  const cronToken = `e2e-cron-token-${params.workerIndex}`;
   const externalAllowlist = new Set(
     (process.env.KEPPO_EXTERNAL_FETCH_ALLOWLIST ?? "")
       .split(",")
