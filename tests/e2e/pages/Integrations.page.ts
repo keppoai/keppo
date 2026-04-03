@@ -16,6 +16,7 @@ export class IntegrationsPage extends BasePage {
     const connectButton = this.page.getByTestId(`connect-${providerId}`);
     const openButton = this.page.getByTestId(`open-${providerId}`);
     const disconnectButton = this.page.getByTestId(`disconnect-${providerId}`);
+    const oauthConnectedParam = `${providerId.toLowerCase()}`;
 
     await expect
       .poll(
@@ -49,6 +50,12 @@ export class IntegrationsPage extends BasePage {
             const currentUrl = this.page.url();
             if (currentUrl.includes("/oauth/")) {
               return "oauth";
+            }
+            if (
+              new URL(currentUrl).searchParams.get("integration_connected")?.toLowerCase() ===
+              oauthConnectedParam
+            ) {
+              return "redirected";
             }
             return "pending";
           },

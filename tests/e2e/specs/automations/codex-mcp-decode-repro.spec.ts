@@ -115,7 +115,25 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     .poll(
       async () => {
         dashboardLog = await readServiceLog("dashboard");
-        return dashboardLog.includes('"msg":"mcp.tools_list.completed"');
+        return (
+          dashboardLog.includes('"msg":"mcp.tools_list.completed"') &&
+          dashboardLog.includes('"msg":"mcp.search_tools.completed"')
+        );
+      },
+      { timeout: 20_000, intervals: [500, 1_000, 2_000] },
+    )
+    .toBe(true);
+
+  let fakeGatewayLog = await readServiceLog("fake-gateway");
+  await expect
+    .poll(
+      async () => {
+        fakeGatewayLog = await readServiceLog("fake-gateway");
+        return (
+          fakeGatewayLog.includes("[fake-openai] path=/responses") &&
+          fakeGatewayLog.includes('"name":"mcp__keppo__search_tools"') &&
+          fakeGatewayLog.includes('"name":"mcp__keppo__record_outcome"')
+        );
       },
       { timeout: 20_000, intervals: [500, 1_000, 2_000] },
     )
@@ -125,6 +143,12 @@ test("codex automation run completes after search_tools when fake OpenAI respons
     {
       status: run?.status ?? null,
       dashboardSawToolsListCompleted: dashboardLog.includes('"msg":"mcp.tools_list.completed"'),
+      dashboardSawSearchToolsCompleted: dashboardLog.includes('"msg":"mcp.search_tools.completed"'),
+      fakeGatewaySawResponsesPath: fakeGatewayLog.includes("[fake-openai] path=/responses"),
+      fakeGatewaySawSearchToolsCall: fakeGatewayLog.includes('"name":"mcp__keppo__search_tools"'),
+      fakeGatewaySawRecordOutcomeCall: fakeGatewayLog.includes(
+        '"name":"mcp__keppo__record_outcome"',
+      ),
       hasStreamDisconnectError: logText.includes("stream disconnected before completion"),
       hasAgentRecordedOutcome: logText.includes("Automation outcome (agent recorded): Success."),
       logText,
@@ -133,6 +157,10 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   ).toEqual({
     status: "succeeded",
     dashboardSawToolsListCompleted: true,
+    dashboardSawSearchToolsCompleted: true,
+    fakeGatewaySawResponsesPath: true,
+    fakeGatewaySawSearchToolsCall: true,
+    fakeGatewaySawRecordOutcomeCall: true,
     hasStreamDisconnectError: false,
     hasAgentRecordedOutcome: true,
     logText,

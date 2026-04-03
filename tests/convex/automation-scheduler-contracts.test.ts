@@ -683,6 +683,68 @@ describe("automation scheduler contract boundaries", () => {
     });
   });
 
+  it("prefers the local queue consumer origin over the namespace-derived fallback when both exist", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("KEPPO_API_INTERNAL_BASE_URL", "");
+    vi.stubEnv("KEPPO_URL", "");
+    vi.stubEnv(
+      "KEPPO_LOCAL_QUEUE_CONSUMER_URL",
+      "http://localhost:9903/internal/queue/approved-action",
+    );
+    const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const t = createConvexTestHarness();
+    const orgId = await t.mutation(refs.seedUserOrg, {
+      userId: "usr_convex_scheduler_local_queue_precedence",
+      email: "convex-scheduler-local-queue-precedence@example.com",
+      name: "Convex Scheduler Local Queue Precedence",
+    });
+    const authUserId = await t.run(async (ctx) => {
+      const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+        model: "user",
+        where: [
+          {
+            field: "email",
+            value: "convex-scheduler-local-queue-precedence@example.com",
+          },
+        ],
+      })) as { _id?: string } | null;
+      return user?._id ?? null;
+    });
+    expect(authUserId).toBeTruthy();
+    const authT = t.withIdentity({
+      subject: authUserId!,
+      email: "convex-scheduler-local-queue-precedence@example.com",
+      name: "Convex Scheduler Local Queue Precedence",
+      activeOrganizationId: orgId,
+    });
+    const fixture = await seedAutomationFixture(t, orgId);
+
+    const run = await authT.mutation(refs.triggerAutomationRunManual, {
+      automation_id: fixture.automationId,
+    });
+
+    const result = await authT.action(refs.dispatchAutomationRun, {
+      runId: run.id,
+      namespace: "e2e-run.0.worker.spec",
+    });
+
+    expect(result).toMatchObject({
+      dispatched: true,
+      status: "dispatched",
+      http_status: 204,
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:9903/internal/automations/dispatch",
+      expect.objectContaining({
+        method: "POST",
+        body: expect.any(String),
+      }),
+    );
+  });
+
   it("prefers the namespace-derived cron secret for E2E dispatch auth over ambient env secrets", async () => {
     vi.useFakeTimers();
     vi.stubEnv("KEPPO_API_INTERNAL_BASE_URL", "");
