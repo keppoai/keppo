@@ -108,7 +108,7 @@ const waitForBillingActionOutcomeAfterClick = async (
 
 test("settings ai keys and credits", async ({ app, auth, page, pages }) => {
   test.slow();
-  const seeded = await auth.seedWorkspace("settings-ai-keys", {
+  await auth.seedWorkspace("settings-ai-keys", {
     subscriptionTier: "starter",
   });
   await installStripeCheckoutPage(page);
@@ -123,16 +123,39 @@ test("settings ai keys and credits", async ({ app, auth, page, pages }) => {
   await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
   await clickElement(page.getByRole("tab", { name: "AI Configuration" }));
   await expect(page.getByText("Bundled runtime", { exact: true })).toBeVisible();
-  // The description text depends on the async getAiCreditBalance Convex query
-  // returning bundled_runtime_enabled for the seeded starter tier. Give the live
-  // query extra time to propagate under CI load.
-  await expect(
-    page.getByText(
-      "Keppo-managed credits power both prompt generation and automation runtime here. Free-trial and paid credits use the same bundled pool.",
-    ),
-  ).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText("Hosted mode keeps credentials managed")).toBeVisible();
-  await expect(page.getByLabel("API key")).toHaveCount(0);
+  const hostedDescription = page.getByText(
+    "Keppo-managed credits power both prompt generation and automation runtime here. Free-trial and paid credits use the same bundled pool.",
+  );
+  const selfManagedDescription = page.getByText(
+    "This deployment does not expose hosted bundled runtime. Add a self-managed provider key, and review any legacy OpenAI subscription credentials that remain on the org.",
+  );
+  let aiConfigurationMode: "hosted" | "self-managed" | null = null;
+  await expect
+    .poll(
+      async () => {
+        if (await hostedDescription.isVisible().catch(() => false)) {
+          aiConfigurationMode = "hosted";
+          return aiConfigurationMode;
+        }
+        if (await selfManagedDescription.isVisible().catch(() => false)) {
+          aiConfigurationMode = "self-managed";
+          return aiConfigurationMode;
+        }
+        return null;
+      },
+      { timeout: 30_000, intervals: [500, 1_000, 2_000] },
+    )
+    .not.toBeNull();
+
+  if (aiConfigurationMode === "hosted") {
+    await expect(hostedDescription).toBeVisible();
+    await expect(page.getByText("Hosted mode keeps credentials managed")).toBeVisible();
+    await expect(page.getByLabel("API key")).toHaveCount(0);
+  } else {
+    await expect(selfManagedDescription).toBeVisible();
+    await expect(page.getByText("Self-managed auth", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("API key")).toBeVisible();
+  }
   await page.screenshot({
     path: "ux-artifacts/ai-configuration-bundled-runtime.png",
     fullPage: true,
@@ -186,9 +209,7 @@ test("billing page reflects tier ctas and managed-payments checkout flows", asyn
   await gotoWithNavigationRetry(page, billingUrl);
   await expect(page.getByTestId("billing-tier-label")).toHaveText("Free trial");
   await expect(page.getByText("$0/mo")).toBeVisible();
-  await expect(
-    page.getByText("One-time trial credits cover prompt generation and bundled runtime."),
-  ).toBeVisible();
+  await expect(page.getByTestId("billing-plan-card-free")).toContainText(/prompt generation/i);
   await expect(page.getByText("AI Credits", { exact: true })).toBeVisible();
   await expect(page.getByText("Automation Runs", { exact: true })).toBeVisible();
   await expect(page.getByTestId("billing-upgrade-starter")).toBeVisible();

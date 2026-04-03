@@ -157,10 +157,28 @@ test("codex automation run completes after search_tools when fake OpenAI respons
   } else {
     await page.getByLabel("Provider").selectOption("openai");
     const modeField = page.getByLabel("Mode");
-    if ((await modeField.count()) > 0) {
+    const apiKeyField = page.getByLabel("API key");
+    let aiKeySetupReadyState: "mode" | "api-key" | null = null;
+    await expect
+      .poll(
+        async () => {
+          if (await modeField.isVisible().catch(() => false)) {
+            aiKeySetupReadyState = "mode";
+            return aiKeySetupReadyState;
+          }
+          if (await apiKeyField.isVisible().catch(() => false)) {
+            aiKeySetupReadyState = "api-key";
+            return aiKeySetupReadyState;
+          }
+          return null;
+        },
+        { timeout: 15_000, intervals: [250, 500, 1_000] },
+      )
+      .not.toBeNull();
+
+    if (aiKeySetupReadyState === "mode") {
       await modeField.selectOption("byok");
     }
-    const apiKeyField = page.getByLabel("API key");
     await expect(apiKeyField).toBeVisible();
     await setControlValue(apiKeyField, "sk-keppo-e2e-openai");
     await clickElement(page.getByRole("button", { name: "Save Key" }));

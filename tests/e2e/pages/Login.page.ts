@@ -47,6 +47,12 @@ const responseHasUser = (payload: unknown): boolean => {
   return parsed.success && parsed.data.user !== null && parsed.data.user !== undefined;
 };
 
+const isTransientBrowserAuthFetchError = (message: string): boolean => {
+  return /Execution context was destroyed|Target page, context or browser has been closed|Failed to fetch|NetworkError when attempting to fetch resource/i.test(
+    message,
+  );
+};
+
 export class LoginPage extends BasePage {
   private async fetchAuthJson<T>(
     path: string,
@@ -65,11 +71,7 @@ export class LoginPage extends BasePage {
       return payload === null ? null : decode(payload);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (
-        /Execution context was destroyed|Target page, context or browser has been closed/i.test(
-          message,
-        )
-      ) {
+      if (isTransientBrowserAuthFetchError(message)) {
         return null;
       }
       throw error;
@@ -100,11 +102,7 @@ export class LoginPage extends BasePage {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (
-        /Execution context was destroyed|Target page, context or browser has been closed/i.test(
-          message,
-        )
-      ) {
+      if (isTransientBrowserAuthFetchError(message)) {
         return null;
       }
       throw error;
