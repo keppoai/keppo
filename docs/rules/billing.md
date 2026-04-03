@@ -12,6 +12,7 @@
 - Validate `successUrl`, `cancelUrl`, and `returnUrl` against `KEPPO_DASHBOARD_ORIGIN` before calling Stripe.
 - Stripe webhook handlers must verify signatures before mutating subscription, AI credit, or automation run top-up state.
 - Billing webhooks and one-time purchase fulfillment must be idempotent.
+- Stripe subscription period persistence must read still-supported Stripe period fields (for managed-payments subscriptions, prefer subscription item periods when subscription-level period fields are absent) and fail closed instead of substituting `Date.now()` when period timestamps are missing.
 - Reject malformed Stripe metadata before mutating AI credit or automation run top-up state; never write `NaN`, zero, or invalid tier values into billing records.
 - Existing paid orgs may change plans in-app via `POST /api/billing/subscription/change` (upgrades use `subscriptions.update` with prorations; paid-to-paid downgrades use Subscription Schedules from the current period end; cancel-to-free uses `cancel_at_period_end`). First-time free→paid remains Stripe Checkout.
 - Invite promo billing is a separate non-Stripe source of temporary paid access: treat it as `billing_source="invite_promo"`, keep Stripe portal/native plan-change flows disabled, and leave recurring checkout available so the org can convert to Stripe explicitly.

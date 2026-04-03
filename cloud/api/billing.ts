@@ -536,13 +536,14 @@ const parseInteger = (value: unknown, field: string): number => {
   return value;
 };
 
-const toIsoFromUnix = (value: number | null | undefined): string => {
-  const seconds =
-    typeof value === "number" && Number.isFinite(value) ? value : Math.floor(Date.now() / 1000);
-  return new Date(seconds * 1000).toISOString();
+const toIsoFromUnix = (value: number): string => {
+  if (!Number.isFinite(value)) {
+    throw new Error("Expected a finite Unix timestamp.");
+  }
+  return new Date(value * 1000).toISOString();
 };
 
-const readUnixPeriod = (value: unknown): { start?: number; end?: number } => {
+const readUnixPeriodFields = (value: unknown): { start?: number; end?: number } => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return {};
   }
@@ -553,6 +554,52 @@ const readUnixPeriod = (value: unknown): { start?: number; end?: number } => {
       : {}),
     ...(typeof record.current_period_end === "number" ? { end: record.current_period_end } : {}),
   };
+};
+
+const readUnixPeriod = (value: unknown): { start?: number; end?: number } => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+  const record = value as Record<string, unknown>;
+  const subscriptionPeriod = readUnixPeriodFields(record);
+  const items = record.items;
+  if (!items || typeof items !== "object" || Array.isArray(items)) {
+    return subscriptionPeriod;
+  }
+  const data = (items as { data?: unknown }).data;
+  if (!Array.isArray(data)) {
+    return subscriptionPeriod;
+  }
+  for (const item of data) {
+    const itemPeriod = readUnixPeriodFields(item);
+    if (typeof itemPeriod.start === "number" || typeof itemPeriod.end === "number") {
+      return {
+        ...(typeof subscriptionPeriod.start === "number"
+          ? { start: subscriptionPeriod.start }
+          : typeof itemPeriod.start === "number"
+            ? { start: itemPeriod.start }
+            : {}),
+        ...(typeof subscriptionPeriod.end === "number"
+          ? { end: subscriptionPeriod.end }
+          : typeof itemPeriod.end === "number"
+            ? { end: itemPeriod.end }
+            : {}),
+      };
+    }
+  }
+  return subscriptionPeriod;
+};
+
+const requireUnixPeriod = (
+  value: unknown,
+  context: { eventType: string; subscriptionId: string },
+): { start: number; end: number } => {
+  const period = readUnixPeriod(value);
+  if (typeof period.start === "number" && typeof period.end === "number") {
+    return period as { start: number; end: number };
+  }
+  console.error("billing.webhook.subscription_period_missing", context);
+  throw new Error("Stripe subscription period is missing current period timestamps.");
 };
 
 let stripeClientCache: {
@@ -2170,7 +2217,10 @@ export const handleStripeBillingWebhookRequest = async (
           try {
             const stripe = resolveStripeClient(deps);
             const subscription = await stripe.subscriptions.retrieve(session.subscription);
-            const period = readUnixPeriod(subscription);
+            const period = requireUnixPeriod(subscription, {
+              eventType: event.type,
+              subscriptionId: subscription.id,
+            });
             const priceId =
               subscription.items.data[0]?.price.id ??
               (typeof session.metadata?.tier === "string"
@@ -2235,7 +2285,10 @@ export const handleStripeBillingWebhookRequest = async (
       }
     } else if (event.type === "customer.subscription.updated") {
       const subscription = event.data.object as Stripe.Subscription;
-      const period = readUnixPeriod(subscription);
+      const period = requireUnixPeriod(subscription, {
+        eventType: event.type,
+        subscriptionId: subscription.id,
+      });
       const tier = toTierFromPriceId(subscription.items.data[0]?.price.id ?? null);
       const existing = await deps.convex.getSubscriptionByStripeSubscription(subscription.id);
       const nextStatus = toStripeStatus(subscription.status);
