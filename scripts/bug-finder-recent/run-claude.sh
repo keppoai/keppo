@@ -15,9 +15,9 @@ if npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   --permission-mode acceptEdits \
   --allowedTools \
   Read \
-  "Write(/out-bug-finder/**)" \
-  "Edit(/out-bug-finder/**)" \
-  "MultiEdit(/out-bug-finder/**)" \
+  "Write(./out-bug-finder/**)" \
+  "Edit(./out-bug-finder/**)" \
+  "MultiEdit(./out-bug-finder/**)" \
   Glob \
   Grep \
   LS \
