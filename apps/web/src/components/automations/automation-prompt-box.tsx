@@ -65,7 +65,7 @@ type AutomationPromptBoxProps = {
 };
 
 type TriggerType = "schedule" | "event" | "manual";
-type BuilderStep = "brief" | "questions" | "draft" | "providers" | "settings" | "ready";
+type BuilderStep = "brief" | "questions" | "draft" | "providers" | "settings";
 type Confidence = "required" | "recommended";
 type AiModelProvider = "openai" | "anthropic";
 type NetworkAccessMode = "mcp_only" | "mcp_and_web";
@@ -158,7 +158,7 @@ const DEFAULT_SETTINGS: BuilderSettings = {
 };
 
 const PERSISTED_DRAFT_VERSION = 2 as const;
-const STEP_ORDER: BuilderStep[] = ["brief", "questions", "draft", "providers", "settings", "ready"];
+const STEP_ORDER: BuilderStep[] = ["brief", "questions", "draft", "providers", "settings"];
 const STEP_LABEL_SET = new Set<string>(STEP_ORDER);
 const STEP_LABELS: Record<BuilderStep, string> = {
   brief: "brief",
@@ -166,7 +166,6 @@ const STEP_LABELS: Record<BuilderStep, string> = {
   draft: "draft",
   providers: "providers",
   settings: "settings",
-  ready: "ready",
 };
 
 const transitionProps = {
@@ -180,6 +179,13 @@ const storageKey = (workspaceId: string) => `keppo:automation-builder:${workspac
 
 const isBuilderStep = (value: unknown): value is BuilderStep => {
   return typeof value === "string" && STEP_LABEL_SET.has(value);
+};
+
+export const normalizePersistedBuilderStep = (value: unknown): BuilderStep => {
+  if (value === "ready") {
+    return "settings";
+  }
+  return isBuilderStep(value) ? value : "brief";
 };
 
 const resolveShortcutModifier = (): "Cmd" | "Ctrl" | null => {
@@ -468,7 +474,7 @@ const loadPersistedDraft = (workspaceId: string): PersistedDraft | null => {
     const questions = parseAutomationClarificationQuestionsPayload(parsed.questions ?? []);
     const answers = parseAutomationClarificationAnswersPayload(parsed.answers ?? [], questions);
     const settings = isJsonRecord(parsed.settings) ? parsed.settings : DEFAULT_SETTINGS;
-    const parsedStep = isBuilderStep(parsed.step) ? parsed.step : "brief";
+    const parsedStep = normalizePersistedBuilderStep(parsed.step);
     const config = parseGeneratedConfig(parsed.config);
     const safeStep =
       config || parsedStep === "questions" || parsedStep === "brief"
@@ -1125,18 +1131,11 @@ export function AutomationPromptBox({
       if (current === "providers") {
         return "settings";
       }
-      if (current === "settings") {
-        return "ready";
-      }
       return current;
     });
   }, []);
 
   const previousReviewStep = useCallback(() => {
-    if (step === "ready") {
-      setStep("settings");
-      return;
-    }
     if (step === "settings") {
       setStep("providers");
       return;
@@ -1819,67 +1818,65 @@ export function AutomationPromptBox({
                 ) : null}
 
                 {step === "settings" ? (
-                  <div className="rounded-2xl border bg-background/70 p-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div>
-                        <Label htmlFor="builder-model-class">Model</Label>
-                        <NativeSelect
-                          id="builder-model-class"
-                          value={settings.model_class}
-                          onChange={(event) => {
-                            const nextClass =
-                              event.currentTarget.value === "frontier" ||
-                              event.currentTarget.value === "balanced" ||
-                              event.currentTarget.value === "value"
-                                ? event.currentTarget.value
-                                : "auto";
-                            const compatibility = MODEL_CLASS_COMPATIBILITY[nextClass];
-                            setSettings({
-                              ...settings,
-                              model_class: nextClass,
-                              ai_model_provider: compatibility.provider,
-                              ai_model_name: compatibility.model,
-                            });
-                          }}
-                          className="mt-2 w-full"
-                        >
-                          <option value="auto">Auto</option>
-                          <option value="frontier">Frontier</option>
-                          <option value="balanced">Balanced</option>
-                          <option value="value">Value</option>
-                        </NativeSelect>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                          {getAutomationModelClassMeta(settings.model_class).description}
-                        </p>
-                      </div>
-                      <div>
-                        <div className="rounded-2xl border p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <Label htmlFor="builder-network-access">Enable web access</Label>
-                              <p className="text-xs text-muted-foreground">
-                                {getNetworkAccessMeta(settings.network_access).description}
-                              </p>
+                  <div className="space-y-4">
+                    <div className="rounded-2xl border bg-background/70 p-4">
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div>
+                          <Label htmlFor="builder-model-class">Model</Label>
+                          <NativeSelect
+                            id="builder-model-class"
+                            value={settings.model_class}
+                            onChange={(event) => {
+                              const nextClass =
+                                event.currentTarget.value === "frontier" ||
+                                event.currentTarget.value === "balanced" ||
+                                event.currentTarget.value === "value"
+                                  ? event.currentTarget.value
+                                  : "auto";
+                              const compatibility = MODEL_CLASS_COMPATIBILITY[nextClass];
+                              setSettings({
+                                ...settings,
+                                model_class: nextClass,
+                                ai_model_provider: compatibility.provider,
+                                ai_model_name: compatibility.model,
+                              });
+                            }}
+                            className="mt-2 w-full"
+                          >
+                            <option value="auto">Auto</option>
+                            <option value="frontier">Frontier</option>
+                            <option value="balanced">Balanced</option>
+                            <option value="value">Value</option>
+                          </NativeSelect>
+                          <p className="mt-2 text-sm text-muted-foreground">
+                            {getAutomationModelClassMeta(settings.model_class).description}
+                          </p>
+                        </div>
+                        <div>
+                          <div className="rounded-2xl border p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <Label htmlFor="builder-network-access">Enable web access</Label>
+                                <p className="text-xs text-muted-foreground">
+                                  {getNetworkAccessMeta(settings.network_access).description}
+                                </p>
+                              </div>
+                              <Switch
+                                id="builder-network-access"
+                                checked={settings.network_access === "mcp_and_web"}
+                                onCheckedChange={(checked) =>
+                                  setSettings({
+                                    ...settings,
+                                    network_access: checked ? "mcp_and_web" : "mcp_only",
+                                  })
+                                }
+                              />
                             </div>
-                            <Switch
-                              id="builder-network-access"
-                              checked={settings.network_access === "mcp_and_web"}
-                              onCheckedChange={(checked) =>
-                                setSettings({
-                                  ...settings,
-                                  network_access: checked ? "mcp_and_web" : "mcp_only",
-                                })
-                              }
-                            />
                           </div>
                         </div>
                       </div>
                     </div>
-                  </div>
-                ) : null}
 
-                {step === "ready" ? (
-                  <div className="space-y-4">
                     <div className="rounded-2xl border bg-background/70 p-5">
                       <p className="font-medium">Ready to create</p>
                       <p className="mt-1 text-sm text-muted-foreground">
@@ -1927,7 +1924,7 @@ export function AutomationPromptBox({
                       <ChevronLeftIcon className="mr-1 size-4" />
                       Back
                     </Button>
-                    {step === "ready" ? (
+                    {step === "settings" ? (
                       <Button
                         type="button"
                         onClick={() => void handleCreate()}
