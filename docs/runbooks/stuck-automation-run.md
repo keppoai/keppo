@@ -11,7 +11,7 @@
 1. Identify the run and workspace from dashboard run details.
 2. Check API/Convex logs for dispatch and callback activity for the run (`/internal/automations/dispatch`, `/internal/automations/log`, `/internal/automations/complete`).
 3. Confirm cron maintenance is healthy (`GET /health/deep`, `cron` subsystem).
-4. Verify run timeout settings (`KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS`, `KEPPO_RUN_INACTIVITY_MINUTES`) are set as expected.
+4. Verify run timeout settings and effective tier limits are set as expected (`KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS`, the org subscription tier's automation max run duration, and `KEPPO_RUN_INACTIVITY_MINUTES`).
 5. Check whether queue delivery for `approved-action`/automation dispatch is delayed or failing.
 
 ## Fix

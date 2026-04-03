@@ -1,5 +1,5 @@
 import { AI_CREDIT_ERROR_CODE, parseAiCreditErrorCode } from "@keppo/shared/ai-credit-errors";
-import { CLIENT_TYPE } from "@keppo/shared/domain";
+import { CLIENT_TYPE, type SubscriptionTier } from "@keppo/shared/domain";
 import {
   AI_KEY_MODE,
   AUTOMATION_ROUTE_ERROR_CODES,
@@ -23,6 +23,7 @@ import {
   type AutomationRouteErrorCode,
   type AutomationRunTerminalStatus,
 } from "@keppo/shared/automations";
+import { getTierConfig } from "@keppo/shared/subscriptions";
 import { parseJsonPayload } from "./api-runtime/app-helpers.ts";
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { getEnv } from "./api-runtime/env.ts";
@@ -72,6 +73,7 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   | "getAiCreditBalance"
   | "getAutomationRunDispatchContext"
   | "getOrgAiKey"
+  | "getSubscriptionForOrg"
   | "issueAutomationWorkspaceCredential"
   | "storeAutomationRunSessionTrace"
   | "updateAutomationRunStatus"
@@ -108,6 +110,7 @@ const AUTOMATION_LOG_APPEND_RETRIES = 2;
 const AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS = 250;
 const AUTOMATION_LOG_BATCH_SIZE = 50;
 const AUTOMATION_LOG_MAX_LINES = 200;
+const MIN_AUTOMATION_TIMEOUT_MS = 60_000;
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
@@ -176,6 +179,19 @@ const resolveAutomationModel = (
     aiModelProvider,
     aiModelName,
   };
+};
+
+const resolveAutomationDispatchTimeoutMs = (params: {
+  configuredDefaultTimeoutMs: number;
+  subscriptionTier: SubscriptionTier | null;
+}): number => {
+  if (params.subscriptionTier) {
+    return Math.max(
+      MIN_AUTOMATION_TIMEOUT_MS,
+      getTierConfig(params.subscriptionTier).automation_limits.max_run_duration_ms,
+    );
+  }
+  return Math.max(MIN_AUTOMATION_TIMEOUT_MS, params.configuredDefaultTimeoutMs);
 };
 
 const withSecurityHeaders = (request: Request, init?: ResponseInit): ResponseInit => {
@@ -459,8 +475,9 @@ export const handleInternalAutomationDispatchRequest = async (
     const callbackBaseUrl = resolveAutomationCallbackBaseUrl(request.url);
     const providerMode = resolveAutomationSandboxProviderMode();
     assertSandboxCallbackBaseUrlReachable(callbackBaseUrl, providerMode);
-    const [creditBalance, byoKey, legacyOpenAiKey] = await Promise.all([
+    const [creditBalance, subscription, byoKey, legacyOpenAiKey] = await Promise.all([
       deps.convex.getAiCreditBalance({ orgId: context.automation.org_id }),
+      deps.convex.getSubscriptionForOrg(context.automation.org_id),
       gatewayEnabled
         ? Promise.resolve(null)
         : deps.convex.getOrgAiKey({
@@ -492,6 +509,10 @@ export const handleInternalAutomationDispatchRequest = async (
       : resolvedKeyMode === AI_KEY_MODE.bundled
         ? AI_KEY_MODE.bundled
         : (activeNonBundledKey?.key_mode ?? AI_KEY_MODE.byok);
+    const timeoutMs = resolveAutomationDispatchTimeoutMs({
+      configuredDefaultTimeoutMs: env.KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS,
+      subscriptionTier: subscription?.tier ?? null,
+    });
 
     assertRunnerAuthSupported({
       runnerType: resolvedModel.runnerType,
@@ -562,7 +583,6 @@ export const handleInternalAutomationDispatchRequest = async (
       },
     });
 
-    const timeoutMs = Math.max(60_000, deps.getEnv().KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS);
     const expiresMs = Date.now() + timeoutMs + 5 * 60_000;
     const createSignedUrl = (pathname: string): string => {
       const url = new URL(pathname, `${callbackBaseUrl}/`);
@@ -709,6 +729,8 @@ export const handleInternalAutomationDispatchRequest = async (
       runner_type: resolvedModel.runnerType,
       ai_model_provider: resolvedModel.aiModelProvider,
       ai_key_mode: authKeyMode,
+      automation_timeout_ms: timeoutMs,
+      subscription_tier: subscription?.tier ?? null,
       network_access: context.config.network_access,
       has_e2e_openai_base_url: Boolean(runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL),
       has_openai_base_url: Boolean(runtimeEnv.OPENAI_BASE_URL),

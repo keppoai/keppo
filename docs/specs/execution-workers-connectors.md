@@ -124,6 +124,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - requires the MicroVM to reach a host callback URL (`UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL` in strict/non-local setups), which is the main networking constraint of this provider.
 - Dispatch path requirements:
   - resolve automation run dispatch context from Convex snapshot (`automation_runs:getAutomationRunDispatchContext`),
+  - derive sandbox `timeout_ms` from the org's current subscription tier `automation_limits.max_run_duration_ms`; only fall back to `KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS` when dispatch cannot resolve a tier,
   - decrypt org AI key/token (`org_ai_keys:getOrgAiKey`) and inject them only into the runtime stage after bootstrap succeeds,
   - refresh OpenAI OAuth-backed `subscription_token` credentials server-side before dispatch when the cached access token is expired or near expiry,
   - create automation-attributed MCP session identity and update run lifecycle to `running`,
