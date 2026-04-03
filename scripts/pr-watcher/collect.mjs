@@ -25,7 +25,7 @@ const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
 const githubOutputPath = process.env.GITHUB_OUTPUT;
 const contextOutputPath = process.env.CONTEXT_OUTPUT_PATH;
 const maxFixPrThreshold = Number.parseInt(
-  process.env.MAX_FIX_PR_THRESHOLD ?? "3",
+  process.env.MAX_FIX_PR_THRESHOLD ?? "5",
   10,
 );
 
