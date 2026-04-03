@@ -98,6 +98,8 @@ type StartOwnedAutomationRuntimeDeps = {
 };
 
 let convexClient: ConvexInternalClient | null = null;
+const AUTOMATION_COMPLETE_UPDATE_RETRIES = 2;
+const AUTOMATION_COMPLETE_RETRY_BASE_DELAY_MS = 250;
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
@@ -110,6 +112,10 @@ const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
 const trimToUndefined = (value: string | null | undefined): string | undefined => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : undefined;
+};
+
+const sleep = async (ms: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
 const inferProviderFromModelName = (modelName: string): "openai" | "anthropic" => {
@@ -229,6 +235,36 @@ const mapInvalidPayloadError = (error: unknown): Record<string, unknown> | null 
     error: message,
     error_code: code,
   };
+};
+
+const updateAutomationRunCompletionWithRetry = async (
+  deps: StartOwnedAutomationRuntimeDeps,
+  payload: {
+    automation_run_id: string;
+    status: AutomationRunTerminalStatus;
+    error_message?: string;
+  },
+): Promise<unknown | null> => {
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= AUTOMATION_COMPLETE_UPDATE_RETRIES; attempt += 1) {
+    try {
+      await deps.convex.updateAutomationRunStatus({
+        automationRunId: payload.automation_run_id,
+        status: payload.status,
+        ...(payload.error_message ? { errorMessage: payload.error_message } : {}),
+      });
+      return null;
+    } catch (error) {
+      lastError = error;
+      if (attempt >= AUTOMATION_COMPLETE_UPDATE_RETRIES) {
+        break;
+      }
+      await sleep(AUTOMATION_COMPLETE_RETRY_BASE_DELAY_MS * 2 ** attempt);
+    }
+  }
+
+  return lastError;
 };
 
 const parseRequestPayload = <T>(
@@ -814,11 +850,28 @@ export const handleInternalAutomationCompleteRequest = async (
     );
   }
 
-  await deps.convex.updateAutomationRunStatus({
-    automationRunId: payload.automation_run_id,
-    status: payload.status,
-    ...(payload.error_message ? { errorMessage: payload.error_message } : {}),
-  });
+  const completionError = await updateAutomationRunCompletionWithRetry(deps, payload);
+  if (completionError) {
+    const typedError = toAutomationRouteError(completionError, "automation_route_failed");
+    const { code, message } = extractAutomationRouteError(typedError);
+    deps.logger.error("automation.complete.failed", {
+      automation_run_id: payload.automation_run_id,
+      status: payload.status,
+      error: message,
+      attempts: AUTOMATION_COMPLETE_UPDATE_RETRIES + 1,
+      ...(code ? { error_code: code } : {}),
+    });
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.completeFailed,
+        error: message,
+        ...(code ? { error_code: code } : {}),
+      },
+      500,
+    );
+  }
 
   return jsonResponse(request, {
     ok: true,
