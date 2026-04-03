@@ -305,6 +305,9 @@ export const main = async () => {
   const existing = await fetchExistingAdvisories({ apiBaseUrl, repo, token });
   const existingBySummary = new Map(
     existing
+      // Only draft advisories represent an unresolved private report still in progress.
+      // Published or closed advisories should already be fixed or stale, so they must not suppress a new filing.
+      .filter((advisory) => String(advisory.state || "").toLowerCase() === "draft")
       .map((advisory) => [normalizeSummary(String(advisory.summary || "")), advisory])
       .filter(([summary]) => summary),
   );
