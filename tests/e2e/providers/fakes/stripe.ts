@@ -4,7 +4,11 @@ import {
   type FakeStripeClientStore,
 } from "../../../../packages/shared/src/provider-sdk/stripe/fake.js";
 import { BaseProviderFake } from "../base-fake";
-import type { ProviderReadRequest, ProviderWriteRequest } from "../contract/provider-contract";
+import type {
+  OAuthCodeExchangePayload,
+  ProviderReadRequest,
+  ProviderWriteRequest,
+} from "../contract/provider-contract";
 
 const defaultFakeToken = (): string =>
   process.env.KEPPO_FAKE_STRIPE_ACCESS_TOKEN ?? "fake_stripe_access_token";
@@ -65,6 +69,17 @@ const parseOptionalBoolean = (value: unknown): boolean | undefined => {
 export class StripeFake extends BaseProviderFake {
   private readonly clientStore: FakeStripeClientStore = createFakeStripeClientStore();
   private readonly sdk = createFakeStripeSdk({ clientStore: this.clientStore });
+
+  override exchangeCodeForTokens(payload: OAuthCodeExchangePayload) {
+    const token = super.exchangeCodeForTokens(payload);
+    if (payload.grantType !== "authorization_code") {
+      return token;
+    }
+    return {
+      ...token,
+      stripe_user_id: `acct_${payload.namespace}`,
+    };
+  }
 
   override async getProfile(namespace: string): Promise<Record<string, unknown>> {
     return {

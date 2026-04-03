@@ -41,7 +41,11 @@ export const stripeManagedOAuthConfig: ManagedOAuthConfig = {
   defaultScopes: getProviderDefaultScopes("stripe"),
   mapRequestedScopes: mapRequestedStripeScopes,
   normalizeGrantedScopes: normalizeGrantedStripeScopes,
-  profilePaths: ["/profile"],
+  profilePaths: [],
+  resolveExternalAccountIdFromTokenResponse: (payload) => {
+    const accountId = payload.stripe_user_id;
+    return typeof accountId === "string" && accountId.trim() ? accountId : null;
+  },
   resolveExternalAccountId: (profile) => {
     const accountId = profile.id;
     return typeof accountId === "string" && accountId.trim() ? accountId : null;

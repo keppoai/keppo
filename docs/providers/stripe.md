@@ -30,6 +30,8 @@ ${KEPPO_API_INTERNAL_BASE_URL}/oauth/integrations/stripe/callback
 
 This is derived automatically when `STRIPE_REDIRECT_URI` is unset.
 
+Keppo binds the connected Stripe integration to the provider-issued `stripe_user_id` returned by Stripe's OAuth token exchange. If Stripe does not return that identifier, the callback fails closed instead of persisting a tenant-owned fallback id.
+
 ## Webhook setup
 
 Register two webhook endpoints in your Stripe dashboard:
