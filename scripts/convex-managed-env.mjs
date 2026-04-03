@@ -29,7 +29,7 @@ const managedConvexEnv = [
   { key: "KEPPO_OAUTH_STATE_SECRET", modes: ["local"] },
   { key: "KEPPO_CRON_SECRET", modes: ["local", "hosted"] },
   { key: "KEPPO_API_INTERNAL_BASE_URL", modes: ["local", "hosted"] },
-  { key: "KEPPO_MASTER_KEY", modes: ["local"] },
+  { key: "KEPPO_MASTER_KEY", modes: ["local", "hosted"] },
   { key: "KEPPO_MASTER_KEY_INTEGRATION", modes: ["local"] },
   { key: "KEPPO_MASTER_KEY_ACTION", modes: ["local"] },
   { key: "KEPPO_MASTER_KEY_BLOB", modes: ["local"] },
