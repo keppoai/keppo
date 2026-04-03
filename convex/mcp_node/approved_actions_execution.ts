@@ -182,6 +182,19 @@ export const createExecuteApprovedActionImpl = (deps: ApprovedActionDeps) => {
     };
   };
 
+  const requireActionStatusPayload = (actionId: string, payload: unknown) => {
+    if (payload === null) {
+      throw deps.createWorkerExecutionError("execution_failed", `Action ${actionId} not found`);
+    }
+    return parseActionStatusPayload(
+      payload,
+      validationMessage(
+        "mcp_node.setActionStatus",
+        `Action status payload for ${actionId} failed validation.`,
+      ),
+    );
+  };
+
   return async (ctx: ActionCtx, actionId: string): Promise<ExecuteApprovedActionResult> => {
     const stateRaw = await safeRunQuery("mcp_node.getActionState", () =>
       ctx.runQuery(deps.refs.getActionState, { actionId }),
@@ -407,17 +420,8 @@ export const createExecuteApprovedActionImpl = (deps: ApprovedActionDeps) => {
           allowedCurrentStatuses: [ACTION_STATUS.approved],
         }),
       );
-      const executing =
-        executingRaw === null
-          ? null
-          : parseActionStatusPayload(
-              executingRaw,
-              validationMessage(
-                "mcp_node.setActionStatus",
-                `Action status payload for ${actionId} failed validation.`,
-              ),
-            );
-      if (executing && executing.status !== ACTION_STATUS.executing) {
+      const executing = requireActionStatusPayload(actionId, executingRaw);
+      if (executing.status !== ACTION_STATUS.executing) {
         return {
           status: executing.status,
           action: executing,
@@ -482,17 +486,8 @@ export const createExecuteApprovedActionImpl = (deps: ApprovedActionDeps) => {
           allowedCurrentStatuses: [ACTION_STATUS.executing],
         }),
       );
-      const updated =
-        updatedRaw === null
-          ? null
-          : parseActionStatusPayload(
-              updatedRaw,
-              validationMessage(
-                "mcp_node.setActionStatus",
-                `Action status payload for ${actionId} failed validation.`,
-              ),
-            );
-      if (updated && updated.status !== ACTION_STATUS.succeeded) {
+      const updated = requireActionStatusPayload(actionId, updatedRaw);
+      if (updated.status !== ACTION_STATUS.succeeded) {
         return {
           status: updated.status,
           action: updated,
@@ -518,7 +513,7 @@ export const createExecuteApprovedActionImpl = (deps: ApprovedActionDeps) => {
 
       return {
         status: ACTION_STATUS.succeeded,
-        action: updated ?? state.action,
+        action: updated,
       };
     } catch (error) {
       if (isOptimisticConcurrencyControlFailure(error) || isActionStatusTransitionConflict(error)) {
@@ -580,17 +575,8 @@ export const createExecuteApprovedActionImpl = (deps: ApprovedActionDeps) => {
         }
         throw transitionError;
       }
-      const updated =
-        updatedRaw === null
-          ? null
-          : parseActionStatusPayload(
-              updatedRaw,
-              validationMessage(
-                "mcp_node.setActionStatus",
-                `Action status payload for ${actionId} failed validation.`,
-              ),
-            );
-      if (updated && updated.status !== ACTION_STATUS.failed) {
+      const updated = requireActionStatusPayload(actionId, updatedRaw);
+      if (updated.status !== ACTION_STATUS.failed) {
         return {
           status: updated.status,
           action: updated,
@@ -634,7 +620,7 @@ export const createExecuteApprovedActionImpl = (deps: ApprovedActionDeps) => {
 
       return {
         status: ACTION_STATUS.failed,
-        action: updated ?? state.action,
+        action: updated,
       };
     }
   };
