@@ -161,6 +161,7 @@ jobs:
           GITHUB_SERVER_URL: ${{ github.server_url }}
           SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
           BUG_FINDER_GITHUB_TOKEN: ${{ steps.issue-app-token.outputs.token }}
+          REPORT_SEVERITY: critical
           BUG_FINDER_ALERT_EMAILS: ${{ vars.BUG_FINDER_ALERT_EMAILS }}
           MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
           MAILGUN_DOMAIN: ${{ vars.MAILGUN_DOMAIN }}

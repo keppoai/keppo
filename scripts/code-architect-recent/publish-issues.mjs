@@ -286,6 +286,10 @@ const loadFindings = async (dirPath) => {
       malformed.push(parsed.error);
       continue;
     }
+    const reportSeverity = process.env.REPORT_SEVERITY;
+    if (reportSeverity && parsed.finding.severity !== reportSeverity) {
+      continue;
+    }
     findings.push(parsed.finding);
   }
 
