@@ -117,6 +117,7 @@ let automationQuestionRateLimiter: ReturnType<typeof createDurableRateLimiter> |
 let automationQuestionRateLimiterClient: StartOwnedAutomationApiConvex["checkRateLimit"] | null =
   null;
 
+const AUTOMATION_AUTHOR_ROLES = new Set<UserRole>(["owner", "admin"]);
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
 
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
@@ -210,6 +211,10 @@ const resolveSessionFromRequest = async (
     return null;
   }
   return await deps.convex.resolveApiSessionFromToken(sessionToken);
+};
+
+const canManageAutomations = (identity: ApiSessionIdentity): boolean => {
+  return AUTOMATION_AUTHOR_ROLES.has(identity.role);
 };
 
 const parseGeneratePromptPayload = (
@@ -596,6 +601,17 @@ const resolveAutomationWorkspaceContext = async (
         status: AUTOMATION_ROUTE_STATUS.unauthorized,
       },
       401,
+    );
+  }
+
+  if (!canManageAutomations(sessionIdentity)) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.workspaceForbidden,
+      },
+      403,
     );
   }
 

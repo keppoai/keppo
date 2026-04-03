@@ -160,6 +160,22 @@ if (
   );
 }
 
+const automationApiSource = read("apps/web/app/lib/server/automation-api.ts");
+if (
+  !/const AUTOMATION_AUTHOR_ROLES = new Set<UserRole>\(\["owner", "admin"\]\);/u.test(
+    automationApiSource,
+  )
+) {
+  failures.push(
+    "apps/web/app/lib/server/automation-api.ts must keep automation authoring limited to owner/admin roles.",
+  );
+}
+if (!/if \(!canManageAutomations\(sessionIdentity\)\)/u.test(automationApiSource)) {
+  failures.push(
+    "apps/web/app/lib/server/automation-api.ts must enforce the automation authoring role gate before loading workspace authoring context.",
+  );
+}
+
 if (failures.length > 0) {
   console.error("Security invariant check failed.");
   for (const failure of failures) {
