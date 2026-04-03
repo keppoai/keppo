@@ -780,15 +780,21 @@ export const createExecuteToolCallHandler = (deps: ExecuteToolCallHandlerDeps) =
       }),
     );
     const billingOrgId = parseBillingOrgId(billingWorkspace, deps.createWorkerExecutionError);
-    const billingReservation = await safeRunMutation("mcp_node.beginToolCall", () =>
-      ctx.runMutation(deps.refs.beginToolCall, {
-        orgId: billingOrgId,
-      }),
-    );
-    const baseToolCallTimeoutMs = Math.max(1, Math.floor(billingReservation.tool_call_timeout_ms));
-    const toolCallTimeoutMs = maybeApplyE2eTimeoutScale(baseToolCallTimeoutMs, payload.input);
+    let billingReservation: {
+      tool_call_timeout_ms: number;
+      period_start: string;
+    } | null = null;
 
     try {
+      const reservation = await safeRunMutation("mcp_node.beginToolCall", () =>
+        ctx.runMutation(deps.refs.beginToolCall, {
+          orgId: billingOrgId,
+        }),
+      );
+      billingReservation = reservation;
+      const baseToolCallTimeoutMs = Math.max(1, Math.floor(reservation.tool_call_timeout_ms));
+      const toolCallTimeoutMs = maybeApplyE2eTimeoutScale(baseToolCallTimeoutMs, payload.input);
+
       if (tool.provider === "keppo") {
         return await deps.handleInternalToolCall(ctx, {
           payload,
@@ -858,14 +864,17 @@ export const createExecuteToolCallHandler = (deps: ExecuteToolCallHandlerDeps) =
         deps,
       });
     } finally {
+      const reservation = billingReservation;
       try {
-        await safeRunMutation("mcp_node.finishToolCall", () =>
-          ctx.runMutation(deps.refs.finishToolCall, {
-            orgId: billingOrgId,
-            periodStart: billingReservation.period_start,
-            latencyMs: Date.now() - startedAt,
-          }),
-        );
+        if (reservation) {
+          await safeRunMutation("mcp_node.finishToolCall", () =>
+            ctx.runMutation(deps.refs.finishToolCall, {
+              orgId: billingOrgId,
+              periodStart: reservation.period_start,
+              latencyMs: Date.now() - startedAt,
+            }),
+          );
+        }
       } catch (error) {
         console.error("billing.finish_tool_call.error", error);
       }
