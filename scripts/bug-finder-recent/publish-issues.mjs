@@ -161,6 +161,8 @@ const readDedupMarker = (issueBody) => {
   return match ? match[1] : null;
 };
 
+const isRepositoryIssue = (issue) => !issue || typeof issue !== "object" || !("pull_request" in issue);
+
 export const parseFindingMarkdown = (raw, filePath) => {
   const titleMatch = raw.match(/^#\s+(.+)$/m);
   if (!titleMatch) {
@@ -293,7 +295,7 @@ const ensureLabel = async ({ apiBaseUrl, repo, token, label, description }) => {
 const fetchExistingIssues = async ({ apiBaseUrl, repo, token }) => {
   let nextUrl = new URL(`${apiBaseUrl}/repos/${repo}/issues`);
   nextUrl.searchParams.set("labels", BUG_LABEL);
-  nextUrl.searchParams.set("state", "open");
+  nextUrl.searchParams.set("state", "all");
   nextUrl.searchParams.set("per_page", "100");
 
   const issues = [];
@@ -318,7 +320,7 @@ const fetchExistingIssues = async ({ apiBaseUrl, repo, token }) => {
     if (!Array.isArray(page)) {
       throw new Error("Unexpected issue list response shape");
     }
-    issues.push(...page);
+    issues.push(...page.filter(isRepositoryIssue));
     const nextPage = getNextPageUrl(response.headers.get("link"));
     nextUrl = nextPage ? new URL(nextPage) : null;
     pageCount += 1;
@@ -409,9 +411,242 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;");
 
+const formatIssueState = (state) => {
+  if (state === "open" || state === "closed") {
+    return state;
+  }
+  return null;
+};
+
+const buildIssueReference = (finding) => {
+  const state = formatIssueState(finding.state);
+  const issueRef = finding.issueNumber ? `#${finding.issueNumber}` : "issue";
+  return `${issueRef}${state ? ` (${state})` : ""}`;
+};
+
+const buildEmailSubject = ({
+  repo,
+  agentLabel,
+  findingsCount,
+  createdCount,
+  skippedCount,
+  failedCount,
+  malformedCount,
+}) => {
+  if (failedCount > 0 || malformedCount > 0) {
+    if (findingsCount === 0 && malformedCount > 0) {
+      return `[ALERT] bug-finder:recent (${agentLabel}) malformed output for ${repo}`;
+    }
+    return `[ALERT] bug-finder:recent (${agentLabel}) needs operator attention for ${repo}`;
+  }
+  if (createdCount > 0) {
+    return `[ALERT] bug-finder:recent (${agentLabel}) filed ${createdCount} new bug issue(s) for ${repo}`;
+  }
+  if (findingsCount > 0) {
+    return `[INFO] bug-finder:recent (${agentLabel}) 0 new issues (${skippedCount} duplicates) for ${repo}`;
+  }
+  return `[INFO] bug-finder:recent (${agentLabel}) no confirmed bugs for ${repo}`;
+};
+
+const buildHtmlIssueLink = (finding) => {
+  if (!finding.htmlUrl || !finding.issueNumber) {
+    return "";
+  }
+  return ` - <a href="${escapeHtml(finding.htmlUrl)}">${escapeHtml(buildIssueReference(finding))}</a>`;
+};
+
+const sendSummaryEmail = async ({
+  repo,
+  agentLabel,
+  findings,
+  created,
+  skipped,
+  failed,
+  malformed,
+  reachedPageCap,
+  runUrl,
+  sessionLogLinks,
+  recipients,
+  mailgunApiKey,
+  mailgunDomain,
+  fromEmail,
+}) => {
+  const subject = buildEmailSubject({
+    repo,
+    agentLabel,
+    findingsCount: findings.length,
+    createdCount: created.length,
+    skippedCount: skipped.length,
+    failedCount: failed.length,
+    malformedCount: malformed.length,
+  });
+  const textSections = [
+    `Repository: ${repo}`,
+    `Agent: ${agentLabel}`,
+    `Confirmed findings: ${findings.length}`,
+    `Created issues: ${created.length}`,
+    `Skipped as duplicates: ${skipped.length}`,
+    `Malformed findings: ${malformed.length}`,
+    `Issue creation failures: ${failed.length}`,
+    "",
+    "Created issues:",
+    ...(created.length === 0
+      ? ["- none"]
+      : created.map(
+          (finding) =>
+            `- [${finding.severity}] ${finding.title} (${buildIssueReference(finding)})${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
+        )),
+    "",
+    "Duplicate issues:",
+    ...(skipped.length === 0
+      ? ["- none"]
+      : skipped.map(
+          (finding) =>
+            `- [${finding.severity}] ${finding.title} (${buildIssueReference(finding)})${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
+        )),
+    "",
+    "Malformed findings:",
+    ...(malformed.length === 0 ? ["- none"] : malformed.map((message) => `- ${message}`)),
+    "",
+    "Issue creation failures:",
+    ...(failed.length === 0
+      ? ["- none"]
+      : failed.map((finding) => `- [${finding.severity}] ${finding.title}: ${finding.error}`)),
+  ];
+
+  if (sessionLogLinks.length > 0) {
+    textSections.push(
+      "",
+      "Session log viewer:",
+      ...sessionLogLinks.map(({ label, url }) => `- ${label}: ${url}`),
+    );
+  }
+
+  if (runUrl) {
+    textSections.push("", `Workflow run: ${runUrl}`);
+  }
+  if (reachedPageCap) {
+    textSections.push(
+      "",
+      `Duplicate scan hit the safety cap of ${MAX_EXISTING_ISSUE_PAGES} pages of bugfinder issues.`,
+    );
+  }
+
+  const html = `
+<!doctype html>
+<html>
+  <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;line-height:1.5;">
+    <h2 style="margin-bottom:12px;">Nightly bug finder summary</h2>
+    <p style="margin:0 0 12px;"><strong>Repository:</strong> ${escapeHtml(repo)}</p>
+    <p style="margin:0 0 12px;"><strong>Agent:</strong> ${escapeHtml(agentLabel)}</p>
+    <p style="margin:0 0 12px;">
+      Confirmed findings: <strong>${findings.length}</strong><br />
+      Created issues: <strong>${created.length}</strong><br />
+      Skipped as duplicates: <strong>${skipped.length}</strong><br />
+      Malformed findings: <strong>${malformed.length}</strong><br />
+      Issue creation failures: <strong>${failed.length}</strong>
+    </p>
+    <h3 style="margin:16px 0 8px;">Created issues</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        created.length === 0
+          ? "<li>none</li>"
+          : created
+              .map(
+                (finding) =>
+                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${buildHtmlIssueLink(finding)}</li>`,
+              )
+              .join("")
+      }
+    </ul>
+    <h3 style="margin:16px 0 8px;">Duplicates</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        skipped.length === 0
+          ? "<li>none</li>"
+          : skipped
+              .map(
+                (finding) =>
+                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${buildHtmlIssueLink(finding)}</li>`,
+              )
+              .join("")
+      }
+    </ul>
+    <h3 style="margin:16px 0 8px;">Malformed findings</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        malformed.length === 0
+          ? "<li>none</li>"
+          : malformed.map((message) => `<li>${escapeHtml(message)}</li>`).join("")
+      }
+    </ul>
+    <h3 style="margin:16px 0 8px;">Issue creation failures</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${
+        failed.length === 0
+          ? "<li>none</li>"
+          : failed
+              .map(
+                (finding) =>
+                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}: ${escapeHtml(finding.error)}</li>`,
+              )
+              .join("")
+      }
+    </ul>
+    ${
+      reachedPageCap
+        ? `<p style="margin:16px 0 0;">Duplicate scan hit the safety cap of ${MAX_EXISTING_ISSUE_PAGES} pages of bugfinder issues.</p>`
+        : ""
+    }
+    ${
+      sessionLogLinks.length > 0
+        ? `
+    <h3 style="margin:16px 0 8px;">Session log viewer</h3>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${sessionLogLinks
+        .map(
+          ({ label, url }) =>
+            `<li>${escapeHtml(label)} - <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></li>`,
+        )
+        .join("")}
+    </ul>
+    `
+        : ""
+    }
+    ${
+      runUrl
+        ? `<p style="margin:16px 0 0;">Workflow run: <a href="${escapeHtml(runUrl)}">${escapeHtml(runUrl)}</a></p>`
+        : ""
+    }
+  </body>
+</html>
+  `.trim();
+
+  await sendMailgunEmail({
+    apiKey: mailgunApiKey,
+    domain: mailgunDomain,
+    from: fromEmail,
+    recipients,
+    subject,
+    text: textSections.join("\n"),
+    html,
+  });
+};
+
 export const main = async () => {
   const findingsDir = process.env.FINDINGS_DIR?.trim() || "out-bug-finder/findings";
   const { findings, malformed } = await loadFindings(findingsDir);
+  const repo = requireEnv("GITHUB_REPOSITORY");
+  const recipients = parseRecipients(requireEnv("BUG_FINDER_ALERT_EMAILS"));
+  const mailgunApiKey = requireEnv("MAILGUN_API_KEY");
+  const mailgunDomain = requireEnv("MAILGUN_DOMAIN");
+  const fromEmail = requireEnv("MAILGUN_FROM_EMAIL");
+  const serverUrl = process.env.GITHUB_SERVER_URL?.trim() || "https://github.com";
+  const runId = process.env.GITHUB_RUN_ID?.trim();
+  const agentKind = process.env.AGENT_KIND?.trim() || "codex";
+  const agentLabel = agentKind === "claude" ? "Claude" : "Codex";
+  const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
+  const runUrl = runId ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
 
   await appendStepSummary(`Findings reviewed: ${findings.length}`);
   await appendStepSummary(`Malformed finding files: ${malformed.length}`);
@@ -420,23 +655,29 @@ export const main = async () => {
     console.log("No confirmed critical/high bugs to file.");
     await appendStepSummary("Created issues: 0");
     if (malformed.length > 0) {
+      await sendSummaryEmail({
+        repo,
+        agentLabel,
+        findings,
+        created: [],
+        skipped: [],
+        failed: [],
+        malformed,
+        reachedPageCap: false,
+        runUrl,
+        sessionLogLinks,
+        recipients,
+        mailgunApiKey,
+        mailgunDomain,
+        fromEmail,
+      });
       throw new Error(malformed.join("\n"));
     }
     return;
   }
 
   const token = requireEnv("BUG_FINDER_GITHUB_TOKEN");
-  const repo = requireEnv("GITHUB_REPOSITORY");
-  const recipients = parseRecipients(requireEnv("BUG_FINDER_ALERT_EMAILS"));
-  const mailgunApiKey = requireEnv("MAILGUN_API_KEY");
-  const mailgunDomain = requireEnv("MAILGUN_DOMAIN");
-  const fromEmail = requireEnv("MAILGUN_FROM_EMAIL");
   const apiBaseUrl = process.env.GITHUB_API_URL?.trim() || "https://api.github.com";
-  const serverUrl = process.env.GITHUB_SERVER_URL?.trim() || "https://github.com";
-  const runId = process.env.GITHUB_RUN_ID?.trim();
-  const agentKind = process.env.AGENT_KIND?.trim() || "codex";
-  const agentLabel = agentKind === "claude" ? "Claude" : "Codex";
-  const sessionLogLinks = await loadSessionLogLinks(process.env.SESSION_LOG_COMMENT_PATH?.trim());
 
   await ensureLabel({
     apiBaseUrl,
@@ -460,7 +701,10 @@ export const main = async () => {
       .filter(([dedupKey]) => dedupKey),
   );
   const existingByTitle = new Map(
-    existing.map((issue) => [normalizeTitle(String(issue.title || "")), issue]).filter(([title]) => title),
+    existing
+      .filter((issue) => issue.state === "open")
+      .map((issue) => [normalizeTitle(String(issue.title || "")), issue])
+      .filter(([title]) => title),
   );
 
   const created = [];
@@ -510,7 +754,7 @@ export const main = async () => {
   await appendStepSummary(`Issue creation failures: ${failed.length}`);
   if (reachedPageCap) {
     await appendStepSummary(
-      `Stopped duplicate scan after ${MAX_EXISTING_ISSUE_PAGES} pages of open bugfinder issues.`,
+      `Stopped duplicate scan after ${MAX_EXISTING_ISSUE_PAGES} pages of bugfinder issues.`,
     );
   }
   if (malformed.length > 0) {
@@ -526,153 +770,21 @@ export const main = async () => {
     }
   }
 
-  const runUrl = runId ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
-  const subject = `[ALERT] bug-finder:recent (${agentLabel}) found ${findings.length} bug(s) for ${repo}`;
-
-  const textSections = [
-    `Repository: ${repo}`,
-    `Agent: ${agentLabel}`,
-    `Confirmed findings: ${findings.length}`,
-    `Created issues: ${created.length}`,
-    `Skipped as duplicates: ${skipped.length}`,
-    "",
-    "Created issues:",
-    ...(created.length === 0
-      ? ["- none"]
-      : created.map(
-          (finding) =>
-            `- [${finding.severity}] ${finding.title} (#${finding.issueNumber})${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
-        )),
-    "",
-    "Duplicate issues:",
-    ...(skipped.length === 0
-      ? ["- none"]
-      : skipped.map(
-          (finding) =>
-            `- [${finding.severity}] ${finding.title} (#${finding.issueNumber})${finding.htmlUrl ? ` -> ${finding.htmlUrl}` : ""}`,
-        )),
-    "",
-    "Issue creation failures:",
-    ...(failed.length === 0
-      ? ["- none"]
-      : failed.map((finding) => `- [${finding.severity}] ${finding.title}: ${finding.error}`)),
-  ];
-
-  if (sessionLogLinks.length > 0) {
-    textSections.push(
-      "",
-      "Session log viewer:",
-      ...sessionLogLinks.map(({ label, url }) => `- ${label}: ${url}`),
-    );
-  }
-
-  if (runUrl) {
-    textSections.push("", `Workflow run: ${runUrl}`);
-  }
-  if (reachedPageCap) {
-    textSections.push(
-      "",
-      `Duplicate scan hit the safety cap of ${MAX_EXISTING_ISSUE_PAGES} pages of open bugfinder issues.`,
-    );
-  }
-
-  const html = `
-<!doctype html>
-<html>
-  <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#111827;line-height:1.5;">
-    <h2 style="margin-bottom:12px;">Nightly bug finder found issues</h2>
-    <p style="margin:0 0 12px;"><strong>Repository:</strong> ${escapeHtml(repo)}</p>
-    <p style="margin:0 0 12px;"><strong>Agent:</strong> ${escapeHtml(agentLabel)}</p>
-    <p style="margin:0 0 12px;">
-      Confirmed findings: <strong>${findings.length}</strong><br />
-      Created issues: <strong>${created.length}</strong><br />
-      Skipped as duplicates: <strong>${skipped.length}</strong><br />
-      Issue creation failures: <strong>${failed.length}</strong>
-    </p>
-    <h3 style="margin:16px 0 8px;">Created issues</h3>
-    <ul style="margin:0 0 16px;padding-left:20px;">
-      ${
-        created.length === 0
-          ? "<li>none</li>"
-          : created
-              .map(
-                (finding) =>
-                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${
-                    finding.htmlUrl
-                      ? ` - <a href="${escapeHtml(finding.htmlUrl)}">#${finding.issueNumber}</a>`
-                      : ""
-                  }</li>`,
-              )
-              .join("")
-      }
-    </ul>
-    <h3 style="margin:16px 0 8px;">Duplicates</h3>
-    <ul style="margin:0 0 16px;padding-left:20px;">
-      ${
-        skipped.length === 0
-          ? "<li>none</li>"
-          : skipped
-              .map(
-                (finding) =>
-                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}${
-                    finding.htmlUrl
-                      ? ` - <a href="${escapeHtml(finding.htmlUrl)}">#${finding.issueNumber}</a>`
-                      : ""
-                  }</li>`,
-              )
-              .join("")
-      }
-    </ul>
-    <h3 style="margin:16px 0 8px;">Issue creation failures</h3>
-    <ul style="margin:0 0 16px;padding-left:20px;">
-      ${
-        failed.length === 0
-          ? "<li>none</li>"
-          : failed
-              .map(
-                (finding) =>
-                  `<li><strong>${escapeHtml(finding.severity.toUpperCase())}</strong> ${escapeHtml(finding.title)}: ${escapeHtml(finding.error)}</li>`,
-              )
-              .join("")
-      }
-    </ul>
-    ${
-      reachedPageCap
-        ? `<p style="margin:16px 0 0;">Duplicate scan hit the safety cap of ${MAX_EXISTING_ISSUE_PAGES} pages of open bugfinder issues.</p>`
-        : ""
-    }
-    ${
-      sessionLogLinks.length > 0
-        ? `
-    <h3 style="margin:16px 0 8px;">Session log viewer</h3>
-    <ul style="margin:0 0 16px;padding-left:20px;">
-      ${sessionLogLinks
-        .map(
-          ({ label, url }) =>
-            `<li>${escapeHtml(label)} - <a href="${escapeHtml(url)}">${escapeHtml(url)}</a></li>`,
-        )
-        .join("")}
-    </ul>
-    `
-        : ""
-    }
-    ${
-      runUrl
-        ? `<p style="margin:16px 0 0;">Workflow run: <a href="${escapeHtml(runUrl)}">${escapeHtml(runUrl)}</a></p>`
-        : ""
-    }
-  </body>
-</html>
-  `.trim();
-
-  await sendMailgunEmail({
-    apiKey: mailgunApiKey,
-    domain: mailgunDomain,
-    from: fromEmail,
+  await sendSummaryEmail({
+    repo,
+    agentLabel,
+    findings,
+    created,
+    skipped,
+    failed,
+    malformed,
+    reachedPageCap,
+    runUrl,
+    sessionLogLinks,
     recipients,
-    subject,
-    text: textSections.join("\n"),
-    html,
+    mailgunApiKey,
+    mailgunDomain,
+    fromEmail,
   });
 
   console.log(

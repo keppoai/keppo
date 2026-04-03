@@ -15,9 +15,9 @@ if npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   --permission-mode acceptEdits \
   --allowedTools \
   Read \
-  Write \
-  Edit \
-  MultiEdit \
+  "Write(/out-bug-finder/**)" \
+  "Edit(/out-bug-finder/**)" \
+  "MultiEdit(/out-bug-finder/**)" \
   Glob \
   Grep \
   LS \
@@ -46,6 +46,6 @@ else
   status=$?
 fi
 
-echo "Claude exited with code ${status}. Full output follows."
-cat "${log_file}"
+echo "Claude exited with code ${status}. Review the uploaded session log artifact for details."
+echo "Claude session log saved to ${log_file}."
 exit "${status}"
