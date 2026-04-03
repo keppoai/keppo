@@ -109,6 +109,8 @@ const resolveNamespaceApiBase = (namespace?: string): string | null => {
     Number.isInteger(basePort) && basePort >= 1024 ? basePort : DEFAULT_E2E_PORT_BASE;
   const safeBlockSize =
     Number.isInteger(blockSize) && blockSize >= 5 ? blockSize : DEFAULT_E2E_PORT_BLOCK_SIZE;
+  // Browser E2E serves internal routes from the dashboard origin; there is no
+  // standalone worker API listener on the legacy "api" port anymore.
   const dashboardPort = safeBase + workerIndex * safeBlockSize + DEFAULT_E2E_DASHBOARD_PORT_OFFSET;
   return `http://127.0.0.1:${dashboardPort}`;
 };
@@ -169,15 +171,11 @@ const resolveAutomationTerminateUrl = (namespace?: string): string | null => {
 };
 
 const resolveInternalAuthHeader = (namespace?: string): string | null => {
-  const namespaceSecret = resolveNamespaceCronSecret(namespace);
-  if (namespaceSecret) {
-    return `Bearer ${namespaceSecret}`;
-  }
   const envSecret =
     process.env.KEPPO_CRON_SECRET ??
     process.env.KEPPO_QUEUE_SECRET ??
     process.env.VERCEL_CRON_SECRET;
-  const secret = envSecret;
+  const secret = resolveNamespaceCronSecret(namespace) ?? envSecret;
   if (!secret) {
     return null;
   }

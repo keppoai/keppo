@@ -47,6 +47,7 @@ import {
   runTriggerTypeValidator,
   subscriptionTierValidator,
 } from "./validators";
+import { encryptSecretValue } from "./crypto_helpers";
 
 const refs = {
   seedUserOrg: makeFunctionReference<"mutation">("mcp:seedUserOrg"),
@@ -318,12 +319,16 @@ const seedActiveByokKey = async (
     suffix: string;
   },
 ): Promise<void> => {
+  const encryptedKey = await encryptSecretValue(
+    `sk-e2e-${params.suffix}-0123456789`,
+    "integration_credentials",
+  );
   await ctx.db.insert("org_ai_keys", {
     id: `oaik_${params.suffix}`,
     org_id: params.orgId,
     provider: params.provider,
     key_mode: "byok",
-    encrypted_key: "keppo-v1.fakeiv.fakecipher",
+    encrypted_key: encryptedKey,
     credential_kind: "secret",
     key_hint: "...e2e",
     key_version: 1,

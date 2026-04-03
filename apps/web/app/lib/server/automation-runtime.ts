@@ -410,8 +410,11 @@ export const handleInternalAutomationDispatchRequest = async (
         : legacyOpenAiKey?.is_active === true
           ? legacyOpenAiKey
           : null;
+    // Bundled runtime requires the hosted gateway. When local E2E disables the
+    // gateway, keep using self-managed credentials instead of forcing a bundled
+    // lookup that can never succeed.
     const resolvedKeyMode = resolveAutomationExecutionReadiness({
-      bundledRuntimeEnabled: creditBalance.bundled_runtime_enabled,
+      bundledRuntimeEnabled: gatewayEnabled && creditBalance.bundled_runtime_enabled,
       totalCreditsAvailable: creditBalance.total_available,
       hasActiveByokKey: activeNonBundledKey !== null,
     }).mode;

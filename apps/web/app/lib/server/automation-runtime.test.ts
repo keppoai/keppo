@@ -693,6 +693,113 @@ describe("start-owned automation runtime handlers", () => {
     expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
   });
 
+  it("falls back to a self-managed key when bundled credits exist but the gateway is disabled", async () => {
+    const deps = createDeps();
+    deps.convex.getAiCreditBalance.mockResolvedValueOnce({
+      org_id: "org_test",
+      period_start: "2026-03-01T00:00:00.000Z",
+      period_end: "2026-04-01T00:00:00.000Z",
+      allowance_total: 100,
+      allowance_used: 0,
+      allowance_remaining: 100,
+      purchased_remaining: 0,
+      total_available: 100,
+      bundled_runtime_enabled: true,
+    });
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_gateway_disabled",
+        automation_id: "automation_gateway_disabled",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_gateway_disabled",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Gateway disabled BYOK fallback",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "sk-test-local-byok-key",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...byok",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "usr_test",
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        {
+          automation_run_id: "arun_gateway_disabled",
+          dispatch_token: "dispatch_token_test",
+        },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      sandbox_id: "sandbox_test",
+    });
+    expect(deps.convex.getOrgAiKey).toHaveBeenCalledTimes(2);
+    expect(deps.convex.getOrgAiKey).toHaveBeenCalledWith({
+      orgId: "org_test",
+      provider: "openai",
+      keyMode: "byok",
+    });
+    expect(deps.convex.getOrgAiKey).toHaveBeenCalledWith({
+      orgId: "org_test",
+      provider: "openai",
+      keyMode: "subscription_token",
+    });
+    expect(deps.convex.deductAiCredit).not.toHaveBeenCalled();
+    expect(deps.sandboxProvider.dispatch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        runtime: expect.objectContaining({
+          env: expect.objectContaining({
+            OPENAI_API_KEY: "sk-test-local-byok-key",
+          }),
+        }),
+      }),
+    );
+  });
+
   it("cancels bundled runs when credits are exhausted before dispatch", async () => {
     const deps = createDeps();
     deps.getEnv.mockReturnValue({
