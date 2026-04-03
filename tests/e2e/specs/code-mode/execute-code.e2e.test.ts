@@ -1,11 +1,21 @@
 import { test, expect } from "../../fixtures/golden.fixture";
-import { isTransientServerError, waitForTerminalActionResult } from "../../helpers/mcp-client";
+import {
+  isTransientServerError,
+  isSessionExpiredMcpError,
+  isOptimisticConcurrencyMcpError,
+  waitForTerminalActionResult,
+} from "../../helpers/mcp-client";
 
 const SANDBOX_UNAVAILABLE_PATTERN =
   /sandbox provider is unavailable|install docker desktop|use KEPPO_CODE_MODE_SANDBOX_PROVIDER=vercel/i;
 /** error_code values that represent intentional sandbox behavior, not infra failures. */
 const EXPECTED_EXECUTION_FAILED_CODES_TIMEOUT = new Set(["timeout"]);
 const REQUIRE_CODE_MODE_SANDBOX = process.env.KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX === "1";
+
+const isRetryableExecuteCodeError = (error: unknown): boolean =>
+  isTransientServerError(error) ||
+  isSessionExpiredMcpError(error) ||
+  isOptimisticConcurrencyMcpError(error);
 
 const findJsonPayloadInOutput = (
   value: Record<string, unknown> | string,
@@ -150,19 +160,33 @@ test("execute_code returns approval_pending for write calls needing approval", a
   try {
     await mcp.initialize();
 
-    const output = await mcp.executeCode({
-      description: "Attempt a Gmail send that should pause for human approval.",
-      code: `
-      return await gmail.sendEmail({
-        to: ["qa@example.com"],
-        subject: "Needs approval",
-        body: "pending"
-      });
-    `,
-    });
+    let output: Record<string, unknown> | string | undefined;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        output = await mcp.executeCode({
+          description: "Attempt a Gmail send that should pause for human approval.",
+          code: `
+          return await gmail.sendEmail({
+            to: ["qa@example.com"],
+            subject: "Needs approval",
+            body: "pending"
+          });
+        `,
+        });
+        break;
+      } catch (error) {
+        if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
+          throw error;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+        if (isSessionExpiredMcpError(error)) {
+          await mcp.initialize();
+        }
+      }
+    }
 
-    skipIfSandboxUnavailable(output);
-    const payload = findJsonPayloadInOutput(output);
+    skipIfSandboxUnavailable(output!);
+    const payload = findJsonPayloadInOutput(output!);
     expect(payload.status).toBe("approval_pending");
     expect(typeof payload.action_id).toBe("string");
   } finally {
@@ -178,8 +202,9 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  // Retry on transient Convex timeouts — the blocked-provider path is fast
-  // but can hit 1s mutation budget under CI resource contention.
+  // Retry on transient Convex timeouts, OCC, or session expiry — the
+  // blocked-provider path is fast but can hit 1s mutation budget under CI
+  // resource contention.
   let output: Record<string, unknown> | string | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -189,11 +214,13 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
       });
       break;
     } catch (error) {
-      if (attempt >= 2 || !isTransientServerError(error)) {
+      if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
-      await mcp.initialize();
+      if (isSessionExpiredMcpError(error)) {
+        await mcp.initialize();
+      }
     }
   }
 
