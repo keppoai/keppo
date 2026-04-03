@@ -175,7 +175,7 @@ const apiEnvSchema = z
     KEPPO_MAX_BODY_BYTES_MCP: positiveIntegerWithDefault(256 * 1024),
     KEPPO_MAX_BODY_BYTES_INTERNAL: positiveIntegerWithDefault(256 * 1024),
     KEPPO_CODE_MODE_SANDBOX_PROVIDER: codeModeSandboxSchema,
-    KEPPO_CODE_MODE_TIMEOUT_MS: positiveIntegerWithDefault(30_000),
+    KEPPO_CODE_MODE_TIMEOUT_MS: positiveIntegerWithDefault(120_000),
     KEPPO_SANDBOX_PROVIDER: sandboxProviderSchema,
     UNIKRAFT_API_TOKEN: optionalString,
     UNIKRAFT_METRO: optionalString,

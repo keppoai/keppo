@@ -6,7 +6,7 @@ import {
   CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE,
 } from "./structured-execution-error.js";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 const SANDBOX_WORKDIR = "/vercel/sandbox";
 const RESPONSE_DIR = "/tmp/keppo-code-mode-responses";
 const DEFAULT_RESULT_ERROR = "Code execution failed in Vercel sandbox.";

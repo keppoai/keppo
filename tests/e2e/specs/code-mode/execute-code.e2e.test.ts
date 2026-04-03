@@ -234,7 +234,8 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
 });
 
 test("execute_code times out infinite loops", async ({ pages, auth, provider }) => {
-  test.setTimeout(60_000);
+  // Must exceed KEPPO_CODE_MODE_TIMEOUT_MS when the E2E stack does not shorten it (default 120s).
+  test.setTimeout(150_000);
 
   await pages.login.login();
   const seeded = await auth.seedWorkspace("code-mode-exec-timeout");

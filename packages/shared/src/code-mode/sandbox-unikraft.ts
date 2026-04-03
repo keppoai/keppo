@@ -25,7 +25,7 @@ import {
 } from "./structured-execution-error.js";
 import type { ToolSearchResult } from "./tool-search-types.js";
 
-const DEFAULT_TIMEOUT_MS = 30_000;
+const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_IMAGE = "node:22-alpine";
 const DEFAULT_LOG_POLL_INTERVAL_MS = 500;
 const DEFAULT_LOG_LIMIT_BYTES = 16_384;
