@@ -309,6 +309,7 @@ The `issue-agent.yml` and `fix-pr.yml` workflows run in the `ai-bots` GitHub Act
 - environment secret `KEPPO_GITHUB_APP_PRIVATE_KEY`
 - environment secret `CLAUDE_CODE_OAUTH_TOKEN`
 - environment secret `CODEX_AUTH_JSON`
+- optional environment secrets `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` for random Codex auth rotation in GitHub Actions
 - environment secret `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` when agent-driven PRs are expected to publish demo videos
 - environment variable `KEPPO_SESSION_LOG_UPLOAD_URL` when issue-agent runs should publish session logs
 - environment secret `KEPPO_SESSION_LOG_UPLOAD_TOKEN` for bearer-authenticated session log uploads
@@ -316,6 +317,7 @@ The `issue-agent.yml` and `fix-pr.yml` workflows run in the `ai-bots` GitHub Act
 Notes:
 
 - `CODEX_AUTH_JSON` must contain the full contents of a working Codex CLI auth file, equivalent to `~/.codex/auth.json`.
+- When `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` are present, Codex workflows randomly choose one non-empty unique auth blob from that pool plus `CODEX_AUTH_JSON` on each run.
 - `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` should point at a public Vercel Blob store reserved for reviewer-facing PR demos.
 - Session-log upload endpoints should return a `viewer_url` immediately for uploaded or duplicate logs.
 
@@ -353,6 +355,7 @@ The `security-review-recent.yml` workflow runs nightly at `2:00 AM` Pacific time
 Required configuration:
 
 - environment secret `CODEX_AUTH_JSON`
+- optional environment secrets `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` for random Codex auth rotation in GitHub Actions
 - environment secret `CLAUDE_CODE_OAUTH_TOKEN` when dispatching with `agent=claude`
 - repository variable `KEPPO_GITHUB_APP_ID`
 - environment secret `KEPPO_GITHUB_APP_PRIVATE_KEY`
