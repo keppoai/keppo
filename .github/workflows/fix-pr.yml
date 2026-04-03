@@ -583,6 +583,56 @@ jobs:
               body,
             });
 
+      - name: Mark unrelated E2E failures for human review
+        if: steps.pr-info.outputs.should_continue == 'true' && steps.actions.outputs.has_unrelated_e2e_failures == 'true'
+        uses: actions/github-script@v7
+        env:
+          PR_NUMBER: ${{ steps.pr-info.outputs.pr_number }}
+          UNRELATED_E2E_FAILURES: ${{ steps.actions.outputs.unrelated_e2e_failures }}
+        with:
+          github-token: ${{ steps.post-agent-base-app-token.outputs.token }}
+          script: |
+            const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
+            const failures = JSON.parse(process.env.UNRELATED_E2E_FAILURES ?? "[]");
+
+            if (!Number.isFinite(prNumber)) {
+              throw new Error("PR_NUMBER is required");
+            }
+
+            const { data: pr } = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: prNumber,
+            });
+            const currentLabels = pr.labels.map((label) => label.name);
+            const labelsToRemove = ["pr=ready-to-merge", "pr=max-auto-fix"];
+
+            for (const label of labelsToRemove) {
+              if (!currentLabels.includes(label)) continue;
+              await github.rest.issues.removeLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                name: label,
+              }).catch(() => {});
+            }
+
+            const labelsToAdd = ["pr=needs-human-review", "needs-human:final-check"].filter(
+              (label) => !currentLabels.includes(label),
+            );
+            if (labelsToAdd.length > 0) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: labelsToAdd,
+              });
+            }
+
+            core.info(
+              `Marked PR #${prNumber} for human review after documenting ${failures.length} unrelated E2E failure(s)`,
+            );
+
       - name: Publish PR demo video
         if: steps.pr-info.outputs.should_continue == 'true' && steps.actions.outputs.demo_present == 'true'
         continue-on-error: true
@@ -618,7 +668,19 @@ jobs:
       - name: Update labels to done
         if: steps.pr-info.outputs.should_continue == 'true' && success()
         run: |
-          gh pr edit ${{ steps.pr-info.outputs.pr_number }} --repo ${{ github.repository }} --remove-label "fix-pr:pending" --add-label "fix-pr:done"
+          args=(
+            ${{ steps.pr-info.outputs.pr_number }}
+            --repo
+            ${{ github.repository }}
+            --remove-label
+            "fix-pr:pending"
+            --add-label
+            "fix-pr:done"
+          )
+          if [ "${{ steps.actions.outputs.has_unrelated_e2e_failures }}" = "true" ]; then
+            args+=(--add-label "pr=needs-human-review" --add-label "needs-human:final-check")
+          fi
+          gh pr edit "${args[@]}"
         env:
           GITHUB_TOKEN: ${{ steps.post-agent-base-app-token.outputs.token }}
 

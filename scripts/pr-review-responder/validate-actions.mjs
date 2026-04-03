@@ -45,6 +45,9 @@ if (typeof actions.summaryComment !== "string") {
 if (!Array.isArray(actions.threadActions)) {
   throw new Error("threadActions must be an array");
 }
+if (actions.unrelatedE2EFailures != null && !Array.isArray(actions.unrelatedE2EFailures)) {
+  throw new Error("unrelatedE2EFailures must be an array when provided");
+}
 if (actions.demo != null) {
   if (
     typeof actions.demo !== "object" ||
@@ -58,6 +61,26 @@ if (actions.demo != null) {
 
 const validActions = new Set(["resolve", "reply_and_resolve", "reply_only"]);
 const knownThreads = new Map(context.trustedThreads.map((thread) => [thread.id, thread]));
+const unrelatedE2EFailures = actions.unrelatedE2EFailures ?? [];
+
+for (const failure of unrelatedE2EFailures) {
+  if (typeof failure !== "object" || failure == null || Array.isArray(failure)) {
+    throw new Error("Each unrelatedE2EFailures entry must be an object");
+  }
+  if (typeof failure.checkName !== "string" || !failure.checkName.trim()) {
+    throw new Error("Each unrelatedE2EFailures entry must include a non-empty checkName");
+  }
+  if (typeof failure.reason !== "string" || !failure.reason.trim()) {
+    throw new Error("Each unrelatedE2EFailures entry must include a non-empty reason");
+  }
+  if (
+    failure.specs != null &&
+    (!Array.isArray(failure.specs) ||
+      failure.specs.some((spec) => typeof spec !== "string" || !spec.trim()))
+  ) {
+    throw new Error("unrelatedE2EFailures.specs must be an array of non-empty strings when provided");
+  }
+}
 
 for (const entry of actions.threadActions) {
   if (typeof entry.threadId !== "string" || !knownThreads.has(entry.threadId)) {
@@ -97,6 +120,16 @@ for (const entry of actions.threadActions) {
     throw new Error(`commentId ${entry.commentId} does not match replyCommentId for thread ${entry.threadId}`);
   }
 }
+
+actions.unrelatedE2EFailures = unrelatedE2EFailures.map((failure) => ({
+  checkName: failure.checkName.trim(),
+  reason: failure.reason.trim(),
+  ...(failure.specs != null
+    ? {
+        specs: failure.specs.map((spec) => spec.trim()),
+      }
+    : {}),
+}));
 
 // Write back the sanitized actions so downstream steps use clean data
 fs.writeFileSync(actionsPath, JSON.stringify(actions, null, 2));

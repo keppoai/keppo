@@ -129,7 +129,7 @@ pr-watcher re-evaluates with fresh signals
     +-- fix-pr:failed                         --> pr=needs-human-review
 ```
 
-Within a `/fix-pr` pass, non-E2E CI failures remain mandatory fixes. Failing E2E checks are investigated first and only auto-fixed when they are plausibly caused by the PR. If an E2E failure is clearly unrelated to the PR diff, the responder should leave code unchanged for that failure and call it out in the summary PR comment instead of forcing a speculative fix.
+Within a `/fix-pr` pass, non-E2E CI failures remain mandatory fixes. Failing E2E checks are investigated first and only auto-fixed when they are plausibly caused by the PR. If an E2E failure is clearly unrelated to the PR diff, the responder should leave code unchanged for that failure, call it out in the summary PR comment, and emit a machine-readable `unrelatedE2EFailures` payload so the workflow can mark the PR for human review instead of letting PR Watcher loop into `/fix-pr` again on the same known-red checks.
 
 When both mechanical and human-judgment issues exist, the watcher applies `/fix-pr` first. After the agent fixes the mechanical issues and a new review runs, only the human-judgment issues remain, and the next evaluation labels `pr=needs-human-review`.
 

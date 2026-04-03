@@ -22,6 +22,18 @@ const hasDemo =
 
 writeMultiline("summary_comment", parsed.summaryComment ?? "");
 writeMultiline("thread_actions", JSON.stringify(parsed.threadActions ?? []));
+writeMultiline(
+  "unrelated_e2e_failures",
+  JSON.stringify(parsed.unrelatedE2EFailures ?? []),
+);
+fs.appendFileSync(
+  githubOutputPath,
+  `has_unrelated_e2e_failures=${
+    Array.isArray(parsed.unrelatedE2EFailures) && parsed.unrelatedE2EFailures.length > 0
+      ? "true"
+      : "false"
+  }\n`,
+);
 fs.appendFileSync(githubOutputPath, `demo_present=${hasDemo ? "true" : "false"}\n`);
 if (hasDemo) {
   writeMultiline("demo_summary", parsed.demo.summary ?? "");

@@ -26,6 +26,7 @@ You MUST write `{{PR_ACTIONS_PATH}}` using the Write tool before finishing. This
 Top-level fields:
 - `summaryComment` (string, required): markdown summary for a top-level PR comment.
 - `threadActions` (array, required): list of thread action objects (see below).
+- `unrelatedE2EFailures` (array, optional): machine-readable list of E2E failures intentionally left unfixed because they appear unrelated to the PR. Each entry must be an object with `checkName` (string, required), `specs` (array of strings, optional), and `reason` (string, required).
 - `demo` (object, optional): `{"summary":"1-2 sentence demo summary","videoPath":"ux-artifacts/video-demos/<file>.webm"}`.
 
 Each `threadActions` entry MUST match exactly one of these three shapes:
@@ -33,7 +34,7 @@ Each `threadActions` entry MUST match exactly one of these three shapes:
 - reply_and_resolve: `{"threadId":"<id>","action":"reply_and_resolve","commentId":123,"body":"markdown reply"}` — `commentId` and `body` required.
 - reply_only: `{"threadId":"<id>","action":"reply_only","commentId":123,"body":"markdown reply"}` — `commentId` and `body` required.
 
-If there are no threads to act on and no CI issues and no review/comment feedback, write `{"summaryComment":"No action needed.","threadActions":[]}`. If the only remaining CI failures are E2E failures you determined are unrelated to the PR, write a non-empty `summaryComment` that names those failures and explains why this pass intentionally left them alone.
+If there are no threads to act on and no CI issues and no review/comment feedback, write `{"summaryComment":"No action needed.","threadActions":[]}`. If the only remaining CI failures are E2E failures you determined are unrelated to the PR, write a non-empty `summaryComment` that names those failures and explains why this pass intentionally left them alone, and also populate `unrelatedE2EFailures` so downstream automation can consume that decision.
 
 The context file also includes `trustedReviews` (top-level PR review bodies, e.g. "Changes Requested" reviews with body text), `trustedIssueComments` (top-level PR conversation comments), and `changedFiles` (the PR file scope). The reviews/comments do not have thread IDs so they cannot be resolved via `threadActions`. Instead, address their feedback through code changes and mention what you did in the `summaryComment`.
 
@@ -54,5 +55,6 @@ Requirements:
 9. `reply_and_resolve` and `reply_only` must include the thread's workflow-provided `replyCommentId` and a non-empty `body`.
 10. Use `reply_and_resolve` when a trusted thread needs an explanation before resolution.
 11. Use `reply_only` when a trusted thread should stay open for human attention.
-12. When you classify any E2E failure as unrelated, `summaryComment` must explicitly name the failing check or spec and briefly explain why it appears outside the PR's scope.
-13. Include the optional `demo` field only when your PR-fix changes introduce significant UI or product-facing behavior changes that need a reviewer demo. When `demo` is present, `videoPath` must be a relative repo path under `ux-artifacts/video-demos/` and the file must exist by the time you finish.
+12. If `pullRequest.changedFilesTruncated` is true, treat file-scope relevance as low confidence. Do not classify an E2E failure as unrelated based on `changedFiles` alone in that case; require stronger evidence from the diff, logs, or failing spec details, and call out the uncertainty in `summaryComment`.
+13. When you classify any E2E failure as unrelated, `summaryComment` must explicitly name the failing check or spec and briefly explain why it appears outside the PR's scope, and `unrelatedE2EFailures` must contain a matching machine-readable entry for each such failure.
+14. Include the optional `demo` field only when your PR-fix changes introduce significant UI or product-facing behavior changes that need a reviewer demo. When `demo` is present, `videoPath` must be a relative repo path under `ux-artifacts/video-demos/` and the file must exist by the time you finish.
