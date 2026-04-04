@@ -90,7 +90,7 @@ const suites: CheckSuite[] = [
     name: "security-regressions",
     run: () =>
       runCommand(
-        "pnpm --filter @keppo/web test -- app/lib/server/api-runtime/internal-auth.test.ts app/lib/server/api-runtime/env.test.ts src/lib/server-entry-webhook-routing.test.ts src/lib/billing-api.test.ts src/lib/mcp-api.test.ts src/lib/oauth-api.test.ts src/lib/webhook-api.test.ts && pnpm exec vitest run --config tests/convex/vitest.config.ts ./tests/convex/auth.test.ts ./tests/convex/e2e-shared.test.ts",
+        "(cd apps/web && pnpm exec vitest run --config vitest.config.ts app/lib/server/api-runtime/internal-auth.test.ts app/lib/server/api-runtime/env.test.ts src/lib/server-entry-webhook-routing.test.ts src/lib/billing-api.test.ts src/lib/mcp-api.test.ts src/lib/oauth-api.test.ts src/lib/webhook-api.test.ts) && pnpm exec vitest run --config tests/convex/vitest.config.ts ./tests/convex/auth.test.ts ./tests/convex/e2e-shared.test.ts",
       ),
   },
   {

@@ -462,6 +462,9 @@ describe("usability query bounds", () => {
 
     const detail = await authT.query(refs.getActionDetail, { actionId });
     expect(detail).not.toBeNull();
+    expect(detail?.action.automation_run_id).toBe(runId);
+    expect(detail?.action.automation_name).toBe("Query Bounds Automation");
+    expect(detail?.action.automation_run_started_at).toBe("2026-03-03T00:00:00.000Z");
     expect(detail?.timeline).toHaveLength(50);
     expect(detail?.timeline[0]?.id).toBe("audit_action_match_59");
     expect(detail?.timeline.at(-1)?.id).toBe("audit_action_match_10");
@@ -556,6 +559,8 @@ describe("usability query bounds", () => {
           id: `act_list_${index}`,
           workspace_id: workspaceId,
           automation_run_id: runId,
+          automation_name: "Action List Automation",
+          automation_run_started_at: "2026-03-03T00:00:00.000Z",
           tool_call_id: `tcall_list_${index}`,
           action_type: "send_email",
           risk_level: "medium",
@@ -573,6 +578,8 @@ describe("usability query bounds", () => {
       await ctx.db.insert("actions", {
         id: "act_legacy_pending",
         automation_run_id: runId,
+        automation_name: "Action List Automation",
+        automation_run_started_at: "2026-03-03T00:00:00.000Z",
         tool_call_id: "tcall_legacy_pending",
         action_type: "send_email",
         risk_level: "medium",
@@ -589,6 +596,8 @@ describe("usability query bounds", () => {
       await ctx.db.insert("actions", {
         id: "act_legacy_approved",
         automation_run_id: runId,
+        automation_name: "Action List Automation",
+        automation_run_started_at: "2026-03-03T00:00:00.000Z",
         tool_call_id: "tcall_legacy_approved",
         action_type: "send_email",
         risk_level: "medium",
@@ -608,6 +617,8 @@ describe("usability query bounds", () => {
     });
     expect(allRows).toHaveLength(200);
     expect(allRows[0]?.id).toBe("act_list_219");
+    expect(allRows[0]?.automation_run_id).toBe(runId);
+    expect(allRows[0]?.automation_name).toBe("Action List Automation");
     expect(allRows[199]?.id).toBe("act_list_20");
     expect(allRows.map((row) => row.id)).not.toContain("act_legacy_pending");
     expect(allRows.map((row) => row.id)).not.toContain("act_legacy_approved");
@@ -616,6 +627,7 @@ describe("usability query bounds", () => {
       workspaceId,
     });
     expect(pendingRows[0]?.id).toBe("act_list_219");
+    expect(pendingRows[0]?.automation_run_started_at).toBe("2026-03-03T00:00:00.000Z");
     expect(pendingRows.every((row) => row.status === ACTION_STATUS.pending)).toBe(true);
     expect(pendingRows.map((row) => row.id)).not.toContain("act_legacy_pending");
 

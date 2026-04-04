@@ -5,6 +5,7 @@ import { SearchIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace-context";
 import { useActions } from "@/hooks/use-actions";
+import { ApproveActionsDialog } from "@/components/approvals/approve-actions-dialog";
 import { ApprovalsTable } from "@/components/approvals/approvals-table";
 import { ApprovalDetailPanel } from "@/components/approvals/approval-detail-panel";
 import { TestActionDialog } from "@/components/approvals/test-action-dialog";
@@ -24,9 +25,10 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
+import { buildApprovalQueueView, getApprovalGroupForAction } from "@/lib/approvals-view-model";
+import { runBatchedSettled } from "@/lib/run-batched-settled";
 import { showUserFacingErrorToast } from "@/lib/show-user-facing-error-toast";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
-import type { Action } from "@/lib/types";
 
 export const approvalsRouteLazy = createLazyRoute(approvalsRoute.id)({
   component: ApprovalsPage,
@@ -48,26 +50,7 @@ const REJECTION_TEMPLATES = [
   "Not authorized",
 ] as const;
 
-const RISK_PRIORITY: Record<Action["risk_level"], number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-const searchAction = (action: Action, term: string): boolean => {
-  const normalizedTerm = term.trim().toLowerCase();
-  if (!normalizedTerm) {
-    return true;
-  }
-  const payload = JSON.stringify(action.payload_preview ?? {}).toLowerCase();
-  return (
-    action.action_type.toLowerCase().includes(normalizedTerm) ||
-    action.status.toLowerCase().includes(normalizedTerm) ||
-    action.idempotency_key.toLowerCase().includes(normalizedTerm) ||
-    payload.includes(normalizedTerm)
-  );
-};
+const APPROVAL_BATCH_CONCURRENCY = 10;
 
 const buildPanelFeedback = (
   feedback: { actionId: string; title: string; summary: string } | null,
@@ -100,8 +83,10 @@ function ApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<ApprovalStatusFilter>("pending");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
+  const [approveTargetIds, setApproveTargetIds] = useState<string[]>([]);
   const [rejectTargetIds, setRejectTargetIds] = useState<string[]>([]);
   const [rejectReason, setRejectReason] = useState("");
+  const [submittingApprove, setSubmittingApprove] = useState(false);
   const [submittingReject, setSubmittingReject] = useState(false);
   const [panelError, setPanelError] = useState<UserFacingError | null>(null);
   const [feedback, setFeedback] = useState<{
@@ -109,13 +94,12 @@ function ApprovalsPage() {
     title: string;
     summary: string;
   } | null>(null);
-  const [busyActionId, setBusyActionId] = useState<string | null>(null);
+  const [busyActionIds, setBusyActionIds] = useState<string[]>([]);
   const tableRegionRef = useRef<HTMLDivElement | null>(null);
   const {
     actions,
     isActionsLoading,
     selectedActionId,
-    selectedActionVisible,
     actionDetails,
     isActionDetailsLoading,
     approveAction,
@@ -125,27 +109,20 @@ function ApprovalsPage() {
     statusFilter,
   });
   const canApproveActions = canApprove();
-  const visibleActions = useMemo(() => {
-    return [...actions]
-      .filter((action) => searchAction(action, searchTerm))
-      .sort((left, right) => {
-        const riskDelta = RISK_PRIORITY[left.risk_level] - RISK_PRIORITY[right.risk_level];
-        if (riskDelta !== 0) {
-          return riskDelta;
-        }
-        return right.created_at.localeCompare(left.created_at);
-      });
-  }, [actions, searchTerm]);
-  const visibleActionIds = useMemo(
-    () => visibleActions.map((action) => action.id),
-    [visibleActions],
+  const approvalQueueView = useMemo(
+    () => buildApprovalQueueView(actions, searchTerm),
+    [actions, searchTerm],
   );
+  const visibleActions = approvalQueueView.ordered_actions;
+  const visibleActionIds = approvalQueueView.visible_action_ids;
+  const visibleGroups = approvalQueueView.groups;
+  const selectedActionIdSet = useMemo(() => new Set(selectedActionIds), [selectedActionIds]);
   const panelFeedback = useMemo(
     () => buildPanelFeedback(feedback, selectedActionId, visibleActionIds, inspectAction),
     [feedback, inspectAction, selectedActionId, visibleActionIds],
   );
   const allVisibleSelected =
-    visibleActionIds.length > 0 && visibleActionIds.every((id) => selectedActionIds.includes(id));
+    visibleActionIds.length > 0 && visibleActionIds.every((id) => selectedActionIdSet.has(id));
   const selectedAction = useMemo(
     () => visibleActions.find((action) => action.id === selectedActionId) ?? null,
     [selectedActionId, visibleActions],
@@ -168,10 +145,60 @@ function ApprovalsPage() {
       ).length,
     [visibleActions],
   );
+  const selectedActionVisible = selectedActionId
+    ? visibleActionIds.includes(selectedActionId)
+    : false;
+  const selectedActionGroup = useMemo(
+    () => getApprovalGroupForAction(visibleGroups, selectedActionId),
+    [selectedActionId, visibleGroups],
+  );
+  const selectedRunCount = useMemo(() => {
+    const selectedRuns = new Set(
+      visibleActions
+        .filter((action) => selectedActionIdSet.has(action.id))
+        .map((action) => action.automation_run_id),
+    );
+    return selectedRuns.size;
+  }, [selectedActionIdSet, visibleActions]);
   const remainingAfterCurrent = Math.max(
     visiblePendingCount - (selectedAction?.status === "pending" ? 1 : 0),
     0,
   );
+  const approveDialogPendingIds = useMemo(() => {
+    const pendingIdSet = new Set(
+      visibleActions.filter((action) => action.status === "pending").map((action) => action.id),
+    );
+    return [...new Set(approveTargetIds)].filter((id) => pendingIdSet.has(id));
+  }, [approveTargetIds, visibleActions]);
+  const approveDialogCount = approveDialogPendingIds.length;
+  const approveDialogSummary = useMemo(() => {
+    const pendingIdSet = new Set(approveDialogPendingIds);
+    const pendingActions = visibleActions.filter((action) => pendingIdSet.has(action.id));
+    const runs = new Map<string, { runId: string; label: string; pendingCount: number }>();
+
+    for (const action of pendingActions) {
+      const existing = runs.get(action.automation_run_id);
+      const label =
+        action.automation_name?.trim() ||
+        `Run ${action.automation_run_id.replace(/^run_/, "").slice(0, 8)}`;
+      if (existing) {
+        existing.pendingCount += 1;
+        continue;
+      }
+      runs.set(action.automation_run_id, {
+        runId: action.automation_run_id,
+        label,
+        pendingCount: 1,
+      });
+    }
+
+    return {
+      actionTypes: [...new Set(pendingActions.map((action) => action.action_type))].slice(0, 4),
+      runSummaries: [...runs.values()],
+      criticalRiskCount: pendingActions.filter((action) => action.risk_level === "critical").length,
+      highRiskCount: pendingActions.filter((action) => action.risk_level === "high").length,
+    };
+  }, [approveDialogPendingIds, visibleActions]);
 
   useEffect(() => {
     setSelectedActionIds((current) => current.filter((id) => visibleActionIds.includes(id)));
@@ -194,31 +221,113 @@ function ApprovalsPage() {
     tableRegionRef.current?.focus();
   };
 
-  const handleApprove = async (actionId: string) => {
+  const addBusyActionIds = (ids: string[]) => {
+    setBusyActionIds((current) => [...new Set([...current, ...ids])]);
+  };
+
+  const removeBusyActionIds = (ids: string[]) => {
+    setBusyActionIds((current) => current.filter((id) => !ids.includes(id)));
+  };
+
+  const resolvePendingVisibleIds = (ids: string[]) => {
+    const pendingIdSet = new Set(
+      visibleActions.filter((action) => action.status === "pending").map((action) => action.id),
+    );
+    return [...new Set(ids)].filter((id) => pendingIdSet.has(id));
+  };
+
+  const resolveFeedbackAnchorId = (resolvedIds: string[]) => {
+    if (selectedActionId && resolvedIds.includes(selectedActionId)) {
+      return selectedActionId;
+    }
+    return resolvedIds[0] ?? null;
+  };
+
+  const handleApproveIds = async (ids: string[]) => {
+    const pendingIds = resolvePendingVisibleIds(ids);
+    if (pendingIds.length === 0) {
+      return {
+        successfulIds: [] as string[],
+        failedIds: [] as string[],
+      };
+    }
+
     try {
       setPanelError(null);
       setFeedback(null);
-      setBusyActionId(actionId);
-      await approveAction(actionId);
-      setSelectedActionIds((current) => current.filter((id) => id !== actionId));
-      setFeedback({
-        actionId,
-        title: "Approval recorded",
-        summary:
-          "Keppo queued the approved action for execution. You can keep this detail panel open or jump to the next review item.",
+      addBusyActionIds(pendingIds);
+      const results = await runBatchedSettled(pendingIds, APPROVAL_BATCH_CONCURRENCY, (id) =>
+        approveAction(id),
+      );
+      const successfulIds: string[] = [];
+      const failedIds: string[] = [];
+      let firstFailureReason: unknown = null;
+
+      results.forEach((result, index) => {
+        const id = pendingIds[index];
+        if (!id) {
+          return;
+        }
+        if (result.status === "fulfilled") {
+          successfulIds.push(id);
+          return;
+        }
+        failedIds.push(id);
+        firstFailureReason ??= result.reason;
       });
+
+      if (failedIds.length > 0) {
+        const normalized = toUserFacingError(firstFailureReason, {
+          fallback: "Failed to approve one or more actions.",
+        });
+        setPanelError(normalized);
+        if (failedIds.length > 1 || successfulIds.length > 0) {
+          showUserFacingErrorToast(firstFailureReason, {
+            normalized,
+          });
+        }
+      }
+
+      if (successfulIds.length > 0) {
+        setSelectedActionIds((current) => current.filter((id) => !successfulIds.includes(id)));
+        const feedbackActionId = resolveFeedbackAnchorId(successfulIds);
+        if (feedbackActionId) {
+          setFeedback({
+            actionId: feedbackActionId,
+            title:
+              successfulIds.length === 1
+                ? "Approval recorded"
+                : `${successfulIds.length} actions approved`,
+            summary:
+              successfulIds.length === 1
+                ? "Keppo queued the approved action for execution. You can keep this detail panel open or jump to the next review item."
+                : "Keppo queued the approved actions for execution. You can keep this detail panel open or jump to the next review item.",
+          });
+        }
+      }
+      return { successfulIds, failedIds };
     } catch (error) {
       setPanelError(toUserFacingError(error, { fallback: "Failed to approve action." }));
+      return {
+        successfulIds: [] as string[],
+        failedIds: pendingIds,
+      };
     } finally {
-      setBusyActionId(null);
+      removeBusyActionIds(pendingIds);
     }
   };
 
+  const handleApprove = async (actionId: string) => {
+    await handleApproveIds([actionId]);
+  };
+
   const handleBatchApprove = async () => {
-    const pendingIds = selectedActionIds.filter((id) =>
-      visibleActions.some((action) => action.id === id && action.status === "pending"),
-    );
-    await Promise.all(pendingIds.map((id) => handleApprove(id)));
+    const pendingIds = resolvePendingVisibleIds(selectedActionIds);
+    if (pendingIds.length <= 1) {
+      await handleApproveIds(pendingIds);
+      return;
+    }
+    setApproveTargetIds(pendingIds);
   };
 
   const openRejectDialog = (ids: string[]) => {
@@ -230,48 +339,98 @@ function ApprovalsPage() {
   };
 
   const handleReject = async () => {
-    if (rejectTargetIds.length === 0) {
+    const pendingIds = resolvePendingVisibleIds(rejectTargetIds);
+    if (pendingIds.length === 0) {
       return;
     }
     setSubmittingReject(true);
     try {
       setPanelError(null);
       setFeedback(null);
-      setBusyActionId(rejectTargetIds.length === 1 ? (rejectTargetIds[0] ?? null) : null);
-      const results = await Promise.allSettled(
-        rejectTargetIds.map((id) => rejectAction(id, rejectReason.trim())),
+      addBusyActionIds(pendingIds);
+      const results = await runBatchedSettled(pendingIds, APPROVAL_BATCH_CONCURRENCY, (id) =>
+        rejectAction(id, rejectReason.trim()),
       );
-      const failures = results.filter(
-        (result): result is PromiseRejectedResult => result.status === "rejected",
-      );
-      if (failures.length > 0) {
-        const firstFailure = failures[0];
-        const normalized = toUserFacingError(firstFailure?.reason, {
+      const successfulIds: string[] = [];
+      const failedIds: string[] = [];
+      let firstFailureReason: unknown = null;
+
+      results.forEach((result, index) => {
+        const id = pendingIds[index];
+        if (!id) {
+          return;
+        }
+        if (result.status === "fulfilled") {
+          successfulIds.push(id);
+          return;
+        }
+        failedIds.push(id);
+        firstFailureReason ??= result.reason;
+      });
+
+      if (failedIds.length > 0) {
+        const normalized = toUserFacingError(firstFailureReason, {
           fallback: "Failed to reject one or more actions.",
         });
         setPanelError(normalized);
-        if (failures.length > 1) {
-          showUserFacingErrorToast(firstFailure?.reason, {
+        if (failedIds.length > 1 || successfulIds.length > 0) {
+          showUserFacingErrorToast(firstFailureReason, {
             normalized,
           });
         }
       }
-      if (failures.length !== rejectTargetIds.length) {
-        if (rejectTargetIds.length === 1) {
+
+      if (successfulIds.length > 0) {
+        const feedbackActionId = resolveFeedbackAnchorId(successfulIds);
+        if (feedbackActionId) {
           setFeedback({
-            actionId: rejectTargetIds[0]!,
-            title: "Action rejected",
+            actionId: feedbackActionId,
+            title:
+              successfulIds.length === 1
+                ? "Action rejected"
+                : `${successfulIds.length} actions rejected`,
             summary:
-              "This action will not execute. Keppo kept the audit detail open so you can confirm the recorded decision before moving on.",
+              successfulIds.length === 1
+                ? "This action will not execute. Keppo kept the audit detail open so you can confirm the recorded decision before moving on."
+                : "These actions will not execute. Keppo kept the current audit detail open so you can confirm the recorded decisions before moving on.",
           });
         }
-        setSelectedActionIds((current) => current.filter((id) => !rejectTargetIds.includes(id)));
+        setSelectedActionIds((current) => current.filter((id) => !successfulIds.includes(id)));
+      }
+
+      if (failedIds.length === 0) {
         setRejectTargetIds([]);
         setRejectReason("");
+      } else if (successfulIds.length > 0) {
+        setRejectTargetIds(failedIds);
       }
     } finally {
       setSubmittingReject(false);
-      setBusyActionId(null);
+      removeBusyActionIds(pendingIds);
+    }
+  };
+
+  const handleApproveGroup = (ids: string[]) => {
+    const pendingIds = resolvePendingVisibleIds(ids);
+    if (pendingIds.length <= 1) {
+      void handleApproveIds(pendingIds);
+      return;
+    }
+    setApproveTargetIds(pendingIds);
+  };
+
+  const handleConfirmApprove = async () => {
+    const pendingIds = approveDialogPendingIds;
+    if (pendingIds.length === 0) {
+      setApproveTargetIds([]);
+      return;
+    }
+    setSubmittingApprove(true);
+    try {
+      const result = await handleApproveIds(pendingIds);
+      setApproveTargetIds(result.failedIds);
+    } finally {
+      setSubmittingApprove(false);
     }
   };
 
@@ -279,6 +438,7 @@ function ApprovalsPage() {
     const target = event.target as HTMLElement | null;
     const tagName = target?.tagName?.toLowerCase();
     if (
+      approveTargetIds.length > 0 ||
       rejectTargetIds.length > 0 ||
       tagName === "input" ||
       tagName === "textarea" ||
@@ -322,7 +482,13 @@ function ApprovalsPage() {
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-3xl font-bold tracking-tight">Approvals</h1>
-          {actions.length > 0 && <Badge variant="secondary">{actions.length} pending</Badge>}
+          {visibleActionIds.length > 0 && (
+            <Badge variant="secondary">
+              {statusFilter === "pending"
+                ? `${visiblePendingCount} pending`
+                : `${visibleActionIds.length} shown`}
+            </Badge>
+          )}
         </div>
         <TestActionDialog workspaceId={selectedWorkspaceId} />
       </div>
@@ -347,21 +513,25 @@ function ApprovalsPage() {
               value={searchTerm}
               onChange={(event) => setSearchTerm(event.currentTarget.value)}
               className="pl-9"
-              placeholder="Search action type or payload"
+              placeholder="Search actions, runs, or payload"
+              aria-label="Search actions, runs, or payload"
             />
           </div>
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border bg-muted/20 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="rounded-2xl border border-primary/20 bg-background px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary/75">
               Ready now
             </p>
             <p className="mt-2 text-2xl font-semibold">{visibleActions.length}</p>
-            <p className="mt-1 text-sm text-muted-foreground">Items matching the current filters</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Across {visibleGroups.length} automation run{visibleGroups.length === 1 ? "" : "s"} in
+              this view
+            </p>
           </div>
-          <div className="rounded-2xl border border-destructive/30 bg-destructive/8 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-destructive">
+          <div className="rounded-2xl border border-destructive/20 bg-background px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-destructive/80">
               Review first
             </p>
             <p className="mt-2 text-2xl font-semibold">{visibleHighRiskCount}</p>
@@ -369,8 +539,8 @@ function ApprovalsPage() {
               Critical or high-risk actions in this view
             </p>
           </div>
-          <div className="rounded-2xl border border-primary/25 bg-primary/8 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
+          <div className="rounded-2xl border border-secondary/30 bg-background px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-secondary">
               After this one
             </p>
             <p className="mt-2 text-2xl font-semibold">{remainingAfterCurrent}</p>
@@ -383,7 +553,8 @@ function ApprovalsPage() {
         {selectedActionIds.length >= 2 && canApproveActions ? (
           <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3">
             <p className="text-sm font-medium">
-              {selectedActionIds.length} actions selected for bulk review.
+              {selectedActionIds.length} actions selected across {selectedRunCount} run
+              {selectedRunCount === 1 ? "" : "s"}.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -427,7 +598,7 @@ function ApprovalsPage() {
             ) : (
               <Card className="overflow-auto">
                 <ApprovalsTable
-                  actions={visibleActions}
+                  groups={visibleGroups}
                   selectedActionId={selectedActionId}
                   selectedActionIds={selectedActionIds}
                   allVisibleSelected={allVisibleSelected}
@@ -446,9 +617,10 @@ function ApprovalsPage() {
                     focusTableRegion();
                   }}
                   onApprove={handleApprove}
+                  onApproveGroup={handleApproveGroup}
                   onRequestReject={openRejectDialog}
                   canApprove={canApproveActions}
-                  busyActionId={busyActionId}
+                  busyActionIds={busyActionIds}
                   emptyTitle={searchTerm ? "No matches" : "All clear"}
                   emptyDescription={
                     searchTerm
@@ -471,13 +643,24 @@ function ApprovalsPage() {
                 <ApprovalDetailPanel
                   actionId={selectedActionId}
                   details={actionDetails}
+                  groupContext={
+                    selectedActionGroup
+                      ? {
+                          automation_run_id: selectedActionGroup.automation_run_id,
+                          automation_name: selectedActionGroup.automation_name,
+                          automation_run_started_at: selectedActionGroup.automation_run_started_at,
+                          visible_action_count: selectedActionGroup.actions.length,
+                          visible_pending_count: selectedActionGroup.pending_count,
+                        }
+                      : null
+                  }
                   onApprove={handleApprove}
                   onRequestReject={openRejectDialog}
                   canApprove={canApproveActions}
                   feedback={panelFeedback}
                   error={panelError}
                   selectedActionVisible={selectedActionVisible}
-                  isApproving={busyActionId === selectedActionId}
+                  isApproving={selectedActionId ? busyActionIds.includes(selectedActionId) : false}
                   isRejecting={submittingReject && rejectTargetIds.includes(selectedActionId ?? "")}
                   testIdScope="approval-panel"
                 />
@@ -486,6 +669,18 @@ function ApprovalsPage() {
           </div>
         </div>
       </div>
+
+      <ApproveActionsDialog
+        open={approveTargetIds.length > 0}
+        pendingCount={approveDialogCount}
+        actionTypes={approveDialogSummary.actionTypes}
+        runSummaries={approveDialogSummary.runSummaries}
+        criticalRiskCount={approveDialogSummary.criticalRiskCount}
+        highRiskCount={approveDialogSummary.highRiskCount}
+        submitting={submittingApprove}
+        onConfirm={() => void handleConfirmApprove()}
+        onCancel={() => setApproveTargetIds([])}
+      />
 
       <Dialog
         open={rejectTargetIds.length > 0}

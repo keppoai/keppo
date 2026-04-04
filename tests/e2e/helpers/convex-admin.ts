@@ -14,6 +14,7 @@ const refs = {
     "e2e:createAutomationForWorkspace",
   ),
   createAutomationViaContract: makeFunctionReference<"mutation">("e2e:createAutomationViaContract"),
+  createGroupedPendingActions: makeFunctionReference<"mutation">("e2e:createGroupedPendingActions"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
   dispatchAutomationRun: makeFunctionReference<"action">(
     "automation_scheduler:dispatchAutomationRun",
@@ -109,6 +110,16 @@ export class ConvexAdminHelper {
 
   async createAutomationViaContract(params: { tier?: "free" | "starter" | "pro" }) {
     return await this.retryMutation(refs.createAutomationViaContract, params);
+  }
+
+  async createGroupedPendingActions(params: {
+    workspaceId: string;
+    toolName: string;
+    payloadPreviews: Record<string, unknown>[];
+    actionType?: string;
+    riskLevel?: "low" | "medium" | "high" | "critical";
+  }) {
+    return await this.retryMutation(refs.createGroupedPendingActions, params);
   }
 
   async getInviteToken(inviteId: string) {

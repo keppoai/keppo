@@ -7,7 +7,7 @@ export class ActionQueuePage extends BasePage {
       .poll(
         async () => {
           const feedbackVisible = await this.page
-            .getByTestId("approval-detail-feedback")
+            .getByTestId("approval-panel-feedback")
             .getByText(expectedFeedbackTitle, { exact: true })
             .isVisible()
             .catch(() => false);
@@ -44,12 +44,16 @@ export class ActionQueuePage extends BasePage {
     await expect(this.page.getByText(text)).toBeVisible();
   }
 
-  private firstVisiblePendingRow(): Locator {
-    return this.page.locator('[data-testid="approval-row"]').first();
-  }
-
   private firstVisiblePendingRowActionType(): Locator {
     return this.page.locator('[data-testid="approval-row-select"]').first();
+  }
+
+  private groupRow(runId: string): Locator {
+    return this.page.locator(`[data-testid="approval-group-row"][data-run-id="${runId}"]`);
+  }
+
+  private rowsForRun(runId: string): Locator {
+    return this.page.locator(`[data-testid="approval-row"][data-run-id="${runId}"]`);
   }
 
   private approvalDetailApproveButton(): Locator {
@@ -131,6 +135,69 @@ export class ActionQueuePage extends BasePage {
     await dialog.getByRole("button", { name: "Reject" }).evaluate((element) => {
       (element as HTMLButtonElement).click();
     });
+    await this.waitForDecisionTransition("Action rejected");
+  }
+
+  async expectGroupVisible(runId: string): Promise<void> {
+    await expect(this.groupRow(runId)).toBeVisible();
+  }
+
+  async expectPendingCountForRun(runId: string, count: number): Promise<void> {
+    await expect(this.rowsForRun(runId)).toHaveCount(count);
+  }
+
+  async approveGroup(runId: string, _count: number): Promise<void> {
+    const group = this.groupRow(runId);
+    await expect(group).toBeVisible();
+    await group.getByTestId("approval-group-approve").click();
+    const dialog = this.page.getByRole("dialog").filter({ hasText: /Approve \d+ actions\?/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /Approve \d+/i }).click();
+    await expect(group).toHaveCount(0);
+  }
+
+  async rejectGroup(runId: string, _count: number, reason = "Policy violation"): Promise<void> {
+    const group = this.groupRow(runId);
+    await expect(group).toBeVisible();
+    await group.getByTestId("approval-group-reject").click();
+    const dialog = this.page.getByRole("dialog").filter({ hasText: /Reject/i });
+    await expect(dialog).toBeVisible();
+    if (reason.trim().length > 0) {
+      await dialog.getByLabel("Reason (optional)").fill(reason);
+    }
+    await dialog.getByRole("button", { name: "Reject" }).click();
+    await expect(group).toHaveCount(0);
+  }
+
+  async approveSingleActionInRun(runId: string, index = 0): Promise<void> {
+    const rowActionType = this.rowsForRun(runId)
+      .locator('[data-testid="approval-row-select"]')
+      .nth(index);
+    await expect(rowActionType).toBeVisible();
+    await rowActionType.click();
+    await expect(this.approvalDetailApproveButton()).toBeVisible();
+    await this.approvalDetailApproveButton().click();
+    await this.waitForDecisionTransition("Approval recorded");
+  }
+
+  async rejectSingleActionInRun(
+    runId: string,
+    reason = "Policy violation",
+    index = 0,
+  ): Promise<void> {
+    const rowActionType = this.rowsForRun(runId)
+      .locator('[data-testid="approval-row-select"]')
+      .nth(index);
+    await expect(rowActionType).toBeVisible();
+    await rowActionType.click();
+    await expect(this.approvalDetailRejectButton()).toBeVisible();
+    await this.approvalDetailRejectButton().click();
+    const dialog = this.page.getByRole("dialog").filter({ hasText: /Reject action/i });
+    await expect(dialog).toBeVisible();
+    if (reason.trim().length > 0) {
+      await dialog.getByLabel("Reason (optional)").fill(reason);
+    }
+    await dialog.getByRole("button", { name: "Reject" }).click();
     await this.waitForDecisionTransition("Action rejected");
   }
 

@@ -212,6 +212,7 @@ const seedBaseAutomationFixture = async (
   orgId: string;
   workspaceId: string;
   automationId: string;
+  automationName: string;
   configVersionId: string;
   userId: string;
   createdAt: string;
@@ -262,6 +263,7 @@ const seedBaseAutomationFixture = async (
 
   const configVersionId = randomIdFor("acv");
   const automationId = randomIdFor("automation");
+  const automationName = `automation-${suffix}`;
   await ctx.db.insert("automation_config_versions", {
     id: configVersionId,
     automation_id: automationId,
@@ -289,7 +291,7 @@ const seedBaseAutomationFixture = async (
     org_id: orgId,
     workspace_id: workspaceId,
     slug: `automation-${suffix}`,
-    name: `automation-${suffix}`,
+    name: automationName,
     description: "Automation fixture",
     status: AUTOMATION_STATUS.active,
     current_config_version_id: configVersionId,
@@ -302,6 +304,7 @@ const seedBaseAutomationFixture = async (
     orgId,
     workspaceId,
     automationId,
+    automationName,
     configVersionId,
     userId,
     createdAt,
@@ -553,7 +556,9 @@ export const seedAutomationCascadeFixture = mutation({
       workspace_id: seeded.workspaceId,
       mcp_session_id: null,
       client_type: "chatgpt",
-      metadata: {},
+      metadata: {
+        automation_name: seeded.automationName,
+      },
       started_at: seeded.createdAt,
       ended_at: null,
       status: RUN_STATUS.active,
@@ -586,6 +591,8 @@ export const seedAutomationCascadeFixture = mutation({
       id: actionId,
       workspace_id: seeded.workspaceId,
       automation_run_id: runId,
+      automation_name: null,
+      automation_run_started_at: seeded.createdAt,
       tool_call_id: toolCallId,
       action_type: "fixture_action",
       risk_level: "low",

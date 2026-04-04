@@ -114,6 +114,9 @@ export const convexActionStatusPayloadSchema = z.object({
 
 export const convexActionSchema = z.object({
   id: nonEmptyStringSchema,
+  automation_run_id: nonEmptyStringSchema,
+  automation_name: z.union([nonEmptyStringSchema, z.null()]),
+  automation_run_started_at: z.union([nonEmptyStringSchema, z.null()]),
   action_type: nonEmptyStringSchema,
   risk_level: convexActionRiskLevelSchema,
   status: convexActionStatusSchema,

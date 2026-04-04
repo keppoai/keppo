@@ -461,6 +461,9 @@ describe("boundary contracts", () => {
       parseConvexActionList([
         {
           id: "act_1",
+          automation_run_id: "run_1",
+          automation_name: "Daily Digest",
+          automation_run_started_at: "2026-03-01T00:00:00.000Z",
           action_type: "gmail.sendEmail",
           risk_level: "high",
           status: "pending",
@@ -478,6 +481,9 @@ describe("boundary contracts", () => {
       parseConvexActionDetail({
         action: {
           id: "act_1",
+          automation_run_id: "run_1",
+          automation_name: "Daily Digest",
+          automation_run_started_at: "2026-03-01T00:00:00.000Z",
           action_type: "gmail.sendEmail",
           risk_level: "high",
           status: "pending",

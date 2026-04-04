@@ -95,6 +95,9 @@ const dismissApprovalNotifications = async (ctx: MutationCtx, actionId: string) 
 
 const actionValidator = v.object({
   id: v.string(),
+  automation_run_id: v.string(),
+  automation_name: v.union(v.string(), v.null()),
+  automation_run_started_at: v.union(v.string(), v.null()),
   action_type: v.string(),
   risk_level: actionRiskValidator,
   status: actionStatusValidator,
@@ -148,6 +151,9 @@ const auditEventValidator = v.object({
 
 type ActionView = {
   id: string;
+  automation_run_id: string;
+  automation_name: string | null;
+  automation_run_started_at: string | null;
   action_type: string;
   risk_level: ActionRiskLevel;
   status: ActionStatus;
@@ -201,6 +207,9 @@ type AuditEventView = {
 
 const actionViewFields = [
   "id",
+  "automation_run_id",
+  "automation_name",
+  "automation_run_started_at",
   "action_type",
   "risk_level",
   "status",
@@ -262,6 +271,41 @@ const toPolicyDecision = (decision: PolicyDecisionView) =>
   pickFields(decision, policyDecisionViewFields);
 
 const toAuditEvent = (event: AuditEventView) => pickFields(event, auditEventViewFields);
+
+const toActionView = (
+  action: {
+    id: string;
+    automation_run_id: string;
+    automation_name?: string | null;
+    automation_run_started_at?: string | null;
+    action_type: string;
+    risk_level: ActionRiskLevel;
+    status: ActionStatus;
+    payload_preview: Record<string, unknown>;
+    result_redacted: Record<string, unknown> | null;
+    idempotency_key: string;
+    created_at: string;
+    resolved_at: string | null;
+  },
+  runContext?: {
+    automation_name: string | null;
+    automation_run_started_at: string | null;
+  },
+): ActionView => ({
+  id: action.id,
+  automation_run_id: action.automation_run_id,
+  automation_name: action.automation_name ?? runContext?.automation_name ?? null,
+  automation_run_started_at:
+    action.automation_run_started_at ?? runContext?.automation_run_started_at ?? null,
+  action_type: action.action_type,
+  risk_level: action.risk_level,
+  status: action.status,
+  payload_preview: action.payload_preview,
+  result_redacted: action.result_redacted,
+  idempotency_key: action.idempotency_key,
+  created_at: action.created_at,
+  resolved_at: action.resolved_at,
+});
 
 const insertAuditEvent = async (
   ctx: MutationCtx,
@@ -375,6 +419,9 @@ const listWorkspaceActions = async (
 ): Promise<
   Array<{
     id: string;
+    automation_run_id: string;
+    automation_name: string | null;
+    automation_run_started_at: string | null;
     action_type: string;
     risk_level: ActionRiskLevel;
     status: ActionStatus;
@@ -399,7 +446,7 @@ const listWorkspaceActions = async (
         .order("desc")
         .take(WORKSPACE_ACTION_LIST_LIMIT);
 
-  return rows.map(toAction);
+  return rows.map((row) => toAction(toActionView(row)));
 };
 
 export const listByWorkspace = query({
@@ -479,9 +526,21 @@ export const getActionDetail = query({
       .collect();
 
     const timeline = await listActionTimeline(ctx, resolved.workspace.org_id, args.actionId);
+    const automationId = resolved.run?.automation_id ?? null;
+    const automation = automationId
+      ? await ctx.db
+          .query("automations")
+          .withIndex("by_custom_id", (q) => q.eq("id", automationId))
+          .unique()
+      : null;
 
     return {
-      action: toAction(resolved.action),
+      action: toAction(
+        toActionView(resolved.action, {
+          automation_name: automation?.name?.trim() ? automation.name.trim() : null,
+          automation_run_started_at: resolved.run?.started_at ?? null,
+        }),
+      ),
       normalized_payload: normalizedPayload,
       approvals: approvals.map(toApproval),
       cel_rule_matches: celRuleMatches.map(toCelRuleMatch),
@@ -738,6 +797,8 @@ export const createTestAction = mutation({
       id: actionId,
       workspace_id: args.workspaceId,
       automation_run_id: runId,
+      automation_name: null,
+      automation_run_started_at: now,
       tool_call_id: toolCallId,
       action_type: inferred.actionType,
       risk_level: inferred.riskLevel,

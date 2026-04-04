@@ -55,7 +55,9 @@ describe("IntegrationDetailPage", () => {
             : {
                 action: {
                   id: "action_1",
-                  workspace_id: "ws_1",
+                  automation_run_id: "run_1",
+                  automation_name: null,
+                  automation_run_started_at: "2026-03-08T00:00:00.000Z",
                   action_type: "gmail.sendEmail",
                   risk_level: "high",
                   status: "succeeded",
@@ -70,8 +72,14 @@ describe("IntegrationDetailPage", () => {
                   created_at: "2026-03-08T00:00:00.000Z",
                   resolved_at: "2026-03-08T00:01:00.000Z",
                 },
-                approval: null,
-                auditEvents: [],
+                normalized_payload: {
+                  to: ["automation@example.com"],
+                  subject: "Integration test from Google",
+                },
+                approvals: [],
+                cel_rule_matches: [],
+                policy_decisions: [],
+                timeline: [],
               },
       },
       convexQueryHandlers: {
