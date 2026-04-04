@@ -15,6 +15,7 @@
 - [GitHub workflow security rules](docs/rules/github-security.md) — trusted-vs-untrusted workflow boundaries, agent-writable workspace isolation, post-agent helper refresh rules, and GitHub credential scoping for agent-running workflows. **Must be consulted before changing any GitHub Actions workflow that runs Claude, Codex, or other coding agents**.
 - [Error messaging rules](docs/rules/error-messaging.md) — human-first error copy, stable machine-readable identifiers, collapsed operator details, and public-route sanitization policy.
 - [UX rules](docs/rules/ux.md) — animations, forms, touch/accessibility, typography, visual polish, and performance best practices. **Must be consulted before any frontend/UI/UX change** — read the full file, not just the section you think applies.
+- [Demo video rules](docs/rules/demo-video.md) — reviewer-facing PR demo capture, pacing, trimming, and review requirements.
 - [Product principles](docs/rules/product-principles.md) — high-level product decision-making principles used by the PR review responder to autonomously resolve ambiguous or subjective feedback.
 - [docs/dev-setup.md](docs/dev-setup.md) — authoritative local contributor setup, verification, and maintainer workflow reference for this app. Any change that affects required local commands, ports, test entrypoints, or repo-operated workflow prerequisites must be reflected here immediately.
 - [docs/self-hosting-setup.md](docs/self-hosting-setup.md) — authoritative self-hosted setup and deployment reference for this app. Any change that affects required runtime behavior (OAuth providers, ports, environment variables, callbacks, auth flow, database/runtime dependencies, or external integrations) must be reflected here immediately so others can run Keppo independently.
@@ -62,6 +63,9 @@ Add `#skip-bugbot` or `#skip-bb` to the PR description for trivial PRs that won'
 - When a PR includes significant UI or product behavior changes, create a short demo video with the `$create-video-demo` skill for the initial PR and for any later push that materially changes the demonstrated behavior.
 - Prefer recording an existing targeted Playwright spec. If no existing spec cleanly shows the change, create a disposable one-off Playwright spec just for the demo.
 - Keep the recorded demo under **60 seconds** and store the exported file under `ux-artifacts/video-demos/`.
+- Remove blank startup frames, white screens, login/setup noise, or other dead air before posting the final clip.
+- Slow the main changed interaction to reviewer pace. The important before/after state should be readable without the reviewer needing to pause immediately.
+- Review the final exported clip before upload and keep iterating until the opening frame and pacing are clear.
 - Upload reviewer-facing demo videos to Vercel Blob using `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN`. Treat them as public artifacts and do not upload sensitive recordings.
 - After pushing the branch or updating the PR, leave a top-level PR comment with the hosted demo URL. The comment must start with `Demo at commit {hash}` and include a 1-2 sentence summary of what the video shows.
 - If the PR does not include significant UI or product-facing changes, skip the demo comment.
