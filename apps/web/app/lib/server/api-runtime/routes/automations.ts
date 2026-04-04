@@ -547,7 +547,7 @@ export const buildRunnerCommand = (params: {
   if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
+      "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
     );
   }
   return `node ${shellQuote(resolveSandboxRunnerEntrypointPath(params.providerMode))}`;
@@ -599,7 +599,7 @@ export const buildRunnerAuthBootstrapCommand = (params: {
   if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
+      "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
     );
   }
   void params.providerMode;
@@ -618,7 +618,7 @@ export const assertRunnerAuthSupported = (params: {
   if (params.aiModelProvider === AI_MODEL_PROVIDER.anthropic) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
+      "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
     );
   }
 };
@@ -661,6 +661,25 @@ const truncateForError = (value: string, maxLength = 240): string => {
     return normalized;
   }
   return `${normalized.slice(0, maxLength - 1)}…`;
+};
+
+const TRACE_CALLBACK_FIELD_MAX_LENGTH = 1_000;
+
+const parseOptionalBoundedTraceString = (value: unknown, fieldName: string): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    return undefined;
+  }
+  if (trimmed.length > TRACE_CALLBACK_FIELD_MAX_LENGTH) {
+    throw createAutomationRouteError(
+      "invalid_payload",
+      `${fieldName} must be at most ${String(TRACE_CALLBACK_FIELD_MAX_LENGTH)} characters`,
+    );
+  }
+  return trimmed;
 };
 
 export const preflightMcpServer = async (
@@ -1145,26 +1164,11 @@ export const parseTracePayload = (
       "export_status must be exported, disabled, or failed",
     );
   }
-  const traceId =
-    typeof body.trace_id === "string" && body.trace_id.trim().length > 0
-      ? body.trace_id.trim()
-      : undefined;
-  const groupId =
-    typeof body.group_id === "string" && body.group_id.trim().length > 0
-      ? body.group_id.trim()
-      : undefined;
-  const workflowName =
-    typeof body.workflow_name === "string" && body.workflow_name.trim().length > 0
-      ? body.workflow_name.trim()
-      : undefined;
-  const lastResponseId =
-    typeof body.last_response_id === "string" && body.last_response_id.trim().length > 0
-      ? body.last_response_id.trim()
-      : undefined;
-  const errorMessage =
-    typeof body.error_message === "string" && body.error_message.trim().length > 0
-      ? body.error_message.trim()
-      : undefined;
+  const traceId = parseOptionalBoundedTraceString(body.trace_id, "trace_id");
+  const groupId = parseOptionalBoundedTraceString(body.group_id, "group_id");
+  const workflowName = parseOptionalBoundedTraceString(body.workflow_name, "workflow_name");
+  const lastResponseId = parseOptionalBoundedTraceString(body.last_response_id, "last_response_id");
+  const errorMessage = parseOptionalBoundedTraceString(body.error_message, "error_message");
   return {
     automation_run_id: automationRunId,
     export_status: exportStatus,

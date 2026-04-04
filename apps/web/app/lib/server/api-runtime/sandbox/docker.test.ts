@@ -39,6 +39,7 @@ const baseConfig = {
     command: "node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     env: {
       OPENAI_API_KEY: "openai-key",
+      OPENAI_BASE_URL: "http://127.0.0.1:8788/v1",
       KEPPO_MCP_SERVER_URL: "http://localhost:8787/mcp/ws_test",
     },
     network_access: "mcp_only" as const,
@@ -169,6 +170,9 @@ describe("DockerSandboxProvider", () => {
     );
     expect(runCall?.args.join(" ")).toContain(
       "KEPPO_MCP_SERVER_URL=http://host.docker.internal:8787/mcp/ws_test",
+    );
+    expect(runCall?.args.join(" ")).toContain(
+      "OPENAI_BASE_URL=http://host.docker.internal:8788/v1",
     );
     expect(runCall?.args.join(" ")).toContain("KEPPO_TIMEOUT_GRACE_MS=5000");
     expect(runCall?.args).toContain("-lc");

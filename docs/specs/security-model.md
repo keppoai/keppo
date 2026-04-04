@@ -82,6 +82,7 @@
 - Dyad Gateway master credentials (`KEPPO_LLM_GATEWAY_MASTER_KEY`) stay in API runtime only; dashboard clients, Convex public functions, and sandbox env never receive that management bearer token.
 - OpenAI `subscription_token` automation keys are stored as encrypted refreshable OAuth credential envelopes; refresh occurs in API runtime before dispatch, and sandbox runs receive only run-scoped auth material.
 - Dispatch decrypts key material only inside API runtime for active run provisioning; dashboard receives hints only (`key_hint`).
+- Automation trace export is opt-in: dispatch only injects `KEPPO_OPENAI_TRACING_API_KEY` when operators configure a dedicated tracing key, and trace identifiers/grouping use hashed automation ids instead of raw tenant ids.
 - `_decryptForTestsOnly` remains internal-only and requires an explicit local/test flag before use; every successful invocation emits an audit-friendly warning.
 - Automation run attribution uses automation identity as MCP actor and does not rely on shared service-account secrets.
 

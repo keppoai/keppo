@@ -5,7 +5,7 @@ WORKDIR /sandbox
 # Pin the repo-owned Agents SDK runner dependencies in the sandbox image so
 # local and image-based automation sandboxes match the remote bootstrap path.
 RUN mkdir -p /sandbox/.keppo-automation-runner && \
-  npm install --no-audit --no-fund --prefix /sandbox/.keppo-automation-runner @openai/agents@0.8.2 || true
+  npm install --no-audit --no-fund --prefix /sandbox/.keppo-automation-runner @openai/agents@0.8.2
 
 RUN cat <<'EOF' >/usr/local/bin/automation-sandbox-entrypoint.sh
 #!/usr/bin/env bash

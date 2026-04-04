@@ -1,0 +1,24 @@
+- [x] Re-read `tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md` to self-review the PR context before finalizing actions.
+- [x] Rebase the branch onto `upstream/main` and resolve every merge conflict.
+- [x] Run `pnpm check` after the rebase baseline and fix any breakage required to get back to green.
+- [x] Investigate the non-success GitHub Actions check `fix-pr` from the workflow context and confirm whether any additional CI failures need code changes.
+- [x] Evaluate the E2E workflow context, including the flaky `code-mode/execute-code.e2e.test.ts` item, against the PR diff and classify whether it is related to this PR.
+- [x] If the flaky E2E item is unrelated to this PR, document that decision in `summaryComment` instead of making a speculative code change.
+- [x] Address cubic's Dockerfile thread by removing the swallowed runner dependency install failure if still present after the rebase.
+- [x] Address the HIGH tracing-key leak feedback in `apps/web/app/lib/server/automation-runtime.ts`.
+- [x] Address the trace sensitive-data default feedback in `apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`.
+- [x] Address the user-facing error message wording feedback in `apps/web/app/lib/server/api-runtime/routes/automations.ts`.
+- [x] Address the runner catch/log masking feedback in `apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`.
+- [x] Address the runner log batching/performance feedback in `apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`.
+- [x] Address the max-turns operator-feedback feedback in `apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`.
+- [x] Address the trace payload length-bounds feedback in `apps/web/app/lib/server/api-runtime/routes/automations.ts`.
+- [x] Address the trace metadata tenant-identifier feedback in `apps/web/app/lib/server/automation-runtime.ts`.
+- [x] Address the trusted top-level review/comment feedback, including the Docker localhost rewrite regression called out in Codex review comments, with code or explicit rationale in `summaryComment`.
+- [x] Update any affected docs/specs/rules that must stay in sync with the code changes.
+- [x] Add or update tests needed to cover the fixes.
+- [x] Run required targeted local E2E verification if I make code changes for any PR-related E2E failure.
+- [x] Run `pnpm check` after all code changes and keep fixing issues until it passes.
+- [ ] Create a local git commit with a Conventional Commit message for the completed fixes.
+- [ ] Re-read `TODOS.md` and confirm every item is complete before writing `tmp/pr-review-responder/actions.json`.
+- [ ] Write `tmp/pr-review-responder/actions.json` with `summaryComment`, `threadActions`, and optional `demo`.
+- [ ] Delete `TODOS.md` after `tmp/pr-review-responder/actions.json` is written.

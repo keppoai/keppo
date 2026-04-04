@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildAutomationTraceGroupId,
   buildAutomationRunTraceId,
   buildSandboxRunnerContract,
   resolveSandboxRunnerEntrypointPath,
@@ -27,11 +28,24 @@ describe("agents-sdk-runner", () => {
     expect(contract.source_text).toContain("new MCPServerStreamableHttp({");
     expect(contract.source_text).toContain("new OpenAIProvider({");
     expect(contract.source_text).toContain("KEPPO_TRACE_CALLBACK_URL");
+    expect(contract.source_text).toContain("traceIncludeSensitiveData: false");
+    expect(contract.source_text).toContain("const LOG_BATCH_SIZE = 10;");
+    expect(contract.source_text).toContain("Automation reached the maximum turn budget");
   });
 
   it("derives deterministic OpenAI trace ids from automation run ids", () => {
     expect(buildAutomationRunTraceId("arun_test")).toBe(buildAutomationRunTraceId("arun_test"));
     expect(buildAutomationRunTraceId("arun_test")).not.toBe(buildAutomationRunTraceId("arun_2"));
     expect(buildAutomationRunTraceId("arun_test")).toMatch(/^[0-9a-f]{32}$/u);
+  });
+
+  it("derives stable hashed trace group ids from automation ids", () => {
+    expect(buildAutomationTraceGroupId("automation_test")).toBe(
+      buildAutomationTraceGroupId("automation_test"),
+    );
+    expect(buildAutomationTraceGroupId("automation_test")).not.toBe(
+      buildAutomationTraceGroupId("automation_other"),
+    );
+    expect(buildAutomationTraceGroupId("automation_test")).toMatch(/^automation:[0-9a-f]{16}$/u);
   });
 });

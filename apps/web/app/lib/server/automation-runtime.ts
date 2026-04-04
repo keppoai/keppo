@@ -58,6 +58,7 @@ import {
   type AutomationSandboxProviderMode,
 } from "./api-runtime/sandbox/index.ts";
 import {
+  buildAutomationTraceGroupId,
   buildAutomationRunTraceId,
   buildSandboxRunnerContract,
 } from "./api-runtime/sandbox/agents-sdk-runner.ts";
@@ -118,6 +119,8 @@ const AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS = 250;
 const AUTOMATION_LOG_BATCH_SIZE = 50;
 const AUTOMATION_LOG_MAX_LINES = 200;
 const MIN_AUTOMATION_TIMEOUT_MS = 60_000;
+const AUTOMATION_SANDBOX_MODEL_ERROR =
+  "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.";
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
@@ -698,7 +701,7 @@ export const handleInternalAutomationDispatchRequest = async (
     });
     const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)(providerMode);
     const traceId = buildAutomationRunTraceId(context.run.id);
-    const traceGroupId = `automation:${context.automation.id}`;
+    const traceGroupId = buildAutomationTraceGroupId(context.automation.id);
     const traceWorkflowName = "Keppo automation";
 
     const runtimeEnv: Record<string, string> = {
@@ -713,13 +716,10 @@ export const handleInternalAutomationDispatchRequest = async (
       KEPPO_OPENAI_TRACE_GROUP_ID: traceGroupId,
       KEPPO_OPENAI_TRACE_WORKFLOW_NAME: traceWorkflowName,
       KEPPO_OPENAI_TRACE_METADATA_JSON: JSON.stringify({
-        automation_run_id: context.run.id,
-        automation_id: context.automation.id,
-        workspace_id: context.automation.workspace_id,
-        org_id: context.automation.org_id,
         model: resolvedModel.aiModelName,
         ai_key_mode: authKeyMode,
         sandbox_provider: providerMode,
+        trace_source: "keppo_automation",
       }),
     };
     const e2eOpenAiBaseUrl = env.KEPPO_E2E_OPENAI_BASE_URL?.trim();
@@ -754,7 +754,7 @@ export const handleInternalAutomationDispatchRequest = async (
     }
     const tracingApiKey = env.KEPPO_E2E_MODE
       ? ""
-      : (env.KEPPO_OPENAI_TRACING_API_KEY?.trim() ?? env.OPENAI_API_KEY?.trim() ?? "");
+      : (env.KEPPO_OPENAI_TRACING_API_KEY?.trim() ?? "");
     if (tracingApiKey) {
       runtimeEnv.KEPPO_OPENAI_TRACING_API_KEY = tracingApiKey;
     }
@@ -825,11 +825,16 @@ export const handleInternalAutomationDispatchRequest = async (
   } catch (error) {
     const typedError = toAutomationRouteError(error, "automation_route_failed");
     const { code, message } = extractAutomationRouteError(typedError);
+    const normalizedMessage =
+      message ===
+      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model."
+        ? AUTOMATION_SANDBOX_MODEL_ERROR
+        : message;
     await deps.convex
       .updateAutomationRunStatus({
         automationRunId: context.run.id,
         status: AUTOMATION_RUN_STATUS.cancelled,
-        errorMessage: `Dispatch failed: ${typedError.message}`,
+        errorMessage: `Dispatch failed: ${normalizedMessage}`,
       })
       .catch(() => undefined);
 
@@ -837,7 +842,7 @@ export const handleInternalAutomationDispatchRequest = async (
       automation_id: context.automation.id,
       automation_run_id: context.run.id,
       workspace_id: context.automation.workspace_id,
-      error: message,
+      error: normalizedMessage,
       ...(code ? { error_code: code } : {}),
     });
     return jsonResponse(
@@ -845,7 +850,7 @@ export const handleInternalAutomationDispatchRequest = async (
       {
         ok: false,
         status: AUTOMATION_ROUTE_STATUS.dispatchFailed,
-        error: message,
+        error: normalizedMessage,
         ...(code ? { error_code: code } : {}),
       },
       500,

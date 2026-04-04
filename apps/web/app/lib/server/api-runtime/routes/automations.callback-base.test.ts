@@ -7,6 +7,7 @@ import {
   buildRunnerAuthBootstrapCommand,
   buildRunnerBootstrapCommand,
   buildRunnerCommand,
+  parseTracePayload,
   preflightMcpServer,
   resolveAutomationMcpServerUrl,
 } from "./automations";
@@ -97,7 +98,7 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         aiModelProvider: "anthropic",
       }),
     ).toThrow(
-      "automation_route_failed: Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
+      "automation_route_failed: Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
     );
   });
 
@@ -150,8 +151,18 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
         aiKeyMode: "byok",
       }),
     ).toThrow(
-      "automation_route_failed: Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model.",
+      "automation_route_failed: Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
     );
+  });
+
+  it("rejects oversized trace callback string fields", () => {
+    expect(() =>
+      parseTracePayload({
+        automation_run_id: "arun_test",
+        export_status: "failed",
+        error_message: "x".repeat(1_001),
+      }),
+    ).toThrow("invalid_payload: error_message must be at most 1000 characters");
   });
 
   it("does not require a separate OpenAI OAuth auth bootstrap command shape", () => {

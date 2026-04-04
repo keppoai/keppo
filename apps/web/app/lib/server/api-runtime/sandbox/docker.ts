@@ -110,6 +110,9 @@ const normalizeConfigForDocker = (config: SandboxConfig): SandboxConfig => {
       runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL,
     );
   }
+  if (runtimeEnv.OPENAI_BASE_URL) {
+    runtimeEnv.OPENAI_BASE_URL = rewriteDockerReachableUrl(runtimeEnv.OPENAI_BASE_URL);
+  }
 
   return {
     ...config,
