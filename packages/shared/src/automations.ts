@@ -777,16 +777,33 @@ export const INCLUDED_AI_CREDITS: Record<SubscriptionTierId, IncludedAiCredits> 
 export const DYAD_GATEWAY_BUDGET_USD_PER_300_AI_CREDITS = 20;
 export const DYAD_GATEWAY_BUDGET_AI_CREDITS = 300;
 export const TOOL_CALLS_PER_RUN_MULTIPLIER = 50;
+const DYAD_GATEWAY_BUDGET_PRECISION = 4;
 
-export const convertAiCreditsToDyadGatewayBudgetUsd = (credits: number): number => {
-  if (!Number.isFinite(credits) || credits <= 0) {
+export const normalizeAiCreditAmount = (value: number): number => {
+  if (!Number.isFinite(value) || value <= 0) {
     return 0;
   }
-  return Number.parseFloat(
-    (
-      (credits * DYAD_GATEWAY_BUDGET_USD_PER_300_AI_CREDITS) /
-      DYAD_GATEWAY_BUDGET_AI_CREDITS
-    ).toFixed(4),
+  return Number.parseFloat(value.toFixed(DYAD_GATEWAY_BUDGET_PRECISION));
+};
+
+export const normalizeDyadGatewayBudgetUsd = (value: number): number => {
+  if (!Number.isFinite(value) || value <= 0) {
+    return 0;
+  }
+  return Number.parseFloat(value.toFixed(DYAD_GATEWAY_BUDGET_PRECISION));
+};
+
+export const convertAiCreditsToDyadGatewayBudgetUsd = (credits: number): number => {
+  return normalizeDyadGatewayBudgetUsd(
+    (normalizeAiCreditAmount(credits) * DYAD_GATEWAY_BUDGET_USD_PER_300_AI_CREDITS) /
+      DYAD_GATEWAY_BUDGET_AI_CREDITS,
+  );
+};
+
+export const convertDyadGatewayBudgetUsdToAiCredits = (budgetUsd: number): number => {
+  return normalizeAiCreditAmount(
+    (normalizeDyadGatewayBudgetUsd(budgetUsd) * DYAD_GATEWAY_BUDGET_AI_CREDITS) /
+      DYAD_GATEWAY_BUDGET_USD_PER_300_AI_CREDITS,
   );
 };
 

@@ -360,6 +360,7 @@ export type AiCreditsBalance = {
   period_start: string;
   period_end: string;
   allowance_total: number;
+  allowance_reset_period: "monthly" | "one_time";
   allowance_used: number;
   allowance_remaining: number;
   purchased_remaining: number;
@@ -377,6 +378,35 @@ export async function getAiCreditBalance(
   return (await internalClient.query(refs.getAiCreditBalance as unknown, {
     org_id: params.orgId,
   })) as AiCreditsBalance;
+}
+
+export type AiCreditGatewaySyncResult = {
+  balance: AiCreditsBalance;
+  charged_credits: number;
+  charged_budget_usd: number;
+  previous_spend_usd: number;
+  current_spend_usd: number;
+  max_budget_usd: number;
+  budget_reset_at: string | null;
+};
+
+export async function syncAiCreditsFromGateway(
+  client: ConvexHttpClient,
+  params: {
+    orgId: string;
+    spendUsd: number;
+    maxBudgetUsd: number;
+    budgetResetAt: string | null;
+    usageSource?: AiCreditUsageSource;
+  },
+): Promise<AiCreditGatewaySyncResult> {
+  return (await client.mutation(refs.syncAiCreditsFromGateway, {
+    org_id: params.orgId,
+    spend_usd: params.spendUsd,
+    max_budget_usd: params.maxBudgetUsd,
+    budget_reset_at: params.budgetResetAt,
+    ...(params.usageSource ? { usage_source: params.usageSource } : {}),
+  })) as AiCreditGatewaySyncResult;
 }
 
 export async function deductAiCredit(

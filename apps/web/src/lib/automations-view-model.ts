@@ -836,6 +836,16 @@ export const parseAiCreditBalance = (value: unknown): AiCreditBalance | null => 
   };
 };
 
+export const formatAiCreditAmount = (value: number | null | undefined): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.0$/u, "");
+};
+
 export const runStatusBadgeVariant = (
   status: AutomationRunStatus,
 ): "default" | "secondary" | "destructive" | "outline" => {

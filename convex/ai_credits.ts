@@ -27,7 +27,10 @@ import {
   supportsBundledAiRuntime,
   AI_CREDIT_USAGE_SOURCE,
   AI_CREDIT_USAGE_SOURCES,
+  convertDyadGatewayBudgetUsdToAiCredits,
   isGatewayRuntimeEnabled,
+  normalizeAiCreditAmount,
+  normalizeDyadGatewayBudgetUsd,
   type AiCreditUsageSource,
 } from "../packages/shared/src/automations.js";
 import {
@@ -41,6 +44,7 @@ const refs = {
   emitNotificationForOrg: makeFunctionReference<"mutation">("notifications:emitNotificationForOrg"),
 };
 const AI_CREDIT_EXPIRY_DAYS = 90;
+const AI_CREDIT_EPSILON = 0.0001;
 const hasGatewayRuntime = (): boolean => isGatewayRuntimeEnabled(process.env.KEPPO_LLM_GATEWAY_URL);
 
 const emitAiCreditLimitNotificationBestEffort = async (
@@ -88,6 +92,10 @@ const aiCreditsRowValidator = v.object({
   allowance_reset_period: v.optional(v.union(v.literal("monthly"), v.literal("one_time"))),
   allowance_used: v.number(),
   purchased_balance: v.number(),
+  gateway_max_budget_usd: v.optional(v.number()),
+  gateway_spend_usd: v.optional(v.number()),
+  gateway_budget_reset_at: v.optional(v.union(v.string(), v.null())),
+  gateway_last_synced_at: v.optional(v.string()),
   updated_at: v.string(),
 });
 
@@ -103,6 +111,16 @@ const purchaseValidator = v.object({
   status: aiCreditPurchaseStatusValidator,
 });
 
+const aiCreditGatewaySyncResultValidator = v.object({
+  balance: aiCreditBalanceValidator,
+  charged_credits: v.number(),
+  charged_budget_usd: v.number(),
+  previous_spend_usd: v.number(),
+  current_spend_usd: v.number(),
+  max_budget_usd: v.number(),
+  budget_reset_at: v.union(v.string(), v.null()),
+});
+
 const aiCreditsRowFields = [
   "id",
   "org_id",
@@ -112,6 +130,10 @@ const aiCreditsRowFields = [
   "allowance_reset_period",
   "allowance_used",
   "purchased_balance",
+  "gateway_max_budget_usd",
+  "gateway_spend_usd",
+  "gateway_budget_reset_at",
+  "gateway_last_synced_at",
   "updated_at",
 ] as const satisfies readonly (keyof Doc<"ai_credits">)[];
 
@@ -194,7 +216,7 @@ const listActivePurchases = async (ctx: QueryCtx | MutationCtx, orgId: string, n
 };
 
 const sumPurchasedBalance = (rows: Array<{ credits_remaining: number }>): number => {
-  return rows.reduce((sum, row) => sum + row.credits_remaining, 0);
+  return normalizeAiCreditAmount(rows.reduce((sum, row) => sum + row.credits_remaining, 0));
 };
 
 const buildBalance = (params: {
@@ -207,17 +229,20 @@ const buildBalance = (params: {
   purchasedRemaining: number;
   bundledRuntimeEnabled: boolean;
 }) => {
-  const allowanceRemaining = Math.max(0, params.allowanceTotal - params.allowanceUsed);
+  const allowanceTotal = normalizeAiCreditAmount(params.allowanceTotal);
+  const allowanceUsed = normalizeAiCreditAmount(params.allowanceUsed);
+  const purchasedRemaining = normalizeAiCreditAmount(params.purchasedRemaining);
+  const allowanceRemaining = normalizeAiCreditAmount(Math.max(0, allowanceTotal - allowanceUsed));
   return {
     org_id: params.orgId,
     period_start: params.periodStart,
     period_end: params.periodEnd,
-    allowance_total: params.allowanceTotal,
+    allowance_total: allowanceTotal,
     allowance_reset_period: params.allowanceResetPeriod,
-    allowance_used: params.allowanceUsed,
+    allowance_used: allowanceUsed,
     allowance_remaining: allowanceRemaining,
-    purchased_remaining: params.purchasedRemaining,
-    total_available: allowanceRemaining + params.purchasedRemaining,
+    purchased_remaining: purchasedRemaining,
+    total_available: normalizeAiCreditAmount(allowanceRemaining + purchasedRemaining),
     bundled_runtime_enabled: params.bundledRuntimeEnabled,
   };
 };
@@ -254,6 +279,10 @@ const ensureAiCreditsRow = async (
     allowance_reset_period: params.allowanceResetPeriod,
     allowance_used: 0,
     purchased_balance: 0,
+    gateway_max_budget_usd: 0,
+    gateway_spend_usd: 0,
+    gateway_budget_reset_at: null,
+    gateway_last_synced_at: now,
     updated_at: now,
   });
   const created = await ctx.db
@@ -319,6 +348,57 @@ const computeBalance = async (
     purchasedRemaining: sumPurchasedBalance(purchases),
     bundledRuntimeEnabled: params.bundledRuntimeEnabled,
   });
+};
+
+const isNearlyZero = (value: number): boolean => Math.abs(value) <= AI_CREDIT_EPSILON;
+
+const consumePurchasedCreditsInPlace = async (
+  ctx: MutationCtx,
+  params: {
+    orgId: string;
+    creditsToConsume: number;
+    now: string;
+  },
+): Promise<{
+  purchasedRemaining: number;
+  consumedCredits: number;
+  consumedPurchaseIds: string[];
+}> => {
+  const purchases = await listActivePurchases(ctx, params.orgId, params.now);
+  let remainingToConsume = normalizeAiCreditAmount(params.creditsToConsume);
+  let consumedCredits = 0;
+  const consumedPurchaseIds: string[] = [];
+
+  for (const purchase of purchases) {
+    if (remainingToConsume <= AI_CREDIT_EPSILON) {
+      break;
+    }
+    const nextRemaining = normalizeAiCreditAmount(
+      Math.max(0, purchase.credits_remaining - remainingToConsume),
+    );
+    const consumedFromPurchase = normalizeAiCreditAmount(
+      purchase.credits_remaining - nextRemaining,
+    );
+    if (consumedFromPurchase <= AI_CREDIT_EPSILON) {
+      continue;
+    }
+    await ctx.db.patch(purchase._id, {
+      credits_remaining: nextRemaining,
+      status:
+        nextRemaining <= AI_CREDIT_EPSILON
+          ? AI_CREDIT_PURCHASE_STATUS.depleted
+          : AI_CREDIT_PURCHASE_STATUS.active,
+    });
+    consumedCredits = normalizeAiCreditAmount(consumedCredits + consumedFromPurchase);
+    remainingToConsume = normalizeAiCreditAmount(remainingToConsume - consumedFromPurchase);
+    consumedPurchaseIds.push(purchase.id);
+  }
+
+  return {
+    purchasedRemaining: normalizeAiCreditAmount(sumPurchasedBalance(purchases) - consumedCredits),
+    consumedCredits,
+    consumedPurchaseIds,
+  };
 };
 
 const resolveAllowanceConfigForTier = async (
@@ -441,6 +521,136 @@ export const getAiCreditBalance = query({
   },
 });
 
+export const syncAiCreditsFromGateway = internalMutation({
+  args: {
+    org_id: v.string(),
+    spend_usd: v.number(),
+    max_budget_usd: v.number(),
+    budget_reset_at: v.union(v.string(), v.null()),
+    usage_source: v.optional(
+      v.union(v.literal(AI_CREDIT_USAGE_SOURCES[0]), v.literal(AI_CREDIT_USAGE_SOURCES[1])),
+    ),
+  },
+  returns: aiCreditGatewaySyncResultValidator,
+  handler: async (ctx, args) => {
+    const now = nowIso();
+    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, { orgId: args.org_id });
+    const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
+    const period = resolveBillingPeriod(subscription);
+    const allowanceConfig = await resolveAllowanceConfigForTier(ctx, {
+      orgId: args.org_id,
+      tier,
+      periodStart: period.periodStart,
+    });
+    const bundledRuntimeEnabled = supportsBundledAiRuntime(tier) && hasGatewayRuntime();
+    const row = await ensureAiCreditsRow(ctx, {
+      orgId: args.org_id,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      allowanceTotal: allowanceConfig.allowanceTotal,
+      allowanceResetPeriod: allowanceConfig.allowanceResetPeriod,
+    });
+
+    const allowanceTotal = normalizeAiCreditAmount(allowanceConfig.allowanceTotal);
+    let allowanceUsed = normalizeAiCreditAmount(row.allowance_used);
+    let purchasedRemaining = normalizeAiCreditAmount(row.purchased_balance);
+    const previousSpendUsd = normalizeDyadGatewayBudgetUsd(row.gateway_spend_usd ?? 0);
+    const currentSpendUsd = normalizeDyadGatewayBudgetUsd(args.spend_usd);
+    const maxBudgetUsd = normalizeDyadGatewayBudgetUsd(args.max_budget_usd);
+    const chargedBudgetUsd =
+      currentSpendUsd + AI_CREDIT_EPSILON < previousSpendUsd
+        ? 0
+        : normalizeDyadGatewayBudgetUsd(currentSpendUsd - previousSpendUsd);
+    const chargedCredits = convertDyadGatewayBudgetUsdToAiCredits(chargedBudgetUsd);
+
+    let remainingCreditsToConsume = chargedCredits;
+    const allowanceRemaining = normalizeAiCreditAmount(Math.max(0, allowanceTotal - allowanceUsed));
+    const allowanceConsumed = normalizeAiCreditAmount(
+      Math.min(allowanceRemaining, remainingCreditsToConsume),
+    );
+    if (allowanceConsumed > AI_CREDIT_EPSILON) {
+      allowanceUsed = normalizeAiCreditAmount(allowanceUsed + allowanceConsumed);
+      remainingCreditsToConsume = normalizeAiCreditAmount(
+        remainingCreditsToConsume - allowanceConsumed,
+      );
+    }
+
+    let consumedPurchaseIds: string[] = [];
+    if (remainingCreditsToConsume > AI_CREDIT_EPSILON) {
+      const purchasedConsumption = await consumePurchasedCreditsInPlace(ctx, {
+        orgId: args.org_id,
+        creditsToConsume: remainingCreditsToConsume,
+        now,
+      });
+      purchasedRemaining = purchasedConsumption.purchasedRemaining;
+      remainingCreditsToConsume = normalizeAiCreditAmount(
+        remainingCreditsToConsume - purchasedConsumption.consumedCredits,
+      );
+      consumedPurchaseIds = purchasedConsumption.consumedPurchaseIds;
+    }
+
+    if (remainingCreditsToConsume > AI_CREDIT_EPSILON) {
+      purchasedRemaining = 0;
+      allowanceUsed = allowanceTotal;
+    }
+
+    await ctx.db.patch(row._id, {
+      period_end: period.periodEnd,
+      allowance_total: allowanceTotal,
+      allowance_reset_period: allowanceConfig.allowanceResetPeriod,
+      allowance_used: allowanceUsed,
+      purchased_balance: purchasedRemaining,
+      gateway_max_budget_usd: maxBudgetUsd,
+      gateway_spend_usd: currentSpendUsd,
+      gateway_budget_reset_at: args.budget_reset_at,
+      gateway_last_synced_at: now,
+      updated_at: now,
+    });
+
+    if (chargedCredits > AI_CREDIT_EPSILON) {
+      await addAuditEvent(ctx, {
+        orgId: args.org_id,
+        actorType: AUDIT_ACTOR_TYPE.system,
+        actorId: "ai_credits",
+        eventType: AUDIT_EVENT_TYPES.aiCreditDeducted,
+        payload: {
+          source: "gateway_sync",
+          charged_credits: chargedCredits,
+          charged_budget_usd: chargedBudgetUsd,
+          ...(args.usage_source ? { usage_source: args.usage_source } : {}),
+          ...(consumedPurchaseIds.length > 0 ? { purchase_ids: consumedPurchaseIds } : {}),
+          gateway_spend_usd: currentSpendUsd,
+          gateway_max_budget_usd: maxBudgetUsd,
+        },
+      });
+    }
+
+    const balance = buildBalance({
+      orgId: args.org_id,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      allowanceTotal,
+      allowanceResetPeriod: allowanceConfig.allowanceResetPeriod,
+      allowanceUsed,
+      purchasedRemaining,
+      bundledRuntimeEnabled,
+    });
+    if (isNearlyZero(balance.total_available)) {
+      await emitAiCreditLimitNotificationBestEffort(ctx, args.org_id);
+    }
+
+    return {
+      balance,
+      charged_credits: chargedCredits,
+      charged_budget_usd: chargedBudgetUsd,
+      previous_spend_usd: previousSpendUsd,
+      current_spend_usd: currentSpendUsd,
+      max_budget_usd: maxBudgetUsd,
+      budget_reset_at: args.budget_reset_at,
+    };
+  },
+});
+
 export const listAiCreditPurchases = query({
   args: {
     org_id: v.string(),
@@ -494,8 +704,9 @@ export const deductAiCredit = internalMutation({
     });
 
     if (row.allowance_used < row.allowance_total) {
+      const nextAllowanceUsed = normalizeAiCreditAmount(row.allowance_used + 1);
       await ctx.db.patch(row._id, {
-        allowance_used: row.allowance_used + 1,
+        allowance_used: nextAllowanceUsed,
         updated_at: now,
       });
       await addAuditEvent(ctx, {
@@ -515,7 +726,7 @@ export const deductAiCredit = internalMutation({
         periodEnd: period.periodEnd,
         allowanceTotal: row.allowance_total,
         allowanceResetPeriod: row.allowance_reset_period ?? allowanceConfig.allowanceResetPeriod,
-        allowanceUsed: row.allowance_used + 1,
+        allowanceUsed: nextAllowanceUsed,
         purchasedRemaining: row.purchased_balance,
         bundledRuntimeEnabled,
       });
@@ -537,7 +748,7 @@ export const deductAiCredit = internalMutation({
       );
     }
 
-    const nextRemaining = oldest.credits_remaining - 1;
+    const nextRemaining = normalizeAiCreditAmount(oldest.credits_remaining - 1);
     await ctx.db.patch(oldest._id, {
       credits_remaining: nextRemaining,
       status:
@@ -545,7 +756,7 @@ export const deductAiCredit = internalMutation({
     });
 
     await ctx.db.patch(row._id, {
-      purchased_balance: Math.max(0, row.purchased_balance - 1),
+      purchased_balance: normalizeAiCreditAmount(Math.max(0, row.purchased_balance - 1)),
       updated_at: now,
     });
 
@@ -568,7 +779,7 @@ export const deductAiCredit = internalMutation({
       allowanceTotal: row.allowance_total,
       allowanceResetPeriod: row.allowance_reset_period ?? allowanceConfig.allowanceResetPeriod,
       allowanceUsed: row.allowance_used,
-      purchasedRemaining: Math.max(0, row.purchased_balance - 1),
+      purchasedRemaining: normalizeAiCreditAmount(Math.max(0, row.purchased_balance - 1)),
       bundledRuntimeEnabled,
     });
     if (balance.total_available === 0) {
@@ -621,7 +832,7 @@ export const addPurchasedCredits = internalMutation({
     });
 
     await ctx.db.patch(row._id, {
-      purchased_balance: row.purchased_balance + args.credits,
+      purchased_balance: normalizeAiCreditAmount(row.purchased_balance + args.credits),
       updated_at: now,
     });
 
@@ -691,7 +902,9 @@ export const expirePurchasedCredits = internalMutation({
       const row = await getLatestAiCreditsRowForOrg(ctx, orgId);
       if (row) {
         await ctx.db.patch(row._id, {
-          purchased_balance: Math.max(0, row.purchased_balance - expiredCredits),
+          purchased_balance: normalizeAiCreditAmount(
+            Math.max(0, row.purchased_balance - expiredCredits),
+          ),
           updated_at: now,
         });
       }
@@ -789,6 +1002,10 @@ export const resetMonthlyAllowance = internalMutation({
         allowance_reset_period: "one_time" as const,
         allowance_used: 0,
         purchased_balance: purchasedBalance,
+        gateway_max_budget_usd: 0,
+        gateway_spend_usd: 0,
+        gateway_budget_reset_at: null,
+        gateway_last_synced_at: now,
         updated_at: now,
       };
       return syntheticRow;
@@ -802,6 +1019,10 @@ export const resetMonthlyAllowance = internalMutation({
       allowance_reset_period: allowanceConfig.allowanceResetPeriod,
       allowance_used: 0,
       purchased_balance: purchasedBalance,
+      gateway_max_budget_usd: 0,
+      gateway_spend_usd: 0,
+      gateway_budget_reset_at: null,
+      gateway_last_synced_at: now,
       updated_at: now,
     });
 

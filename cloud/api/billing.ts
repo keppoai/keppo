@@ -12,10 +12,13 @@ import {
   type SubscriptionTier,
   type UserRole,
 } from "@keppo/shared/domain";
-import { AI_KEY_MODE, getAutomationRunPackagesForTier } from "@keppo/shared/automations";
+import {
+  AI_KEY_MODE,
+  getAutomationRunPackagesForTier,
+  supportsBundledAiRuntime,
+} from "@keppo/shared/automations";
 import { NOTIFICATION_EVENT_ID } from "@keppo/shared/notifications";
 import { parseJsonRecord } from "@keppo/shared/providers/boundaries/json";
-import { getAiCreditAllowanceForTier } from "@keppo/shared/subscriptions";
 import { isActiveStripeSubscriptionStatus } from "@keppo/shared/billing-contracts";
 import type { ConvexInternalClient } from "../../apps/web/app/lib/server/api-runtime/convex.js";
 import {
@@ -25,7 +28,7 @@ import {
   generateDyadGatewayKey,
   getDyadGatewayUserInfo,
   hasDyadGatewayConfig,
-  resolveDyadGatewayBudgetUsdForTier,
+  resolveDyadGatewayMaxBudgetUsd,
   updateDyadGatewayUser,
 } from "../../apps/web/app/lib/server/api-runtime/dyad-gateway.js";
 import { getEnv } from "../../apps/web/app/lib/server/api-runtime/env.js";
@@ -41,7 +44,9 @@ export type BillingConvexClient = Pick<
   | "createAuditEvent"
   | "emitNotificationForOrg"
   | "getBillingUsageForOrg"
+  | "getAiCreditBalance"
   | "getOrgAiKey"
+  | "syncAiCreditsFromGateway"
   | "releaseApiDedupeKey"
   | "getSubscriptionByStripeCustomer"
   | "getSubscriptionByStripeSubscription"
@@ -182,7 +187,7 @@ const getActiveStripeBilling = (
 
 const shouldKeepBundledAccess = (tier: SubscriptionTier, status: SubscriptionStatus): boolean => {
   return (
-    isBundledTier(tier) &&
+    supportsBundledAiRuntime(tier) &&
     (status === SUBSCRIPTION_STATUS.active ||
       status === SUBSCRIPTION_STATUS.trialing ||
       status === SUBSCRIPTION_STATUS.pastDue)
@@ -238,22 +243,38 @@ const syncBundledGatewayForOrg = async (params: {
     );
   }
 
-  const includedCredits = getAiCreditAllowanceForTier(params.tier);
-  const maxBudgetUsd = resolveDyadGatewayBudgetUsdForTier(includedCredits);
   const existingUser = await getDyadGatewayUserInfo(params.orgId);
+  if (existingUser) {
+    await params.convex.syncAiCreditsFromGateway({
+      orgId: params.orgId,
+      spendUsd: existingUser.spend,
+      maxBudgetUsd: existingUser.max_budget,
+      budgetResetAt: existingUser.budget_reset_at,
+    });
+  }
+  const balance = await params.convex.getAiCreditBalance({ orgId: params.orgId });
+  const nextMaxBudgetUsd = resolveDyadGatewayMaxBudgetUsd({
+    remainingCredits: balance.total_available,
+    currentSpendUsd: params.resetGatewaySpend ? 0 : (existingUser?.spend ?? 0),
+  });
   const existingStoredKey = await readStoredBundledGatewayKey(params.convex, params.orgId);
   let nextKey = existingStoredKey;
 
-  if (!existingUser) {
+  if (!existingUser || params.resetGatewaySpend) {
+    if (existingUser) {
+      if (existingStoredKey) {
+        await deleteDyadGatewayKeys([existingStoredKey]);
+      }
+      await deleteDyadGatewayUser(params.orgId);
+    }
     nextKey = await createDyadGatewayUser({
       orgId: params.orgId,
-      maxBudgetUsd,
+      maxBudgetUsd: nextMaxBudgetUsd,
     });
   } else {
     await updateDyadGatewayUser({
       orgId: params.orgId,
-      maxBudgetUsd,
-      resetSpend: params.resetGatewaySpend,
+      maxBudgetUsd: nextMaxBudgetUsd,
     });
     if (!nextKey) {
       nextKey = await generateDyadGatewayKey(params.orgId);

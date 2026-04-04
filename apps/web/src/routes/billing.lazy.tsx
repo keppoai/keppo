@@ -30,7 +30,7 @@ import {
   startBillingCreditsCheckout,
   undoBillingCancelAtPeriodEnd,
 } from "@/lib/server-functions/internal-api";
-import { parseAiCreditBalance } from "@/lib/automations-view-model";
+import { formatAiCreditAmount, parseAiCreditBalance } from "@/lib/automations-view-model";
 import { ErrorBoundary } from "@/components/error-boundary";
 import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
@@ -192,7 +192,7 @@ function BillingCapacityTopups({
               <ProgressLabel>Monthly allowance</ProgressLabel>
               <div className="ml-auto text-sm tabular-nums text-muted-foreground">
                 {aiCreditBalance
-                  ? `${aiCreditBalance.allowance_used}/${aiCreditBalance.allowance_total}`
+                  ? `${formatAiCreditAmount(aiCreditBalance.allowance_used)}/${formatAiCreditAmount(aiCreditBalance.allowance_total)}`
                   : "-"}
               </div>
               <ProgressTrack>
@@ -206,7 +206,7 @@ function BillingCapacityTopups({
                   Included allowance
                 </p>
                 <p className="mt-2 text-2xl font-semibold">
-                  {aiCreditBalance ? aiCreditBalance.allowance_total : "-"}
+                  {aiCreditBalance ? formatAiCreditAmount(aiCreditBalance.allowance_total) : "-"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Monthly bundled credits before purchases
@@ -217,7 +217,7 @@ function BillingCapacityTopups({
                   Used this period
                 </p>
                 <p className="mt-2 text-2xl font-semibold">
-                  {aiCreditBalance ? aiCreditBalance.allowance_used : "-"}
+                  {aiCreditBalance ? formatAiCreditAmount(aiCreditBalance.allowance_used) : "-"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Credits consumed from the monthly allowance
@@ -228,7 +228,9 @@ function BillingCapacityTopups({
                   Purchased balance
                 </p>
                 <p className="mt-2 text-2xl font-semibold">
-                  {aiCreditBalance ? aiCreditBalance.purchased_remaining : "-"}
+                  {aiCreditBalance
+                    ? formatAiCreditAmount(aiCreditBalance.purchased_remaining)
+                    : "-"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Paid credits that have not been used yet
@@ -239,7 +241,7 @@ function BillingCapacityTopups({
                   Total remaining
                 </p>
                 <p className="mt-2 text-2xl font-semibold">
-                  {aiCreditBalance ? aiCreditBalance.total_available : "-"}
+                  {aiCreditBalance ? formatAiCreditAmount(aiCreditBalance.total_available) : "-"}
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   Included allowance plus purchased credits

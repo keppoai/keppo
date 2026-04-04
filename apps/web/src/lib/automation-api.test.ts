@@ -41,6 +41,7 @@ const createDeps = () => {
       total_available: 124,
       bundled_runtime_enabled: false,
     }),
+    getOrgAiKey: vi.fn().mockResolvedValue(null),
     getApiDedupeKey: vi.fn().mockResolvedValue(null),
     getWorkspaceCodeModeContext: vi.fn().mockResolvedValue({
       workspace: {
@@ -68,6 +69,27 @@ const createDeps = () => {
     }),
     releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
     setApiDedupePayload: vi.fn().mockResolvedValue(true),
+    syncAiCreditsFromGateway: vi.fn().mockResolvedValue({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-14T00:00:00.000Z",
+        period_end: "2026-04-14T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 1,
+        allowance_remaining: 99,
+        purchased_remaining: 25,
+        total_available: 124,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 0,
+      current_spend_usd: 0,
+      max_budget_usd: 8.2667,
+      budget_reset_at: "2026-04-14T00:00:00.000Z",
+    }),
+    upsertBundledOrgAiKey: vi.fn().mockResolvedValue(undefined),
   };
 
   return {
@@ -170,7 +192,6 @@ describe("start-owned automation api handlers", () => {
       billing: {
         stage: "questions",
         charged_credits: 0,
-        cycle_total_credits: 1,
       },
     });
     expect(deps.generateAutomationQuestions).toHaveBeenCalledWith({
@@ -354,7 +375,6 @@ describe("start-owned automation api handlers", () => {
       billing: {
         stage: "draft",
         charged_credits: 1,
-        cycle_total_credits: 1,
       },
     });
     expect(deps.generateAutomationPrompt).toHaveBeenCalledWith({

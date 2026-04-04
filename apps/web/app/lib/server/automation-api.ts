@@ -27,13 +27,21 @@ import {
 import {
   AUTOMATION_ROUTE_ERROR_CODES,
   AUTOMATION_ROUTE_STATUS,
+  convertDyadGatewayBudgetUsdToAiCredits,
   createAutomationRouteError,
+  isGatewayRuntimeEnabled,
+  normalizeDyadGatewayBudgetUsd,
   isAutomationRouteErrorCode,
   parseAutomationRouteErrorCode,
   toAutomationRouteError,
   type AutomationRouteErrorCode,
 } from "@keppo/shared/automations";
 import { parseJsonPayload, readBetterAuthSessionToken } from "./api-runtime/app-helpers.ts";
+import {
+  createBundledOpenAiClientForOrg,
+  resolveBundledGatewayUrl,
+  syncBundledAiCreditsFromGateway,
+} from "./api-runtime/bundled-ai.ts";
 import { createDurableRateLimiter } from "./api-runtime/rate-limit.ts";
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { getEnv } from "./api-runtime/env.ts";
@@ -52,11 +60,14 @@ type StartOwnedAutomationApiConvex = Pick<
   | "completeApiDedupeKey"
   | "getAiCreditBalance"
   | "getApiDedupeKey"
+  | "getOrgAiKey"
   | "getWorkspaceCodeModeContext"
   | "listToolCatalogForWorkspace"
   | "releaseApiDedupeKey"
   | "resolveApiSessionFromToken"
+  | "syncAiCreditsFromGateway"
   | "setApiDedupePayload"
+  | "upsertBundledOrgAiKey"
 >;
 
 type StartOwnedAutomationApiDeps = {
@@ -98,19 +109,27 @@ type StartOwnedAutomationApiDeps = {
 };
 
 const AUTOMATION_QUESTION_RATE_LIMIT_WINDOW_MS = 60_000;
-const AUTOMATION_QUESTION_BILLING = {
-  stage: "questions",
-  charged_credits: 0,
-  cycle_total_credits: 1,
-  summary:
-    "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
-} as const;
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), geolocation=(), microphone=()",
 } as const;
+
+type CreditBalancePayload = {
+  allowance_remaining: number;
+  purchased_remaining: number;
+  total_available: number;
+  bundled_runtime_enabled: boolean;
+};
+
+type GenerationBillingPayload = {
+  stage: "questions" | "draft";
+  charged_credits: number;
+  charged_budget_usd?: number;
+  remaining_credits?: number;
+  summary: string;
+};
 
 let convexClient: ConvexInternalClient | null = null;
 let automationQuestionRateLimiter: ReturnType<typeof createDurableRateLimiter> | null = null;
@@ -406,13 +425,130 @@ const readResponseOutputText = (response: unknown): string => {
   return chunks.join("\n").trim();
 };
 
+const toCreditBalancePayload = (balance: {
+  allowance_remaining: number;
+  purchased_remaining: number;
+  total_available: number;
+  bundled_runtime_enabled: boolean;
+}): CreditBalancePayload => ({
+  allowance_remaining: balance.allowance_remaining,
+  purchased_remaining: balance.purchased_remaining,
+  total_available: balance.total_available,
+  bundled_runtime_enabled: balance.bundled_runtime_enabled,
+});
+
+const buildBundledGenerationBillingPayload = (params: {
+  stage: "questions" | "draft";
+  chargedCredits: number;
+  chargedBudgetUsd: number;
+  remainingCredits: number;
+  summaryTarget?: string;
+}): GenerationBillingPayload => {
+  const stageLabel =
+    params.summaryTarget ??
+    (params.stage === "questions" ? "clarifying questions" : "automation generation");
+  if (params.chargedCredits <= 0) {
+    return {
+      stage: params.stage,
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      remaining_credits: params.remainingCredits,
+      summary: `Keppo synced your bundled AI balance after ${stageLabel}. No additional gateway spend was recorded.`,
+    };
+  }
+  return {
+    stage: params.stage,
+    charged_credits: params.chargedCredits,
+    charged_budget_usd: params.chargedBudgetUsd,
+    remaining_credits: params.remainingCredits,
+    summary: `Keppo synced ${params.chargedCredits} bundled AI credits of gateway spend for ${stageLabel}.`,
+  };
+};
+
+const buildLegacyGenerationBillingPayload = (params: {
+  stage: "questions" | "draft";
+  chargedCredits: number;
+  summary: string;
+}): GenerationBillingPayload => ({
+  stage: params.stage,
+  charged_credits: params.chargedCredits,
+  summary: params.summary,
+});
+
+const createDirectOpenAiClient = (deps: StartOwnedAutomationApiDeps): OpenAI => {
+  const apiKey = deps.getEnv().OPENAI_API_KEY;
+  if (!apiKey) {
+    throw createAutomationRouteError("missing_openai_api_key", "Missing OPENAI_API_KEY");
+  }
+  return new OpenAI({ apiKey });
+};
+
+const isBundledGenerationEnabled = (deps: StartOwnedAutomationApiDeps): boolean =>
+  isGatewayRuntimeEnabled(deps.getEnv().KEPPO_LLM_GATEWAY_URL);
+
+const createOpenAiGenerationClient = async (params: {
+  deps: StartOwnedAutomationApiDeps;
+  orgId: string;
+}): Promise<{ client: OpenAI; mode: "bundled" | "direct"; gatewayBaseUrl: string | null }> => {
+  const gatewayBaseUrl = resolveBundledGatewayUrl(params.deps.getEnv().KEPPO_LLM_GATEWAY_URL);
+  if (!gatewayBaseUrl || !isBundledGenerationEnabled(params.deps)) {
+    return {
+      client: createDirectOpenAiClient(params.deps),
+      mode: "direct",
+      gatewayBaseUrl: null,
+    };
+  }
+  return {
+    client: await createBundledOpenAiClientForOrg({
+      convex: params.deps.convex,
+      orgId: params.orgId,
+      gatewayBaseUrl,
+    }),
+    mode: "bundled",
+    gatewayBaseUrl,
+  };
+};
+
+const syncBundledGenerationCredits = async (params: {
+  deps: StartOwnedAutomationApiDeps;
+  orgId: string;
+  gatewayBaseUrl: string | null;
+  usageSource?: "generation";
+}) => {
+  const snapshot = await syncBundledAiCreditsFromGateway({
+    convex: params.deps.convex,
+    orgId: params.orgId,
+    gatewayBaseUrl: params.gatewayBaseUrl,
+    ...(params.usageSource ? { usageSource: params.usageSource } : {}),
+  });
+  return {
+    balance: snapshot.synced.balance,
+    spendUsd: snapshot.gatewayUser.spend,
+    maxBudgetUsd: snapshot.gatewayUser.max_budget,
+    budgetResetAt: snapshot.gatewayUser.budget_reset_at,
+  };
+};
+
+const diffBundledGatewaySpend = (params: {
+  beforeSpendUsd: number;
+  afterSpendUsd: number;
+}): { chargedBudgetUsd: number; chargedCredits: number } => {
+  const chargedBudgetUsd = normalizeDyadGatewayBudgetUsd(
+    Math.max(0, params.afterSpendUsd - params.beforeSpendUsd),
+  );
+  return {
+    chargedBudgetUsd,
+    chargedCredits: convertDyadGatewayBudgetUsdToAiCredits(chargedBudgetUsd),
+  };
+};
+
 const generateAutomationPromptWithOpenAi = async (args: {
   userDescription: string;
   availableActions: AutomationGenerationAction[];
   clarificationQuestions?: AutomationClarificationQuestion[];
   clarificationAnswers?: AutomationClarificationAnswer[];
   automationContext?: AutomationContextSnapshot;
-  deps: StartOwnedAutomationApiDeps;
+  client: OpenAI;
 }): Promise<{
   prompt: string;
   description: string;
@@ -430,11 +566,6 @@ const generateAutomationPromptWithOpenAi = async (args: {
     confidence: "required" | "recommended";
   }>;
 }> => {
-  const apiKey = args.deps.getEnv().OPENAI_API_KEY;
-  if (!apiKey) {
-    throw createAutomationRouteError("missing_openai_api_key", "Missing OPENAI_API_KEY");
-  }
-  const client = new OpenAI({ apiKey });
   const input = args.automationContext
     ? buildAutomationEditGenerationMetaPrompt({
         userDescription: args.userDescription,
@@ -449,7 +580,7 @@ const generateAutomationPromptWithOpenAi = async (args: {
         clarificationQuestions: args.clarificationQuestions ?? [],
         clarificationAnswers: args.clarificationAnswers ?? [],
       });
-  const response = await client.responses.create({
+  const response = await args.client.responses.create({
     model: "gpt-5.2",
     input,
     text: {
@@ -485,13 +616,8 @@ const generateAutomationQuestionsWithOpenAi = async (args: {
   userDescription: string;
   availableActions: AutomationGenerationAction[];
   automationContext?: AutomationContextSnapshot;
-  deps: StartOwnedAutomationApiDeps;
+  client: OpenAI;
 }): Promise<AutomationClarificationQuestion[]> => {
-  const apiKey = args.deps.getEnv().OPENAI_API_KEY;
-  if (!apiKey) {
-    throw createAutomationRouteError("missing_openai_api_key", "Missing OPENAI_API_KEY");
-  }
-  const client = new OpenAI({ apiKey });
   const input = args.automationContext
     ? buildAutomationEditQuestionGenerationMetaPrompt({
         userDescription: args.userDescription,
@@ -499,7 +625,7 @@ const generateAutomationQuestionsWithOpenAi = async (args: {
         automationContext: args.automationContext,
       })
     : buildAutomationQuestionGenerationMetaPrompt(args.userDescription, args.availableActions);
-  const response = await client.responses.create({
+  const response = await args.client.responses.create({
     model: "gpt-5.2",
     input,
     text: {
@@ -517,14 +643,9 @@ const generateAutomationQuestionsWithOpenAi = async (args: {
 
 const generateAutomationMermaidWithOpenAi = async (args: {
   prompt: string;
-  deps: StartOwnedAutomationApiDeps;
+  client: OpenAI;
 }): Promise<{ mermaid_content: string }> => {
-  const apiKey = args.deps.getEnv().OPENAI_API_KEY;
-  if (!apiKey) {
-    throw createAutomationRouteError("missing_openai_api_key", "Missing OPENAI_API_KEY");
-  }
-  const client = new OpenAI({ apiKey });
-  const response = await client.responses.create({
+  const response = await args.client.responses.create({
     model: "gpt-5.2",
     input: buildAutomationMermaidGenerationMetaPrompt({ prompt: args.prompt }),
     text: {
@@ -540,30 +661,6 @@ const generateAutomationMermaidWithOpenAi = async (args: {
     mermaid_content: parseMermaidGenerationResponse(readResponseOutputText(response)),
   };
 };
-
-const buildDraftBillingPayload = (): {
-  stage: "draft";
-  charged_credits: number;
-  cycle_total_credits: number;
-  summary: string;
-} => ({
-  stage: "draft",
-  charged_credits: 1,
-  cycle_total_credits: 1,
-  summary: "Keppo deducted 1 credit to generate the final automation draft.",
-});
-
-const buildMermaidBillingPayload = (): {
-  stage: "draft";
-  charged_credits: number;
-  cycle_total_credits: number;
-  summary: string;
-} => ({
-  stage: "draft",
-  charged_credits: 1,
-  cycle_total_credits: 1,
-  summary: "Keppo deducted 1 credit to regenerate the workflow diagram.",
-});
 
 const resolveAutomationWorkspaceContext = async (
   request: Request,
@@ -721,9 +818,10 @@ export const handleGenerateAutomationQuestionsRequest = async (
     return generationContext;
   }
 
+  const orgId = generationContext.workspaceContext.workspace.org_id;
   const env = deps.getEnv();
   const rateLimitResult = await getAutomationQuestionRateLimiter(deps.convex).check(
-    generationContext.workspaceContext.workspace.org_id,
+    orgId,
     env.KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE,
     AUTOMATION_QUESTION_RATE_LIMIT_WINDOW_MS,
   );
@@ -739,13 +837,55 @@ export const handleGenerateAutomationQuestionsRequest = async (
     );
   }
 
+  let generatedClient: Awaited<ReturnType<typeof createOpenAiGenerationClient>> | null = null;
+  let preBundledBalance: Awaited<ReturnType<typeof syncBundledGenerationCredits>> | null = null;
+  try {
+    generatedClient = deps.generateAutomationQuestions
+      ? null
+      : await createOpenAiGenerationClient({
+          deps,
+          orgId,
+        });
+    preBundledBalance =
+      generatedClient?.mode === "bundled"
+        ? await syncBundledGenerationCredits({
+            deps,
+            orgId,
+            gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+          })
+        : null;
+  } catch {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
+      },
+      500,
+    );
+  }
+  if (preBundledBalance?.balance.total_available === 0) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+      },
+      402,
+    );
+  }
+
   const generator =
     deps.generateAutomationQuestions ??
     (async (args: {
       userDescription: string;
       availableActions: AutomationGenerationAction[];
       automationContext?: AutomationContextSnapshot;
-    }) => await generateAutomationQuestionsWithOpenAi({ ...args, deps }));
+    }) =>
+      await generateAutomationQuestionsWithOpenAi({
+        ...args,
+        client: generatedClient!.client,
+      }));
 
   try {
     const questions = await generator({
@@ -753,12 +893,62 @@ export const handleGenerateAutomationQuestionsRequest = async (
       availableActions: generationContext.availableActions,
       ...(payload.automation_context ? { automationContext: payload.automation_context } : {}),
     });
+    const postBundledBalance =
+      generatedClient?.mode === "bundled"
+        ? await syncBundledGenerationCredits({
+            deps,
+            orgId,
+            gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+            usageSource: "generation",
+          })
+        : null;
+    const bundledCharge =
+      preBundledBalance && postBundledBalance
+        ? diffBundledGatewaySpend({
+            beforeSpendUsd: preBundledBalance.spendUsd,
+            afterSpendUsd: postBundledBalance.spendUsd,
+          })
+        : null;
     return jsonResponse(request, {
       ok: true,
       questions,
-      billing: AUTOMATION_QUESTION_BILLING,
+      ...(postBundledBalance
+        ? {
+            credit_balance: toCreditBalancePayload(postBundledBalance.balance),
+          }
+        : {}),
+      billing: bundledCharge
+        ? buildBundledGenerationBillingPayload({
+            stage: "questions",
+            chargedCredits: bundledCharge.chargedCredits,
+            chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
+            remainingCredits: postBundledBalance!.balance.total_available,
+          })
+        : buildLegacyGenerationBillingPayload({
+            stage: "questions",
+            chargedCredits: 0,
+            summary:
+              "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
+          }),
     });
   } catch (error) {
+    if (generatedClient?.mode === "bundled") {
+      const bundledBalance = await syncBundledGenerationCredits({
+        deps,
+        orgId,
+        gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+      }).catch(() => null);
+      if (bundledBalance?.balance.total_available === 0) {
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+          },
+          402,
+        );
+      }
+    }
     const { code } = extractAutomationRouteError(error);
     return jsonResponse(
       request,
@@ -833,11 +1023,40 @@ export const handleGenerateAutomationPromptRequest = async (
     }
   }
 
+  const orgId = generationContext.workspaceContext.workspace.org_id;
+  let generatedClient: Awaited<ReturnType<typeof createOpenAiGenerationClient>> | null = null;
+  let preBundledBalance: Awaited<ReturnType<typeof syncBundledGenerationCredits>> | null = null;
+  try {
+    generatedClient = deps.generateAutomationPrompt
+      ? null
+      : await createOpenAiGenerationClient({
+          deps,
+          orgId,
+        });
+    preBundledBalance =
+      generatedClient?.mode === "bundled"
+        ? await syncBundledGenerationCredits({
+            deps,
+            orgId,
+            gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+          })
+        : null;
+  } catch {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
+      },
+      500,
+    );
+  }
   let balance: {
     org_id: string;
     period_start: string;
     period_end: string;
     allowance_total: number;
+    allowance_reset_period: "monthly" | "one_time";
     allowance_used: number;
     allowance_remaining: number;
     purchased_remaining: number;
@@ -845,12 +1064,9 @@ export const handleGenerateAutomationPromptRequest = async (
     bundled_runtime_enabled: boolean;
   } | null = null;
 
-  try {
-    balance = await deps.convex.deductAiCredit({
-      orgId: generationContext.workspaceContext.workspace.org_id,
-    });
-  } catch (error) {
-    if (parseAiCreditErrorCode(error) === AI_CREDIT_ERROR_CODE.limitReached) {
+  if (preBundledBalance) {
+    balance = preBundledBalance.balance;
+    if (balance.total_available === 0) {
       return jsonResponse(
         request,
         {
@@ -860,14 +1076,31 @@ export const handleGenerateAutomationPromptRequest = async (
         402,
       );
     }
-    return jsonResponse(
-      request,
-      {
-        ok: false,
-        status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
-      },
-      500,
-    );
+  } else {
+    try {
+      balance = await deps.convex.deductAiCredit({
+        orgId,
+      });
+    } catch (error) {
+      if (parseAiCreditErrorCode(error) === AI_CREDIT_ERROR_CODE.limitReached) {
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+          },
+          402,
+        );
+      }
+      return jsonResponse(
+        request,
+        {
+          ok: false,
+          status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
+        },
+        500,
+      );
+    }
   }
 
   const generator =
@@ -878,27 +1111,57 @@ export const handleGenerateAutomationPromptRequest = async (
       clarificationQuestions?: AutomationClarificationQuestion[];
       clarificationAnswers?: AutomationClarificationAnswer[];
       automationContext?: AutomationContextSnapshot;
-    }) => await generateAutomationPromptWithOpenAi({ ...args, deps }));
+    }) =>
+      await generateAutomationPromptWithOpenAi({
+        ...args,
+        client: generatedClient!.client,
+      }));
   const mermaidGenerator =
     deps.generateAutomationMermaid ??
     (async (args: { prompt: string }) =>
-      await generateAutomationMermaidWithOpenAi({ ...args, deps }));
+      await generateAutomationMermaidWithOpenAi({
+        ...args,
+        client: generatedClient!.client,
+      }));
 
   try {
     if (payload.generation_mode === "mermaid_only") {
       const generated = await mermaidGenerator({
         prompt: payload.automation_context?.prompt ?? payload.user_description,
       });
+      const postBundledBalance =
+        generatedClient?.mode === "bundled"
+          ? await syncBundledGenerationCredits({
+              deps,
+              orgId,
+              gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+              usageSource: "generation",
+            })
+          : null;
+      const bundledCharge =
+        preBundledBalance && postBundledBalance
+          ? diffBundledGatewaySpend({
+              beforeSpendUsd: preBundledBalance.spendUsd,
+              afterSpendUsd: postBundledBalance.spendUsd,
+            })
+          : null;
       return jsonResponse(request, {
         ok: true,
         mermaid_content: generated.mermaid_content,
-        credit_balance: {
-          allowance_remaining: balance.allowance_remaining,
-          purchased_remaining: balance.purchased_remaining,
-          total_available: balance.total_available,
-          bundled_runtime_enabled: balance.bundled_runtime_enabled,
-        },
-        billing: buildMermaidBillingPayload(),
+        credit_balance: toCreditBalancePayload((postBundledBalance?.balance ?? balance)!),
+        billing: bundledCharge
+          ? buildBundledGenerationBillingPayload({
+              stage: "draft",
+              chargedCredits: bundledCharge.chargedCredits,
+              chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
+              remainingCredits: postBundledBalance!.balance.total_available,
+              summaryTarget: "workflow diagram regeneration",
+            })
+          : buildLegacyGenerationBillingPayload({
+              stage: "draft",
+              chargedCredits: 1,
+              summary: "Keppo deducted 1 credit to regenerate the workflow diagram.",
+            }),
       });
     }
     const generated = await generator({
@@ -908,6 +1171,22 @@ export const handleGenerateAutomationPromptRequest = async (
       clarificationAnswers: payload.clarification_answers,
       ...(payload.automation_context ? { automationContext: payload.automation_context } : {}),
     });
+    const postBundledBalance =
+      generatedClient?.mode === "bundled"
+        ? await syncBundledGenerationCredits({
+            deps,
+            orgId,
+            gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+            usageSource: "generation",
+          })
+        : null;
+    const bundledCharge =
+      preBundledBalance && postBundledBalance
+        ? diffBundledGatewaySpend({
+            beforeSpendUsd: preBundledBalance.spendUsd,
+            afterSpendUsd: postBundledBalance.spendUsd,
+          })
+        : null;
     return jsonResponse(request, {
       ok: true,
       prompt: generated.prompt,
@@ -921,15 +1200,38 @@ export const handleGenerateAutomationPromptRequest = async (
       ...(generated.event_provider ? { event_provider: generated.event_provider } : {}),
       ...(generated.event_type ? { event_type: generated.event_type } : {}),
       provider_recommendations: generated.provider_recommendations,
-      credit_balance: {
-        allowance_remaining: balance.allowance_remaining,
-        purchased_remaining: balance.purchased_remaining,
-        total_available: balance.total_available,
-        bundled_runtime_enabled: balance.bundled_runtime_enabled,
-      },
-      billing: buildDraftBillingPayload(),
+      credit_balance: toCreditBalancePayload((postBundledBalance?.balance ?? balance)!),
+      billing: bundledCharge
+        ? buildBundledGenerationBillingPayload({
+            stage: "draft",
+            chargedCredits: bundledCharge.chargedCredits,
+            chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
+            remainingCredits: postBundledBalance!.balance.total_available,
+          })
+        : buildLegacyGenerationBillingPayload({
+            stage: "draft",
+            chargedCredits: 1,
+            summary: "Keppo deducted 1 credit to generate the final automation draft.",
+          }),
     });
   } catch (error) {
+    if (generatedClient?.mode === "bundled") {
+      const bundledBalance = await syncBundledGenerationCredits({
+        deps,
+        orgId,
+        gatewayBaseUrl: generatedClient.gatewayBaseUrl,
+      }).catch(() => null);
+      if (bundledBalance?.balance.total_available === 0) {
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+          },
+          402,
+        );
+      }
+    }
     const { code } = extractAutomationRouteError(error);
     return jsonResponse(
       request,

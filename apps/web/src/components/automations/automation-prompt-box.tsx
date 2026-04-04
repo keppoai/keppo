@@ -41,6 +41,7 @@ import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-error
 import { cn } from "@/lib/utils";
 import { humanizeCron } from "@/lib/cron-humanizer";
 import {
+  formatAiCreditAmount,
   getAutomationPathSegment,
   getAutomationModelClassMeta,
   getNetworkAccessMeta,
@@ -82,7 +83,8 @@ type ProviderRecommendation = {
 type GenerationBilling = {
   stage: "questions" | "draft";
   charged_credits: number;
-  cycle_total_credits: number;
+  charged_budget_usd?: number;
+  remaining_credits?: number;
   summary: string;
 };
 
@@ -207,16 +209,19 @@ const parseGenerationBilling = (value: unknown): GenerationBilling | null => {
   const stage =
     record.stage === "draft" ? "draft" : record.stage === "questions" ? "questions" : null;
   const chargedCredits = typeof record.charged_credits === "number" ? record.charged_credits : null;
-  const cycleTotalCredits =
-    typeof record.cycle_total_credits === "number" ? record.cycle_total_credits : null;
   const summary = typeof record.summary === "string" ? record.summary.trim() : "";
-  if (!stage || chargedCredits === null || cycleTotalCredits === null || summary.length === 0) {
+  if (!stage || chargedCredits === null || summary.length === 0) {
     return null;
   }
   return {
     stage,
     charged_credits: chargedCredits,
-    cycle_total_credits: cycleTotalCredits,
+    ...(typeof record.charged_budget_usd === "number"
+      ? { charged_budget_usd: record.charged_budget_usd }
+      : {}),
+    ...(typeof record.remaining_credits === "number"
+      ? { remaining_credits: record.remaining_credits }
+      : {}),
     summary,
   };
 };
@@ -1297,10 +1302,10 @@ export function AutomationPromptBox({
                 </div>
               </div>
               <div className="rounded-2xl border bg-background/60 p-5">
-                <p className="text-sm font-medium">This stage is free</p>
+                <p className="text-sm font-medium">Bundled balance stays in sync</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Keppo does not deduct a credit for the clarification questions. The single credit
-                  is charged only if you continue to the final automation draft.
+                  Hosted bundled mode measures actual gateway spend for questions and drafts, then
+                  syncs the remaining credits back into Keppo.
                 </p>
                 <Button
                   type="button"
@@ -1557,7 +1562,7 @@ export function AutomationPromptBox({
                   <p className="text-sm font-medium">Credit policy</p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {questionBilling?.summary ??
-                      "Keppo charges only when it generates the final draft, not while it asks follow-up questions."}
+                      "Keppo syncs bundled AI credits from gateway spend while it generates questions and drafts."}
                   </p>
                 </div>
 
@@ -1660,7 +1665,7 @@ export function AutomationPromptBox({
                           </p>
                           <p className="mt-1 text-sm font-medium">
                             {config.billing?.summary ??
-                              "Keppo used a single credit for the final draft."}
+                              "Keppo synced the bundled AI balance after the draft completed."}
                           </p>
                         </div>
                       </div>
@@ -1960,7 +1965,9 @@ export function AutomationPromptBox({
                   <dl className="mt-4 space-y-3 text-sm">
                     <div>
                       <dt className="text-muted-foreground">Prompt credits left</dt>
-                      <dd className="font-medium">{config.credit_balance.total_available}</dd>
+                      <dd className="font-medium">
+                        {formatAiCreditAmount(config.credit_balance.total_available)}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">Automation slug preview</dt>
@@ -1981,7 +1988,7 @@ export function AutomationPromptBox({
                       <dd className="text-muted-foreground">
                         {config.billing?.summary ??
                           questionBilling?.summary ??
-                          "Keppo charges a single credit only for the final draft."}
+                          "Keppo syncs bundled AI credits from gateway spend while drafting."}
                       </dd>
                     </div>
                   </dl>

@@ -641,8 +641,8 @@ function AutomationDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Regenerate workflow diagram?</AlertDialogTitle>
             <AlertDialogDescription>
-              Regenerating the Mermaid diagram uses 1 AI credit. Keppo keeps the current automation
-              prompt and only refreshes the visual workflow.
+              Regenerating the Mermaid diagram measures actual bundled AI spend, syncs the updated
+              credit balance, and keeps the current automation prompt intact.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -656,7 +656,7 @@ function AutomationDetailPage() {
                 void handleRegenerateDiagram();
               }}
             >
-              {isRegeneratingDiagram ? "Regenerating..." : "Use 1 AI credit"}
+              {isRegeneratingDiagram ? "Regenerating..." : "Regenerate diagram"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

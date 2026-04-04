@@ -37,6 +37,7 @@ These specs summarize implemented behavior only. Code is the source of truth whe
 - Provider-trigger automations are split across three seams: provider modules declare trigger schemas and lifecycle hooks, Convex persists trigger definitions and delivery history and runs reconciliation/dispatch, and the dashboard renders provider-owned authoring controls and diagnostics from those shared contracts.
 - API to Convex: persistence, policy decisions, audit/notification writes, and workspace lookups.
 - Convex/API to providers and sandboxes: external execution only after policy and billing checks.
+- Hosted bundled AI generation and runtime flow through the Dyad gateway for canonical spend tracking; Convex mirrors the resulting credit consumption back into org-scoped allowance/purchased balances for UI and enforcement.
 - Boundary parsing is shared-first: API ingress, Convex worker payloads, web-app read models, and cloud overlays decode JSON and validate payloads through the shared Zod contract layer in `packages/shared/src/contracts`.
 
 ## Repository ownership

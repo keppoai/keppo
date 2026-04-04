@@ -25,6 +25,7 @@ import {
   buildLegacyEventProviderTriggerMigrationState,
   computeAutomationPromptHash,
   convertAiCreditsToDyadGatewayBudgetUsd,
+  convertDyadGatewayBudgetUsdToAiCredits,
   editAutomationMemory,
   getAiKeyModeLabel,
   getAiModelProviderLabel,
@@ -35,6 +36,8 @@ import {
   isAutomationLimitReached,
   isAutomationMermaidStale,
   isConcurrencyLimitReached,
+  normalizeAiCreditAmount,
+  normalizeDyadGatewayBudgetUsd,
   normalizeAutomationMemory,
   isRunPeriodLimitReached,
   resolveAutomationExecutionReadiness,
@@ -150,6 +153,10 @@ describe("automations", () => {
     expect(convertAiCreditsToDyadGatewayBudgetUsd(300)).toBe(20);
     expect(convertAiCreditsToDyadGatewayBudgetUsd(100)).toBeCloseTo(6.6667, 4);
     expect(convertAiCreditsToDyadGatewayBudgetUsd(0)).toBe(0);
+    expect(convertDyadGatewayBudgetUsdToAiCredits(20)).toBe(300);
+    expect(convertDyadGatewayBudgetUsdToAiCredits(6.6667)).toBeCloseTo(100.0005, 4);
+    expect(normalizeAiCreditAmount(1.234567)).toBe(1.2346);
+    expect(normalizeDyadGatewayBudgetUsd(0.123456)).toBe(0.1235);
   });
 
   it("keeps purchased package and expiry constants stable", () => {

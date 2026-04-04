@@ -16,6 +16,7 @@ import { useAdmin } from "@/hooks/use-admin";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useWorkspace } from "@/hooks/use-workspace-context";
 import {
+  formatAiCreditAmount,
   parseAutomationRun,
   parseAutomationWithConfig,
   humanizeRunStatus,
@@ -92,7 +93,7 @@ function BillingActions({
           onClick={onOpenBilling}
         >
           <CoinsIcon className="size-4" />
-          {creditCount === null ? "Billing" : `${creditCount} credits`}
+          {creditCount === null ? "Billing" : `${formatAiCreditAmount(creditCount)} credits`}
         </Button>
       ) : null}
       <HelpDialog orgId={orgId} workspaceId={workspaceId} tier={billing?.tier ?? null} />

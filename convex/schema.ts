@@ -539,6 +539,10 @@ export default defineSchema({
     allowance_reset_period: v.optional(v.union(v.literal("monthly"), v.literal("one_time"))),
     allowance_used: v.number(),
     purchased_balance: v.number(),
+    gateway_max_budget_usd: v.optional(v.number()),
+    gateway_spend_usd: v.optional(v.number()),
+    gateway_budget_reset_at: v.optional(v.union(v.string(), v.null())),
+    gateway_last_synced_at: v.optional(v.string()),
     updated_at: v.string(),
   })
     .index("by_custom_id", ["id"])

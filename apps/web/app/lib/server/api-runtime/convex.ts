@@ -67,11 +67,13 @@ import {
   matchAndQueueAutomationTriggers as matchAndQueueAutomationTriggersImpl,
   recordAutomationRunTrace as recordAutomationRunTraceImpl,
   storeAutomationRunSessionTrace as storeAutomationRunSessionTraceImpl,
+  syncAiCreditsFromGateway as syncAiCreditsFromGatewayImpl,
   upsertBundledOrgAiKey as upsertBundledOrgAiKeyImpl,
   upsertOpenAiOauthKey as upsertOpenAiOauthKeyImpl,
   updateAutomationRunStatus as updateAutomationRunStatusImpl,
   type AutomationRunDispatchContext,
   type AutomationRunStatus,
+  type AiCreditGatewaySyncResult,
   type AiCreditsBalance,
   type OrgAiKey,
   type PurchasedAutomationRunTopup,
@@ -1123,6 +1125,16 @@ export class ConvexInternalClient {
 
   async getAiCreditBalance(params: { orgId: string }): Promise<AiCreditsBalance> {
     return getAiCreditBalanceImpl(this.resilientClient, params);
+  }
+
+  async syncAiCreditsFromGateway(params: {
+    orgId: string;
+    spendUsd: number;
+    maxBudgetUsd: number;
+    budgetResetAt: string | null;
+    usageSource?: "generation" | "runtime";
+  }): Promise<AiCreditGatewaySyncResult> {
+    return syncAiCreditsFromGatewayImpl(this.resilientClient, params);
   }
 
   async addPurchasedCredits(params: {
