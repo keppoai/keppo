@@ -103,6 +103,7 @@ function AutomationsPage() {
           workspaceId={selectedWorkspaceId}
           variant="compact"
           collapseByDefault
+          aiCreditBalance={aiCreditBalance}
         />
       ) : null}
     </div>

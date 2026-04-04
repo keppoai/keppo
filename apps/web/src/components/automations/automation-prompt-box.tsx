@@ -42,6 +42,7 @@ import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-error
 import { cn } from "@/lib/utils";
 import { humanizeCron } from "@/lib/cron-humanizer";
 import {
+  type AiCreditBalance,
   formatAiCreditAmount,
   getAutomationPathSegment,
   getAutomationModelClassMeta,
@@ -65,6 +66,7 @@ type AutomationPromptBoxProps = {
   onCreated?: (automation: { id: string; slug: string } | null) => void;
   variant?: "hero" | "compact";
   collapseByDefault?: boolean;
+  aiCreditBalance?: AiCreditBalance | null;
 };
 
 type TriggerType = "schedule" | "event" | "manual";
@@ -680,6 +682,7 @@ export function AutomationPromptBox({
   onCreated,
   variant = "compact",
   collapseByDefault = false,
+  aiCreditBalance: providedAiCreditBalance,
 }: AutomationPromptBoxProps) {
   const runtime = useDashboardRuntime();
   const navigate = useNavigate();
@@ -693,11 +696,11 @@ export function AutomationPromptBox({
   const orgId = getOrgId();
   const aiCreditBalanceRaw = useQuery(
     makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
-    orgId ? { org_id: orgId } : "skip",
+    providedAiCreditBalance === undefined && orgId ? { org_id: orgId } : "skip",
   );
   const aiCreditBalance = useMemo(
-    () => parseAiCreditBalance(aiCreditBalanceRaw),
-    [aiCreditBalanceRaw],
+    () => providedAiCreditBalance ?? parseAiCreditBalance(aiCreditBalanceRaw),
+    [aiCreditBalanceRaw, providedAiCreditBalance],
   );
   const initialDraft = useMemo(() => loadPersistedDraft(workspaceId), [workspaceId]);
   const [inputValue, setInputValue] = useState(initialDraft?.inputValue ?? "");
@@ -1989,7 +1992,7 @@ export function AutomationPromptBox({
                   <p className="text-sm font-medium">Builder summary</p>
                   <dl className="mt-4 space-y-3 text-sm">
                     <div>
-                      <dt className="text-muted-foreground">Prompt credits left</dt>
+                      <dt className="text-muted-foreground">Credits remaining</dt>
                       <dd className="font-medium">
                         {formatAiCreditAmount(config.credit_balance.total_available)}
                       </dd>

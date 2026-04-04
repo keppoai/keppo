@@ -854,7 +854,7 @@ export const formatAiCreditAmount = (value: number | null | undefined): string =
   if (Number.isInteger(value)) {
     return String(value);
   }
-  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.0$/u, "");
+  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.0+$/u, "");
 };
 
 export const runStatusBadgeVariant = (

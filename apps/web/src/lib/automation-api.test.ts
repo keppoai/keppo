@@ -359,6 +359,40 @@ describe("start-owned automation api handlers", () => {
     }
   });
 
+  it("returns a typed setup error when question generation falls back to direct OpenAI without a configured key", async () => {
+    const deps = createDeps();
+    deps.generateAutomationQuestions = undefined as never;
+    deps.getEnv.mockImplementation(
+      () =>
+        ({
+          KEPPO_DASHBOARD_ORIGIN: "http://127.0.0.1:3000",
+          KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE: 10,
+          KEPPO_LLM_GATEWAY_URL: "https://gateway.example",
+        }) as never,
+    );
+
+    const response = await handleGenerateAutomationQuestionsRequest(
+      withJson(
+        "/api/automations/generate-questions",
+        {
+          workspace_id: "ws_test",
+          user_description: "Find regressions",
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "generation_failed",
+      error_code: "missing_openai_api_key",
+    });
+  });
+
   it("generates automation prompts in-process with Start-owned auth context", async () => {
     const deps = createDeps();
 
@@ -619,6 +653,53 @@ describe("start-owned automation api handlers", () => {
         ],
       }),
     );
+  });
+
+  it("returns a typed setup error instead of crashing when only the prompt generator is overridden", async () => {
+    const deps = createDeps();
+    deps.generateAutomationMermaid = undefined as never;
+    deps.getEnv.mockImplementation(
+      () =>
+        ({
+          KEPPO_DASHBOARD_ORIGIN: "http://127.0.0.1:3000",
+          KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE: 10,
+        }) as never,
+    );
+
+    const response = await handleGenerateAutomationPromptRequest(
+      withJson(
+        "/api/automations/generate-prompt",
+        {
+          workspace_id: "ws_test",
+          user_description: "Summarize the latest issues.",
+          generation_mode: "mermaid_only",
+          automation_context: {
+            name: "Issue summary",
+            description: "desc",
+            mermaid_content: "flowchart TD\nA-->B",
+            trigger_type: "manual",
+            schedule_cron: null,
+            event_provider: null,
+            event_type: null,
+            ai_model_provider: "openai",
+            ai_model_name: "gpt-5.4",
+            network_access: "mcp_only",
+            prompt: "Summarize the latest issues.",
+          },
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "generation_failed",
+      error_code: "missing_openai_api_key",
+    });
   });
 
   it("dispatches the migrated automation family in-process", async () => {

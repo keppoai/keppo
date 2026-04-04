@@ -29,7 +29,6 @@ import {
   AUTOMATION_ROUTE_STATUS,
   convertDyadGatewayBudgetUsdToAiCredits,
   createAutomationRouteError,
-  isGatewayRuntimeEnabled,
   normalizeDyadGatewayBudgetUsd,
   isAutomationRouteErrorCode,
   parseAutomationRouteErrorCode,
@@ -43,6 +42,7 @@ import {
   resolveBundledGatewayUrl,
   syncBundledAiCreditsFromGateway,
 } from "./api-runtime/bundled-ai.ts";
+import { hasDyadGatewayConfig } from "./api-runtime/dyad-gateway.ts";
 import { createDurableRateLimiter } from "./api-runtime/rate-limit.ts";
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { getEnv } from "./api-runtime/env.ts";
@@ -502,7 +502,7 @@ const createDirectOpenAiClient = (deps: StartOwnedAutomationApiDeps): OpenAI => 
 };
 
 const isBundledGenerationEnabled = (deps: StartOwnedAutomationApiDeps): boolean =>
-  isGatewayRuntimeEnabled(deps.getEnv().KEPPO_LLM_GATEWAY_URL);
+  hasDyadGatewayConfig(deps.getEnv());
 
 const toBundledBillingState = (state: BundledAiBillingState) => ({
   balance: state.balance,
@@ -579,6 +579,18 @@ const diffBundledGatewaySpend = (params: {
     chargedBudgetUsd,
     chargedCredits: convertDyadGatewayBudgetUsdToAiCredits(chargedBudgetUsd),
   };
+};
+
+const requireGeneratedClient = (
+  generatedClient: Awaited<ReturnType<typeof createOpenAiGenerationClient>> | null,
+): Awaited<ReturnType<typeof createOpenAiGenerationClient>> => {
+  if (generatedClient) {
+    return generatedClient;
+  }
+  throw createAutomationRouteError(
+    "automation_route_failed",
+    "Automation generation client is unavailable.",
+  );
 };
 
 const generateAutomationPromptWithOpenAi = async (args: {
@@ -903,7 +915,9 @@ export const handleGenerateAutomationQuestionsRequest = async (
       request,
       {
         ok: false,
-        status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
+        status: AUTOMATION_ROUTE_STATUS.generationFailed,
+        error: message,
+        ...(code ? { error_code: code } : {}),
       },
       500,
     );
@@ -928,7 +942,7 @@ export const handleGenerateAutomationQuestionsRequest = async (
     }) =>
       await generateAutomationQuestionsWithOpenAi({
         ...args,
-        client: generatedClient!.client,
+        client: requireGeneratedClient(generatedClient).client,
       }));
 
   try {
@@ -944,6 +958,14 @@ export const handleGenerateAutomationQuestionsRequest = async (
             orgId,
             gatewayBaseUrl: generatedClient.gatewayBaseUrl,
             usageSource: "generation",
+          }).catch((error) => {
+            const { code, message } = extractAutomationRouteError(error);
+            console.error("automation.questions.credit_sync_failed", {
+              orgId,
+              error: message,
+              ...(code ? { error_code: code } : {}),
+            });
+            return null;
           })
         : null;
     const bundledCharge =
@@ -956,24 +978,32 @@ export const handleGenerateAutomationQuestionsRequest = async (
     return jsonResponse(request, {
       ok: true,
       questions,
-      ...(postBundledBalance
+      ...((postBundledBalance ?? preBundledBalance)
         ? {
-            credit_balance: toCreditBalancePayload(postBundledBalance.balance),
+            credit_balance: toCreditBalancePayload(
+              (postBundledBalance ?? preBundledBalance)!.balance,
+            ),
           }
         : {}),
-      billing: bundledCharge
-        ? buildBundledGenerationBillingPayload({
-            stage: "questions",
-            chargedCredits: bundledCharge.chargedCredits,
-            chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
-            remainingCredits: postBundledBalance!.balance.total_available,
-          })
-        : buildLegacyGenerationBillingPayload({
-            stage: "questions",
-            chargedCredits: 0,
-            summary:
-              "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
-          }),
+      ...(bundledCharge
+        ? {
+            billing: buildBundledGenerationBillingPayload({
+              stage: "questions",
+              chargedCredits: bundledCharge.chargedCredits,
+              chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
+              remainingCredits: postBundledBalance!.balance.total_available,
+            }),
+          }
+        : generatedClient?.mode === "bundled"
+          ? {}
+          : {
+              billing: buildLegacyGenerationBillingPayload({
+                stage: "questions",
+                chargedCredits: 0,
+                summary:
+                  "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
+              }),
+            }),
     });
   } catch (error) {
     if (generatedClient?.mode === "bundled") {
@@ -1071,12 +1101,13 @@ export const handleGenerateAutomationPromptRequest = async (
   let generatedClient: Awaited<ReturnType<typeof createOpenAiGenerationClient>> | null = null;
   let preBundledBalance: Awaited<ReturnType<typeof syncBundledGenerationCredits>> | null = null;
   try {
-    generatedClient = deps.generateAutomationPrompt
-      ? null
-      : await createOpenAiGenerationClient({
-          deps,
-          orgId,
-        });
+    generatedClient =
+      deps.generateAutomationPrompt && deps.generateAutomationMermaid
+        ? null
+        : await createOpenAiGenerationClient({
+            deps,
+            orgId,
+          });
     preBundledBalance = generatedClient?.mode === "bundled" ? generatedClient.billingState : null;
   } catch (error) {
     const { code, message } = extractAutomationRouteError(error);
@@ -1089,7 +1120,9 @@ export const handleGenerateAutomationPromptRequest = async (
       request,
       {
         ok: false,
-        status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
+        status: AUTOMATION_ROUTE_STATUS.generationFailed,
+        error: message,
+        ...(code ? { error_code: code } : {}),
       },
       500,
     );
@@ -1157,14 +1190,14 @@ export const handleGenerateAutomationPromptRequest = async (
     }) =>
       await generateAutomationPromptWithOpenAi({
         ...args,
-        client: generatedClient!.client,
+        client: requireGeneratedClient(generatedClient).client,
       }));
   const mermaidGenerator =
     deps.generateAutomationMermaid ??
     (async (args: { prompt: string }) =>
       await generateAutomationMermaidWithOpenAi({
         ...args,
-        client: generatedClient!.client,
+        client: requireGeneratedClient(generatedClient).client,
       }));
 
   try {
@@ -1179,6 +1212,15 @@ export const handleGenerateAutomationPromptRequest = async (
               orgId,
               gatewayBaseUrl: generatedClient.gatewayBaseUrl,
               usageSource: "generation",
+            }).catch((error) => {
+              const { code, message } = extractAutomationRouteError(error);
+              console.error("automation.prompt.credit_sync_failed", {
+                orgId,
+                generation_mode: "mermaid_only",
+                error: message,
+                ...(code ? { error_code: code } : {}),
+              });
+              return null;
             })
           : null;
       const bundledCharge =
@@ -1191,20 +1233,28 @@ export const handleGenerateAutomationPromptRequest = async (
       return jsonResponse(request, {
         ok: true,
         mermaid_content: generated.mermaid_content,
-        credit_balance: toCreditBalancePayload((postBundledBalance?.balance ?? balance)!),
-        billing: bundledCharge
-          ? buildBundledGenerationBillingPayload({
-              stage: "draft",
-              chargedCredits: bundledCharge.chargedCredits,
-              chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
-              remainingCredits: postBundledBalance!.balance.total_available,
-              summaryTarget: "workflow diagram regeneration",
-            })
-          : buildLegacyGenerationBillingPayload({
-              stage: "draft",
-              chargedCredits: 1,
-              summary: "Keppo deducted 1 credit to regenerate the workflow diagram.",
-            }),
+        credit_balance: toCreditBalancePayload(
+          (postBundledBalance?.balance ?? preBundledBalance?.balance ?? balance)!,
+        ),
+        ...(bundledCharge
+          ? {
+              billing: buildBundledGenerationBillingPayload({
+                stage: "draft",
+                chargedCredits: bundledCharge.chargedCredits,
+                chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
+                remainingCredits: postBundledBalance!.balance.total_available,
+                summaryTarget: "workflow diagram regeneration",
+              }),
+            }
+          : generatedClient?.mode === "bundled"
+            ? {}
+            : {
+                billing: buildLegacyGenerationBillingPayload({
+                  stage: "draft",
+                  chargedCredits: 1,
+                  summary: "Keppo deducted 1 credit to regenerate the workflow diagram.",
+                }),
+              }),
       });
     }
     const generated = await generator({
@@ -1221,6 +1271,15 @@ export const handleGenerateAutomationPromptRequest = async (
             orgId,
             gatewayBaseUrl: generatedClient.gatewayBaseUrl,
             usageSource: "generation",
+          }).catch((error) => {
+            const { code, message } = extractAutomationRouteError(error);
+            console.error("automation.prompt.credit_sync_failed", {
+              orgId,
+              generation_mode: payload.generation_mode,
+              error: message,
+              ...(code ? { error_code: code } : {}),
+            });
+            return null;
           })
         : null;
     const bundledCharge =
@@ -1243,19 +1302,27 @@ export const handleGenerateAutomationPromptRequest = async (
       ...(generated.event_provider ? { event_provider: generated.event_provider } : {}),
       ...(generated.event_type ? { event_type: generated.event_type } : {}),
       provider_recommendations: generated.provider_recommendations,
-      credit_balance: toCreditBalancePayload((postBundledBalance?.balance ?? balance)!),
-      billing: bundledCharge
-        ? buildBundledGenerationBillingPayload({
-            stage: "draft",
-            chargedCredits: bundledCharge.chargedCredits,
-            chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
-            remainingCredits: postBundledBalance!.balance.total_available,
-          })
-        : buildLegacyGenerationBillingPayload({
-            stage: "draft",
-            chargedCredits: 1,
-            summary: "Keppo deducted 1 credit to generate the final automation draft.",
-          }),
+      credit_balance: toCreditBalancePayload(
+        (postBundledBalance?.balance ?? preBundledBalance?.balance ?? balance)!,
+      ),
+      ...(bundledCharge
+        ? {
+            billing: buildBundledGenerationBillingPayload({
+              stage: "draft",
+              chargedCredits: bundledCharge.chargedCredits,
+              chargedBudgetUsd: bundledCharge.chargedBudgetUsd,
+              remainingCredits: postBundledBalance!.balance.total_available,
+            }),
+          }
+        : generatedClient?.mode === "bundled"
+          ? {}
+          : {
+              billing: buildLegacyGenerationBillingPayload({
+                stage: "draft",
+                chargedCredits: 1,
+                summary: "Keppo deducted 1 credit to generate the final automation draft.",
+              }),
+            }),
     });
   } catch (error) {
     if (generatedClient?.mode === "bundled") {
