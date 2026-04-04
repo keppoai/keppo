@@ -59,16 +59,9 @@ Add `#skip-bugbot` or `#skip-bb` to the PR description for trivial PRs that won'
 
 ### PR Demo Videos
 
-- Before creating or updating any PR demo video, check the `KEPPO_SKIP_DEMO_VIDEO` environment variable. If it is `true`, do not create the demo video and do not leave the demo comment.
-- When a PR includes significant UI or product behavior changes, create a short demo video with the `$create-video-demo` skill for the initial PR and for any later push that materially changes the demonstrated behavior.
-- Prefer recording an existing targeted Playwright spec. If no existing spec cleanly shows the change, create a disposable one-off Playwright spec just for the demo.
-- Keep the recorded demo under **60 seconds** and store the exported file under `ux-artifacts/video-demos/`.
-- Remove blank startup frames, white screens, login/setup noise, or other dead air before posting the final clip.
-- Slow the main changed interaction to reviewer pace. The important before/after state should be readable without the reviewer needing to pause immediately.
-- Review the final exported clip before upload and keep iterating until the opening frame and pacing are clear.
-- Upload reviewer-facing demo videos to Vercel Blob using `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN`. Treat them as public artifacts and do not upload sensitive recordings.
-- After pushing the branch or updating the PR, leave a top-level PR comment with the hosted demo URL. The comment must start with `Demo at commit {hash}` and include a 1-2 sentence summary of what the video shows.
-- If the PR does not include significant UI or product-facing changes, skip the demo comment.
+- When a PR includes significant UI or product-facing behavior changes, use the `$create-video-demo` skill for the initial PR and for any later push that materially changes the demonstrated behavior.
+- Before creating or updating any PR demo video, check `KEPPO_SKIP_DEMO_VIDEO`. If it is `true`, skip both the demo artifact and the PR comment.
+- Follow [Demo video rules](docs/rules/demo-video.md) for reviewer-facing capture standards. Keep workflow details, helper scripts, export paths, trimming, upload, and PR comment generation in the `$create-video-demo` skill instead of duplicating them here.
 
 ### Handling Review Feedback
 

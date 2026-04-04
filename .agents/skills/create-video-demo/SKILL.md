@@ -9,24 +9,26 @@ Create a short, reviewer-friendly demo artifact without bloating the test suite 
 
 ## Workflow
 
-1. Decide whether the change needs a demo.
+1. Check the repo gate first.
+   If `KEPPO_SKIP_DEMO_VIDEO=true`, stop immediately. Do not record, upload, or comment.
+2. Decide whether the change needs a demo.
    Record a demo when the PR introduces or substantially changes UI, navigation, onboarding, form flows, interaction states, or other user-visible product behavior.
-2. Pick the capture path.
+3. Pick the capture path.
    Prefer reusing an existing targeted Playwright spec when it already covers the changed journey cleanly.
    Create a disposable one-off spec only when no existing spec can show the new behavior in a tight, reviewer-friendly sequence.
-3. Keep the flow under one minute.
+4. Keep the flow under one minute.
    Trim setup, avoid unrelated screens, and show only the behavior the reviewer needs to judge.
-4. Pace the important moments for review.
+5. Pace the important moments for review.
    Slow the key changed interactions enough for a human reviewer to read the UI before and after the action. Do not ship test-speed clicking for reviewer-facing demos.
-4. Record locally with Playwright.
+6. Record locally with Playwright.
    Never run the full E2E suite. Run one targeted spec unsandboxed and force video capture on.
-5. Export the resulting video into `ux-artifacts/video-demos/`.
-6. Remove dead air from the opening frames.
+7. Export the resulting video into `ux-artifacts/video-demos/`.
+8. Remove dead air from the opening frames.
    Trim blank browser startup, white screens, login noise, or unrelated setup before the reviewer sees the changed surface.
-7. Review the final clip before upload.
+9. Review the final clip before upload.
    Check the opening frame and pacing. Re-record or trim again until the demo is readable without the reviewer having to scrub immediately.
-8. Generate the PR comment body with the current commit hash and a 1-2 sentence summary.
-9. Post a top-level PR comment with the hosted video URL.
+10. Generate the PR comment body with the current commit hash and a 1-2 sentence summary.
+11. Post a top-level PR comment with the hosted video URL.
    The comment should point to the Vercel Blob URL for durable PR review.
 
 ## Choose The Demo Path

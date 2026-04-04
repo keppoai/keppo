@@ -4,6 +4,13 @@
 
 - Apply these rules to reviewer-facing PR demo videos, not to debugging recordings or failure artifacts.
 - Keep demo capture logic separate from regression coverage when the reviewer-friendly flow needs slower pacing, extra holds, or post-processing.
+- Use these rules as the policy layer. Keep command sequences, helper scripts, and step-by-step execution details in the `$create-video-demo` skill.
+
+## Requirement
+
+- Record a demo when a PR introduces or materially changes UI, navigation, onboarding, forms, interaction states, or other user-visible product behavior that reviewers should judge in motion.
+- If `KEPPO_SKIP_DEMO_VIDEO=true`, skip both the demo artifact and the PR comment.
+- If a PR does not include significant UI or product-facing behavior changes, skip the demo comment entirely.
 
 ## Capture
 
@@ -27,3 +34,5 @@
 
 - Upload only the final reviewed clip to the PR.
 - Treat reviewer-facing demo videos as public artifacts and avoid recording sensitive data.
+- Use durable hosting and a top-level PR comment for the final review surface.
+- The PR comment must start with `Demo at commit {hash}` and include a concise 1-2 sentence summary plus the hosted video URL.
