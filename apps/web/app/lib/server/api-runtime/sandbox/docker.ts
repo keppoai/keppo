@@ -110,6 +110,9 @@ const normalizeConfigForDocker = (config: SandboxConfig): SandboxConfig => {
       runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL,
     );
   }
+  if (runtimeEnv.OPENAI_BASE_URL) {
+    runtimeEnv.OPENAI_BASE_URL = rewriteDockerReachableUrl(runtimeEnv.OPENAI_BASE_URL);
+  }
 
   return {
     ...config,
@@ -123,9 +126,7 @@ const normalizeConfigForDocker = (config: SandboxConfig): SandboxConfig => {
       callbacks: {
         log_url: rewriteDockerReachableUrl(config.runtime.callbacks.log_url),
         complete_url: rewriteDockerReachableUrl(config.runtime.callbacks.complete_url),
-        session_artifact_url: rewriteDockerReachableUrl(
-          config.runtime.callbacks.session_artifact_url,
-        ),
+        trace_url: rewriteDockerReachableUrl(config.runtime.callbacks.trace_url),
       },
     },
   };
@@ -438,7 +439,12 @@ export class DockerSandboxProvider implements SandboxProvider {
       ...dockerConfig.runtime.env,
       KEPPO_LOG_CALLBACK_URL: dockerConfig.runtime.callbacks.log_url,
       KEPPO_COMPLETE_CALLBACK_URL: dockerConfig.runtime.callbacks.complete_url,
-      KEPPO_SESSION_ARTIFACT_CALLBACK_URL: dockerConfig.runtime.callbacks.session_artifact_url,
+      KEPPO_TRACE_CALLBACK_URL: dockerConfig.runtime.callbacks.trace_url,
+      KEPPO_RUNNER_ENTRYPOINT_PATH: dockerConfig.runtime.runner.entrypoint_path,
+      KEPPO_RUNNER_SOURCE_BASE64: Buffer.from(
+        dockerConfig.runtime.runner.source_text,
+        "utf8",
+      ).toString("base64"),
       KEPPO_TIMEOUT_MS: String(Math.max(1, dockerConfig.timeout_ms)),
       KEPPO_TIMEOUT_GRACE_MS: String(TERMINATION_GRACE_MS),
     };

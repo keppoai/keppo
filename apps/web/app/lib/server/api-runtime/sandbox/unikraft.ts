@@ -265,7 +265,11 @@ export class UnikraftSandboxProvider implements SandboxProvider {
         KEPPO_RUNNER_COMMAND: composeRunnerCommand(config),
         KEPPO_LOG_CALLBACK_URL: config.runtime.callbacks.log_url,
         KEPPO_COMPLETE_CALLBACK_URL: config.runtime.callbacks.complete_url,
-        KEPPO_SESSION_ARTIFACT_CALLBACK_URL: config.runtime.callbacks.session_artifact_url,
+        KEPPO_TRACE_CALLBACK_URL: config.runtime.callbacks.trace_url,
+        KEPPO_RUNNER_ENTRYPOINT_PATH: config.runtime.runner.entrypoint_path,
+        KEPPO_RUNNER_SOURCE_BASE64: Buffer.from(config.runtime.runner.source_text, "utf8").toString(
+          "base64",
+        ),
         KEPPO_TIMEOUT_MS: String(config.timeout_ms),
         KEPPO_TIMEOUT_GRACE_MS: String(DEFAULT_DRAIN_TIMEOUT_MS),
       },

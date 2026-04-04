@@ -6,7 +6,7 @@ import {
   dispatchStartOwnedAutomationRuntimeRequest,
   handleInternalAutomationCompleteRequest,
   handleInternalAutomationDispatchRequest,
-  handleInternalAutomationSessionArtifactRequest,
+  handleInternalAutomationTraceRequest,
   handleInternalAutomationLogRequest,
   handleInternalAutomationTerminateRequest,
 } from "./automation-runtime";
@@ -69,6 +69,7 @@ const createDeps = () => {
     getOrgAiKey: vi.fn().mockResolvedValue(null),
     getSubscriptionForOrg: vi.fn().mockResolvedValue(null),
     issueAutomationWorkspaceCredential: vi.fn().mockResolvedValue("keppo_secret_test"),
+    recordAutomationRunTrace: vi.fn().mockResolvedValue({ recorded: true }),
     storeAutomationRunSessionTrace: vi.fn().mockResolvedValue({ stored: true }),
     updateAutomationRunStatus: vi.fn().mockResolvedValue(undefined),
     upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
@@ -269,8 +270,7 @@ describe("start-owned automation runtime handlers", () => {
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg).toMatchObject({
       bootstrap: {
-        command:
-          "mkdir -p '/sandbox/.keppo-codex-home' && export HOME='/sandbox/.keppo-codex-home' && codex mcp add keppo --url \"$KEPPO_MCP_SERVER_URL\" --bearer-token-env-var KEPPO_MCP_BEARER_TOKEN",
+        command: "true",
         env: {},
         network_access: "package_registry_only",
       },
@@ -278,31 +278,50 @@ describe("start-owned automation runtime handlers", () => {
         network_access: "mcp_only",
         env: expect.objectContaining({
           KEPPO_AUTOMATION_RUN_ID: "arun_dispatch_test",
+          KEPPO_AUTOMATION_MODEL: "gpt-5.2",
           OPENAI_API_KEY: "openai-secret-test",
           KEPPO_MCP_BEARER_TOKEN: "keppo_secret_test",
           KEPPO_MCP_SERVER_URL: expect.stringContaining(
             "/mcp/ws_test?x-vercel-protection-bypass=bypass_secret_test",
           ),
           KEPPO_MCP_SESSION_ID: expect.stringContaining("automation_automation_dispatch_test_"),
+          KEPPO_AUTOMATION_INSTRUCTIONS: expect.stringContaining(
+            "record_outcome({ success, summary })",
+          ),
           VERCEL_AUTOMATION_BYPASS_SECRET: "bypass_secret_test",
         }),
       },
     });
     expect(dispatchArg.timeout_ms).toBe(60_000);
-    expect(dispatchArg.runtime.command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
+    expect(dispatchArg.runtime.command).toBe(
+      "node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     );
-    expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
-    expect(dispatchArg.runtime.command).toContain("<memory>");
-    expect(dispatchArg.runtime.command).toContain(
+    expect(dispatchArg.runtime.env.KEPPO_AUTOMATION_INSTRUCTIONS).toContain("<memory>");
+    expect(dispatchArg.runtime.env.KEPPO_AUTOMATION_INSTRUCTIONS).toContain(
       "Remember the operator prefers concise summaries.",
     );
-    expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
-    expect(dispatchArg.runtime.command).toContain("trap '_keppo_on_term' TERM INT");
+    expect(dispatchArg.runtime.env.KEPPO_AUTOMATION_INSTRUCTIONS).toContain(
+      "Automation task:\nReview open issues",
+    );
+    expect(dispatchArg.runtime.env.KEPPO_OPENAI_TRACING_API_KEY).toBeUndefined();
+    expect(dispatchArg.runtime.env.KEPPO_OPENAI_TRACE_GROUP_ID).toMatch(
+      /^automation:[0-9a-f]{16}$/u,
+    );
+    expect(dispatchArg.runtime.env.KEPPO_OPENAI_TRACE_GROUP_ID).not.toContain(
+      "automation_dispatch_test",
+    );
+    expect(JSON.parse(dispatchArg.runtime.env.KEPPO_OPENAI_TRACE_METADATA_JSON)).toEqual({
+      model: "gpt-5.2",
+      ai_key_mode: "byok",
+      sandbox_provider: "docker",
+      trace_source: "keppo_automation",
+    });
     expect(dispatchArg.runtime.callbacks.log_url).toContain("/internal/automations/log?");
     expect(dispatchArg.runtime.callbacks.complete_url).toContain("/internal/automations/complete?");
-    expect(dispatchArg.runtime.callbacks.session_artifact_url).toContain(
-      "/internal/automations/session-artifact?",
+    expect(dispatchArg.runtime.callbacks.trace_url).toContain("/internal/automations/trace?");
+    expect(dispatchArg.runtime.runner.install_packages).toEqual(["@openai/agents@0.8.2"]);
+    expect(dispatchArg.runtime.runner.entrypoint_path).toBe(
+      "/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
     );
     expect(deps.convex.issueAutomationWorkspaceCredential).toHaveBeenCalledWith({
       workspaceId: "ws_test",
@@ -463,7 +482,7 @@ describe("start-owned automation runtime handlers", () => {
       status: "dispatch_failed",
       error_code: "automation_route_failed",
       error:
-        "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+        "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
     });
     expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
     expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledWith(
@@ -471,9 +490,87 @@ describe("start-owned automation runtime handlers", () => {
         automationRunId: "arun_anthropic_dispatch_test",
         status: "cancelled",
         errorMessage: expect.stringContaining(
-          "Sandbox automations always run through Codex. Configure an OpenAI automation model instead of a Claude model.",
+          "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.",
         ),
       }),
+    );
+  });
+
+  it("passes through an explicit dedicated tracing key without falling back to OPENAI_API_KEY", async () => {
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_OPENAI_TRACING_API_KEY: "trace-export-key",
+      KEPPO_OPENAI_TRACING_ENDPOINT: "https://traces.example.test/v1/traces/ingest",
+    } as never);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+    deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_trace_key_test",
+        automation_id: "automation_trace_key_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "pending",
+        sandbox_id: null,
+      },
+      automation: {
+        id: "automation_trace_key_test",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Trace key",
+        status: "active",
+      },
+      config: {
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Review open issues",
+        network_access: "mcp_only",
+      },
+    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce({
+      org_id: "org_test",
+      encrypted_key: await encryptStoredKeyForTest(
+        process.env.KEPPO_MASTER_KEY!,
+        "openai-secret-test",
+      ),
+      credential_kind: "secret",
+      is_active: true,
+      key_hint: "...test",
+      key_version: 1,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "user_test",
+    });
+
+    const response = await handleInternalAutomationDispatchRequest(
+      withJson(
+        "/internal/automations/dispatch",
+        { automation_run_id: "arun_trace_key_test", dispatch_token: "dispatch_token_test" },
+        { authorization: "Bearer secret_token" },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
+    expect(dispatchArg.runtime.env.KEPPO_OPENAI_TRACING_API_KEY).toBe("trace-export-key");
+    expect(dispatchArg.runtime.env.KEPPO_OPENAI_TRACING_ENDPOINT).toBe(
+      "https://traces.example.test/v1/traces/ingest",
     );
   });
 
@@ -520,9 +617,20 @@ describe("start-owned automation runtime handlers", () => {
       encrypted_key: await encryptStoredKeyForTest(
         process.env.KEPPO_MASTER_KEY!,
         JSON.stringify({
-          access_token: "oauth-access-token-test",
-          refresh_token: "oauth-refresh-token-test",
-          expires_at: "2026-04-01T00:00:00.000Z",
+          version: 1,
+          provider: "openai",
+          kind: "oauth",
+          credentials: {
+            access_token: "oauth-access-token-test",
+            refresh_token: "oauth-refresh-token-test",
+            expires_at: "2100-04-01T00:00:00.000Z",
+            scopes: [],
+            email: "operator@example.com",
+            account_id: "acct_test",
+            id_token: null,
+            token_type: "Bearer",
+            last_refresh: null,
+          },
         }),
       ),
       credential_kind: "openai_oauth",
@@ -549,8 +657,7 @@ describe("start-owned automation runtime handlers", () => {
 
     expect(response.status).toBe(200);
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
-    expect(dispatchArg.runtime.env.OPENAI_CODEX_AUTH_JSON).toContain("oauth-access-token-test");
-    expect(dispatchArg.runtime.env.OPENAI_API_KEY).toBeUndefined();
+    expect(dispatchArg.runtime.env.OPENAI_API_KEY).toBe("oauth-access-token-test");
   });
 
   it("does not pass the Vercel bypass secret into production sandbox runs", async () => {
@@ -696,11 +803,12 @@ describe("start-owned automation runtime handlers", () => {
     expect(response.status).toBe(200);
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.network_access).toBe("mcp_and_web");
-    expect(dispatchArg.runtime.command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
+    expect(dispatchArg.runtime.command).toBe(
+      "node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     );
-    expect(dispatchArg.runtime.command).toContain("Automation task:\nReview open issues");
-    expect(dispatchArg.runtime.command).not.toContain('sandbox_mode="workspace-write"');
+    expect(dispatchArg.runtime.env.KEPPO_AUTOMATION_INSTRUCTIONS).toContain(
+      "Automation task:\nReview open issues",
+    );
   });
 
   it("dispatches bundled runs through the gateway and deducts runtime credits", async () => {
@@ -798,11 +906,12 @@ describe("start-owned automation runtime handlers", () => {
       OPENAI_API_KEY: "bundled-gateway-secret",
       OPENAI_BASE_URL: "https://gateway.keppo.test",
     });
-    expect(dispatchArg.runtime.command).toContain(
-      "sh -lc 'codex exec --json --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox",
+    expect(dispatchArg.runtime.command).toBe(
+      "node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     );
-    expect(dispatchArg.runtime.command).toContain('model_provider="keppo_openai_api"');
-    expect(dispatchArg.runtime.command).toContain("record_outcome({ success, summary })");
+    expect(dispatchArg.runtime.env.KEPPO_AUTOMATION_INSTRUCTIONS).toContain(
+      "record_outcome({ success, summary })",
+    );
   });
 
   it("returns a bundled-specific missing-key response before any BYO fallback lookup", async () => {
@@ -1873,32 +1982,64 @@ describe("start-owned automation runtime handlers", () => {
     );
   });
 
-  it("accepts signed session trace callbacks and stores the uploaded artifact privately", async () => {
+  it("accepts signed OpenAI trace callbacks and records the trace metadata", async () => {
     const deps = createDeps();
     const request = withJson(
-      "/internal/automations/session-artifact?automation_run_id=arun_test&expires=4102444800000&signature=" +
+      "/internal/automations/trace?automation_run_id=arun_test&expires=4102444800000&signature=" +
         createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
-          .update("/internal/automations/session-artifact:arun_test:4102444800000")
+          .update("/internal/automations/trace:arun_test:4102444800000")
           .digest("hex"),
       {
         automation_run_id: "arun_test",
-        relative_path: "sessions/2026/04/03/rollout-test.jsonl",
-        content_base64: Buffer.from('{"type":"thread.started"}\n', "utf8").toString("base64"),
+        export_status: "exported",
+        trace_id: "trace_123",
+        group_id: "automation:automation_test",
+        workflow_name: "Keppo automation",
+        last_response_id: "resp_123",
       },
     );
 
-    const response = await handleInternalAutomationSessionArtifactRequest(request, deps);
+    const response = await handleInternalAutomationTraceRequest(request, deps);
 
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toMatchObject({
       ok: true,
-      stored: true,
+      recorded: true,
     });
-    expect(deps.convex.storeAutomationRunSessionTrace).toHaveBeenCalledWith({
+    expect(deps.convex.recordAutomationRunTrace).toHaveBeenCalledWith({
       automationRunId: "arun_test",
-      relativePath: "sessions/2026/04/03/rollout-test.jsonl",
-      contentBase64: Buffer.from('{"type":"thread.started"}\n', "utf8").toString("base64"),
+      exportStatus: "exported",
+      traceId: "trace_123",
+      groupId: "automation:automation_test",
+      workflowName: "Keppo automation",
+      lastResponseId: "resp_123",
     });
+  });
+
+  it("rejects oversized signed OpenAI trace callback fields", async () => {
+    const deps = createDeps();
+    const request = withJson(
+      "/internal/automations/trace?automation_run_id=arun_test&expires=4102444800000&signature=" +
+        createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+          .update("/internal/automations/trace:arun_test:4102444800000")
+          .digest("hex"),
+      {
+        automation_run_id: "arun_test",
+        export_status: "failed",
+        error_message: "x".repeat(1_001),
+      },
+    );
+
+    const response = await handleInternalAutomationTraceRequest(request, deps);
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "invalid_payload",
+      error_code: "invalid_payload",
+      error: "error_message must be at most 1000 characters",
+    });
+    expect(deps.convex.recordAutomationRunTrace).not.toHaveBeenCalled();
   });
 
   it("claims only the Start-owned internal automation runtime paths", async () => {

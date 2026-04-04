@@ -46,6 +46,7 @@ import {
   AUTOMATION_RUN_LOG_LEVELS,
   AUTOMATION_RUN_EVENT_TYPES,
   AUTOMATION_RUN_OUTCOME_SOURCES,
+  AUTOMATION_RUN_TRACE_EXPORT_STATUSES,
   AUTOMATION_TRIGGER_EVENT_STATUSES,
   AUTOMATION_TRIGGER_EVENT_MATCH_STATUSES,
   AUTOMATION_PROVIDER_TRIGGER_DELIVERY_MODES,
@@ -321,6 +322,10 @@ export const automationRunEventTypeValidator = createLiteralUnionValidator(
 export const automationRunOutcomeSourceValidator = createLiteralUnionValidator(
   AUTOMATION_RUN_OUTCOME_SOURCES,
   "Automation run outcome source",
+);
+export const automationRunTraceExportStatusValidator = createLiteralUnionValidator(
+  AUTOMATION_RUN_TRACE_EXPORT_STATUSES,
+  "Automation run trace export status",
 );
 export const auditEventTypeValidator = createLiteralUnionValidator(
   Object.values(AUDIT_EVENT_TYPES),

@@ -50,6 +50,7 @@ import type {
   AiModelProvider,
   AutomationRunEventType,
   AutomationRunLogLevel,
+  AutomationRunTraceExportStatus,
 } from "@keppo/shared/automations";
 import {
   addPurchasedCredits as addPurchasedCreditsImpl,
@@ -64,6 +65,7 @@ import {
   getOrgAiKey as getOrgAiKeyImpl,
   ingestProviderEvent as ingestProviderEventImpl,
   matchAndQueueAutomationTriggers as matchAndQueueAutomationTriggersImpl,
+  recordAutomationRunTrace as recordAutomationRunTraceImpl,
   storeAutomationRunSessionTrace as storeAutomationRunSessionTraceImpl,
   upsertBundledOrgAiKey as upsertBundledOrgAiKeyImpl,
   upsertOpenAiOauthKey as upsertOpenAiOauthKeyImpl,
@@ -1051,6 +1053,18 @@ export class ConvexInternalClient {
     }>;
   }): Promise<void> {
     return appendAutomationRunLogBatchImpl(this.resilientClient, params);
+  }
+
+  async recordAutomationRunTrace(params: {
+    automationRunId: string;
+    exportStatus: AutomationRunTraceExportStatus;
+    traceId?: string;
+    groupId?: string;
+    workflowName?: string;
+    lastResponseId?: string;
+    errorMessage?: string;
+  }): Promise<{ recorded: boolean }> {
+    return recordAutomationRunTraceImpl(this.resilientClient, params);
   }
 
   async storeAutomationRunSessionTrace(params: {

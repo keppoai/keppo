@@ -71,7 +71,7 @@
   - Server-side OAuth connect state for org-scoped integrations also stores the initiating user binding, and callback completion revalidates that same user still has owner/admin integration-management rights before shared credentials are written.
 - Stuck-run safety:
   - sandbox providers enforce timeout with a short graceful-stop window first, then escalate to a hard stop if the runner does not exit.
-  - the in-sandbox Codex runner wrapper uses that grace window to attempt a final private session-artifact upload before the provider completes timeout teardown.
+  - the in-sandbox automation runner uses that grace window only to flush any remaining logs or trace-export work before the provider completes timeout teardown; durable trace references are recorded through the signed `/internal/automations/trace` callback instead of filesystem artifact uploads.
   - Convex reaper cron (`automation_scheduler:reapStaleRuns`) marks stale runs `timed_out` and requests sandbox termination.
 
 ### Automation credential and key protection
@@ -82,6 +82,7 @@
 - Dyad Gateway master credentials (`KEPPO_LLM_GATEWAY_MASTER_KEY`) stay in API runtime only; dashboard clients, Convex public functions, and sandbox env never receive that management bearer token.
 - OpenAI `subscription_token` automation keys are stored as encrypted refreshable OAuth credential envelopes; refresh occurs in API runtime before dispatch, and sandbox runs receive only run-scoped auth material.
 - Dispatch decrypts key material only inside API runtime for active run provisioning; dashboard receives hints only (`key_hint`).
+- Automation trace export is opt-in: dispatch only injects `KEPPO_OPENAI_TRACING_API_KEY` when operators configure a dedicated tracing key, and trace identifiers/grouping use hashed automation ids instead of raw tenant ids.
 - `_decryptForTestsOnly` remains internal-only and requires an explicit local/test flag before use; every successful invocation emits an audit-friendly warning.
 - Automation run attribution uses automation identity as MCP actor and does not rely on shared service-account secrets.
 

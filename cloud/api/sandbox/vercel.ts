@@ -8,12 +8,10 @@ import type {
 
 const SANDBOX_WORKDIR = "/vercel/sandbox";
 const RUNNER_DIR = `${SANDBOX_WORKDIR}/.keppo-automation-runner`;
-const RUNNER_BIN_DIR = `${RUNNER_DIR}/node_modules/.bin`;
-const ENTRYPOINT_PATH = `${SANDBOX_WORKDIR}/keppo-automation-runner.mjs`;
+const WRAPPER_ENTRYPOINT_PATH = `${SANDBOX_WORKDIR}/keppo-automation-runner-wrapper.mjs`;
 const SETUP_TIMEOUT_BUFFER_MS = 60_000;
 const TERMINATION_GRACE_MS = 5_000;
 const SANDBOX_HANDLE_SEPARATOR = "::";
-const PINNED_CODEX_PACKAGE = "@openai/codex@0.118.0";
 
 type VercelNetworkPolicy =
   | "allow-all"
@@ -76,7 +74,7 @@ type SandboxLoader = () => Promise<VercelSandboxModule>;
 const BOOTSTRAP_SECRET_ENV_NAMES = [
   "OPENAI_API_KEY",
   "OPENAI_SUBSCRIPTION_TOKEN",
-  "OPENAI_CODEX_AUTH_JSON",
+  "KEPPO_OPENAI_TRACING_API_KEY",
   "ANTHROPIC_API_KEY",
   "ANTHROPIC_SUBSCRIPTION_TOKEN",
   "KEPPO_MCP_BEARER_TOKEN",
@@ -111,8 +109,6 @@ const extractRunId = (urlValue: string): string | null => {
     return null;
   }
 };
-
-const resolveRunnerPackage = (): string => PINNED_CODEX_PACKAGE;
 
 const toSandboxHandle = (sandboxId: string, cmdId: string): string =>
   `${sandboxId}${SANDBOX_HANDLE_SEPARATOR}${cmdId}`;
@@ -167,16 +163,13 @@ const toAllowedNetworkPolicy = (config: SandboxConfig): VercelNetworkPolicy => {
 
   addUrlHost(config.runtime.callbacks.log_url);
   addUrlHost(config.runtime.callbacks.complete_url);
+  addUrlHost(config.runtime.callbacks.trace_url);
   const mcpUrl = config.runtime.env.KEPPO_MCP_SERVER_URL;
   if (mcpUrl) {
     addUrlHost(mcpUrl);
   }
 
-  if (
-    config.runtime.env.OPENAI_API_KEY ||
-    config.runtime.env.OPENAI_SUBSCRIPTION_TOKEN ||
-    config.runtime.env.OPENAI_CODEX_AUTH_JSON
-  ) {
+  if (config.runtime.env.OPENAI_API_KEY || config.runtime.env.OPENAI_SUBSCRIPTION_TOKEN) {
     addProviderApiHost(hostSet, addUrlHost, config.runtime.env.OPENAI_BASE_URL, "api.openai.com");
   }
   if (config.runtime.env.ANTHROPIC_API_KEY || config.runtime.env.ANTHROPIC_SUBSCRIPTION_TOKEN) {
@@ -185,6 +178,14 @@ const toAllowedNetworkPolicy = (config: SandboxConfig): VercelNetworkPolicy => {
       addUrlHost,
       config.runtime.env.ANTHROPIC_BASE_URL,
       "api.anthropic.com",
+    );
+  }
+  if (config.runtime.env.KEPPO_OPENAI_TRACING_API_KEY) {
+    addProviderApiHost(
+      hostSet,
+      addUrlHost,
+      config.runtime.env.KEPPO_OPENAI_TRACING_ENDPOINT,
+      "api.openai.com",
     );
   }
 
@@ -209,7 +210,6 @@ const buildRunnerEntrypoint = (): string => {
     'const COMPLETE_CALLBACK_URL = process.env.KEPPO_COMPLETE_CALLBACK_URL ?? "";',
     'const RUNNER_BOOTSTRAP_COMMAND = process.env.KEPPO_RUNNER_BOOTSTRAP_COMMAND ?? "";',
     'const RUNNER_COMMAND = process.env.KEPPO_RUNNER_COMMAND ?? "";',
-    'const RUNNER_BIN_DIR = process.env.KEPPO_RUNNER_BIN_DIR ?? "";',
     'const VERCEL_AUTOMATION_BYPASS_SECRET = process.env.VERCEL_AUTOMATION_BYPASS_SECRET ?? "";',
     'const TIMEOUT_MS = Math.max(1, Number.parseInt(process.env.KEPPO_TIMEOUT_MS ?? "300000", 10) || 300000);',
     'const TIMEOUT_GRACE_MS = Math.max(1, Number.parseInt(process.env.KEPPO_TIMEOUT_GRACE_MS ?? "5000", 10) || 5000);',
@@ -288,12 +288,7 @@ const buildRunnerEntrypoint = (): string => {
     '  .join(" && ");',
     "",
     'const child = spawn("sh", ["-lc", commandScript], {',
-    "  env: {",
-    "    ...process.env,",
-    "    ...(RUNNER_BIN_DIR",
-    '      ? { PATH: `${RUNNER_BIN_DIR}${process.env.PATH ? `:${process.env.PATH}` : ""}` }',
-    "      : {}),",
-    "  },",
+    "  env: process.env,",
     '  stdio: ["ignore", "pipe", "pipe"],',
     "});",
     "",
@@ -410,7 +405,6 @@ export class VercelSandboxProvider implements SandboxProvider {
       throw new Error("Automation sandbox callbacks must include automation_run_id.");
     }
 
-    const runnerPackage = resolveRunnerPackage();
     const runtimeEnv = {
       ...config.runtime.env,
       ...(config.bootstrap.command.trim().length > 0
@@ -420,12 +414,11 @@ export class VercelSandboxProvider implements SandboxProvider {
         ? { KEPPO_RUNNER_BOOTSTRAP_COMMAND: config.runtime.bootstrap_command }
         : {}),
       KEPPO_RUNNER_COMMAND: config.runtime.command,
-      KEPPO_RUNNER_BIN_DIR: RUNNER_BIN_DIR,
       KEPPO_TIMEOUT_MS: String(config.timeout_ms),
       KEPPO_TIMEOUT_GRACE_MS: String(TERMINATION_GRACE_MS),
       KEPPO_LOG_CALLBACK_URL: config.runtime.callbacks.log_url,
       KEPPO_COMPLETE_CALLBACK_URL: config.runtime.callbacks.complete_url,
-      KEPPO_SESSION_ARTIFACT_CALLBACK_URL: config.runtime.callbacks.session_artifact_url,
+      KEPPO_TRACE_CALLBACK_URL: config.runtime.callbacks.trace_url,
       KEPPO_AUTOMATION_RUN_ID: runId,
       ...(config.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET
         ? { VERCEL_AUTOMATION_BYPASS_SECRET: config.runtime.env.VERCEL_AUTOMATION_BYPASS_SECRET }
@@ -442,7 +435,14 @@ export class VercelSandboxProvider implements SandboxProvider {
     try {
       const installCommand = await sandbox.runCommand({
         cmd: "npm",
-        args: ["install", "--no-audit", "--no-fund", "--prefix", RUNNER_DIR, runnerPackage],
+        args: [
+          "install",
+          "--no-audit",
+          "--no-fund",
+          "--prefix",
+          RUNNER_DIR,
+          ...config.runtime.runner.install_packages,
+        ],
         cwd: SANDBOX_WORKDIR,
         env: config.bootstrap.env,
       });
@@ -451,15 +451,19 @@ export class VercelSandboxProvider implements SandboxProvider {
         const detail = await readCommandOutput(installCommand);
         throw new Error(
           detail
-            ? `Failed to install sandbox runner package ${runnerPackage}: ${detail}`
-            : `Failed to install sandbox runner package ${runnerPackage}.`,
+            ? `Failed to install sandbox runner packages ${config.runtime.runner.install_packages.join(", ")}: ${detail}`
+            : `Failed to install sandbox runner packages ${config.runtime.runner.install_packages.join(", ")}.`,
         );
       }
 
       await sandbox.writeFiles([
         {
-          path: ENTRYPOINT_PATH,
+          path: WRAPPER_ENTRYPOINT_PATH,
           content: Buffer.from(buildRunnerEntrypoint(), "utf8"),
+        },
+        {
+          path: config.runtime.runner.entrypoint_path,
+          content: Buffer.from(config.runtime.runner.source_text, "utf8"),
         },
       ]);
 
@@ -467,7 +471,7 @@ export class VercelSandboxProvider implements SandboxProvider {
 
       const command = await sandbox.runCommand({
         cmd: "node",
-        args: [ENTRYPOINT_PATH],
+        args: [WRAPPER_ENTRYPOINT_PATH],
         cwd: SANDBOX_WORKDIR,
         env: runtimeEnv,
         detached: true,

@@ -23,6 +23,7 @@
     "@hookform/resolvers": "^5.2.2",
     "@keppo/shared": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@openai/agents": "0.8.2",
     "@tanstack/react-router": "^1.166.8",
     "@tanstack/react-start": "^1.166.9",
     "@tanstack/router-plugin": "^1.166.8",

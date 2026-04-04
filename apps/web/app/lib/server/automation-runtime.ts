@@ -33,18 +33,20 @@ import {
   assertRunnerAuthSupported,
   assertSandboxCallbackBaseUrlReachable,
   buildAutomationRunnerPrompt,
+  buildRunnerCommand,
   buildRunnerAuthBootstrapCommand,
   buildRunnerBootstrapCommand,
-  buildRunnerCommand,
   createAutomationCallbackSignature,
   decryptStoredKey,
   extractAutomationRouteError,
   hasValidAutomationCallbackSignature,
+  maybeRefreshOpenAiOauthCredentials,
   parseCompletionPayload,
   parseDispatchPayload,
   parseTerminatePayload,
   parseLogPayload,
   parseSessionArtifactPayload,
+  parseTracePayload,
   preflightMcpServer,
   resolveAutomationCallbackBaseUrl,
   resolveAutomationMcpServerUrl,
@@ -55,6 +57,11 @@ import {
   resolveAutomationSandboxProviderMode,
   type AutomationSandboxProviderMode,
 } from "./api-runtime/sandbox/index.ts";
+import {
+  buildAutomationTraceGroupId,
+  buildAutomationRunTraceId,
+  buildSandboxRunnerContract,
+} from "./api-runtime/sandbox/agents-sdk-runner.ts";
 
 const SECURITY_HEADER_VALUES = {
   "X-Content-Type-Options": "nosniff",
@@ -75,6 +82,7 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   | "getOrgAiKey"
   | "getSubscriptionForOrg"
   | "issueAutomationWorkspaceCredential"
+  | "recordAutomationRunTrace"
   | "storeAutomationRunSessionTrace"
   | "updateAutomationRunStatus"
   | "upsertOpenAiOauthKey"
@@ -111,6 +119,8 @@ const AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS = 250;
 const AUTOMATION_LOG_BATCH_SIZE = 50;
 const AUTOMATION_LOG_MAX_LINES = 200;
 const MIN_AUTOMATION_TIMEOUT_MS = 60_000;
+const AUTOMATION_SANDBOX_MODEL_ERROR =
+  "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.";
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
@@ -668,14 +678,15 @@ export const handleInternalAutomationDispatchRequest = async (
     }
 
     const decryptedKey = await decryptStoredKey(key.encrypted_key);
+    const runnerInstructions = buildAutomationRunnerPrompt(
+      context.config.prompt,
+      context.automation.memory,
+    );
+    const runnerContract = buildSandboxRunnerContract(providerMode);
     const runnerCommand = buildRunnerCommand({
       runnerType: resolvedModel.runnerType,
+      providerMode,
       aiModelProvider: resolvedModel.aiModelProvider,
-      aiKeyMode: authKeyMode,
-      credentialKind: key.credential_kind,
-      networkAccess: context.config.network_access,
-      model: resolvedModel.aiModelName,
-      prompt: buildAutomationRunnerPrompt(context.config.prompt, context.automation.memory),
     });
     const bootstrapCommand = buildRunnerBootstrapCommand({
       runnerType: resolvedModel.runnerType,
@@ -688,30 +699,50 @@ export const handleInternalAutomationDispatchRequest = async (
       aiKeyMode: authKeyMode,
       credentialKind: key.credential_kind,
     });
-    const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)();
+    const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)(providerMode);
+    const traceId = buildAutomationRunTraceId(context.run.id);
+    const traceGroupId = buildAutomationTraceGroupId(context.automation.id);
+    const traceWorkflowName = "Keppo automation";
 
     const runtimeEnv: Record<string, string> = {
       KEPPO_AUTOMATION_RUN_ID: context.run.id,
+      KEPPO_AUTOMATION_MODEL: resolvedModel.aiModelName,
+      KEPPO_AUTOMATION_INSTRUCTIONS: runnerInstructions,
+      KEPPO_AUTOMATION_NETWORK_ACCESS: context.config.network_access,
       KEPPO_MCP_SESSION_ID: mcpSessionId,
       KEPPO_MCP_SERVER_URL: mcpServerUrl,
       KEPPO_MCP_BEARER_TOKEN: mcpBearerToken,
+      KEPPO_OPENAI_TRACE_ID: traceId,
+      KEPPO_OPENAI_TRACE_GROUP_ID: traceGroupId,
+      KEPPO_OPENAI_TRACE_WORKFLOW_NAME: traceWorkflowName,
+      KEPPO_OPENAI_TRACE_METADATA_JSON: JSON.stringify({
+        model: resolvedModel.aiModelName,
+        ai_key_mode: authKeyMode,
+        sandbox_provider: providerMode,
+        trace_source: "keppo_automation",
+      }),
     };
     const e2eOpenAiBaseUrl = env.KEPPO_E2E_OPENAI_BASE_URL?.trim();
-    if (env.KEPPO_E2E_MODE && e2eOpenAiBaseUrl) {
-      runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL = e2eOpenAiBaseUrl;
-    }
     const vercelAutomationBypassSecret = resolveVercelAutomationBypassSecret(env);
     if (vercelAutomationBypassSecret) {
       runtimeEnv.VERCEL_AUTOMATION_BYPASS_SECRET = vercelAutomationBypassSecret;
     }
     if (resolvedModel.aiModelProvider === "openai") {
       if (authKeyMode === AI_KEY_MODE.subscriptionToken && key.credential_kind === "openai_oauth") {
-        runtimeEnv.OPENAI_CODEX_AUTH_JSON = decryptedKey;
+        const credentials = await maybeRefreshOpenAiOauthCredentials({
+          key,
+          decryptedKey,
+          convex: deps.convex,
+        });
+        runtimeEnv.OPENAI_API_KEY = credentials.access_token;
       } else if (authKeyMode === AI_KEY_MODE.byok) {
         runtimeEnv.OPENAI_API_KEY = decryptedKey;
       } else if (authKeyMode === AI_KEY_MODE.bundled) {
         runtimeEnv.OPENAI_API_KEY = decryptedKey;
         runtimeEnv.OPENAI_BASE_URL = gatewayBaseUrl!;
+      }
+      if (env.KEPPO_E2E_MODE && e2eOpenAiBaseUrl && authKeyMode !== AI_KEY_MODE.bundled) {
+        runtimeEnv.OPENAI_BASE_URL = e2eOpenAiBaseUrl;
       }
     } else {
       if (authKeyMode === AI_KEY_MODE.byok) {
@@ -720,6 +751,15 @@ export const handleInternalAutomationDispatchRequest = async (
         runtimeEnv.ANTHROPIC_API_KEY = decryptedKey;
         runtimeEnv.ANTHROPIC_BASE_URL = gatewayBaseUrl!;
       }
+    }
+    const tracingApiKey = env.KEPPO_E2E_MODE
+      ? ""
+      : (env.KEPPO_OPENAI_TRACING_API_KEY?.trim() ?? "");
+    if (tracingApiKey) {
+      runtimeEnv.KEPPO_OPENAI_TRACING_API_KEY = tracingApiKey;
+    }
+    if (tracingApiKey && env.KEPPO_OPENAI_TRACING_ENDPOINT?.trim()) {
+      runtimeEnv.KEPPO_OPENAI_TRACING_ENDPOINT = env.KEPPO_OPENAI_TRACING_ENDPOINT.trim();
     }
 
     deps.logger.info("automation.dispatch.runtime_configured", {
@@ -732,15 +772,10 @@ export const handleInternalAutomationDispatchRequest = async (
       automation_timeout_ms: timeoutMs,
       subscription_tier: subscription?.tier ?? null,
       network_access: context.config.network_access,
-      has_e2e_openai_base_url: Boolean(runtimeEnv.KEPPO_E2E_OPENAI_BASE_URL),
       has_openai_base_url: Boolean(runtimeEnv.OPENAI_BASE_URL),
       has_openai_api_key: Boolean(runtimeEnv.OPENAI_API_KEY),
-      runner_uses_custom_openai_provider: runnerCommand.includes(
-        'model_provider="keppo_openai_api"',
-      ),
-      runner_bypasses_approvals: runnerCommand.includes(
-        "--dangerously-bypass-approvals-and-sandbox",
-      ),
+      trace_export_enabled: Boolean(runtimeEnv.KEPPO_OPENAI_TRACING_API_KEY),
+      sandbox_runner_entrypoint: runnerContract.entrypoint_path,
     });
 
     const dispatch = await sandbox.dispatch({
@@ -757,8 +792,9 @@ export const handleInternalAutomationDispatchRequest = async (
         callbacks: {
           log_url: createSignedUrl("/internal/automations/log"),
           complete_url: createSignedUrl("/internal/automations/complete"),
-          session_artifact_url: createSignedUrl("/internal/automations/session-artifact"),
+          trace_url: createSignedUrl("/internal/automations/trace"),
         },
+        runner: runnerContract,
       },
       timeout_ms: timeoutMs,
     });
@@ -789,11 +825,16 @@ export const handleInternalAutomationDispatchRequest = async (
   } catch (error) {
     const typedError = toAutomationRouteError(error, "automation_route_failed");
     const { code, message } = extractAutomationRouteError(typedError);
+    const normalizedMessage =
+      message ===
+      "Sandbox automations run through the OpenAI Agents SDK. Configure an OpenAI automation model instead of a Claude model."
+        ? AUTOMATION_SANDBOX_MODEL_ERROR
+        : message;
     await deps.convex
       .updateAutomationRunStatus({
         automationRunId: context.run.id,
         status: AUTOMATION_RUN_STATUS.cancelled,
-        errorMessage: `Dispatch failed: ${typedError.message}`,
+        errorMessage: `Dispatch failed: ${normalizedMessage}`,
       })
       .catch(() => undefined);
 
@@ -801,7 +842,7 @@ export const handleInternalAutomationDispatchRequest = async (
       automation_id: context.automation.id,
       automation_run_id: context.run.id,
       workspace_id: context.automation.workspace_id,
-      error: message,
+      error: normalizedMessage,
       ...(code ? { error_code: code } : {}),
     });
     return jsonResponse(
@@ -809,7 +850,7 @@ export const handleInternalAutomationDispatchRequest = async (
       {
         ok: false,
         status: AUTOMATION_ROUTE_STATUS.dispatchFailed,
-        error: message,
+        error: normalizedMessage,
         ...(code ? { error_code: code } : {}),
       },
       500,
@@ -883,6 +924,71 @@ export const handleInternalAutomationLogRequest = async (
     ok: true,
     ingested: limited.length,
   });
+};
+
+export const handleInternalAutomationTraceRequest = async (
+  request: Request,
+  deps = getDefaultDeps(),
+): Promise<Response> => {
+  let payload: ReturnType<typeof parseTracePayload>;
+  try {
+    payload = await parseRequestPayload(request, deps, parseTracePayload);
+  } catch (error) {
+    const invalidPayload = mapInvalidPayloadError(error);
+    if (invalidPayload) {
+      return jsonResponse(request, invalidPayload, 400);
+    }
+    throw error;
+  }
+
+  if (!hasValidAutomationCallbackSignature(request, payload.automation_run_id)) {
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.invalidSignature,
+      },
+      401,
+    );
+  }
+
+  try {
+    const recorded = await deps.convex.recordAutomationRunTrace({
+      automationRunId: payload.automation_run_id,
+      exportStatus: payload.export_status,
+      ...(payload.trace_id !== undefined ? { traceId: payload.trace_id } : {}),
+      ...(payload.group_id !== undefined ? { groupId: payload.group_id } : {}),
+      ...(payload.workflow_name !== undefined ? { workflowName: payload.workflow_name } : {}),
+      ...(payload.last_response_id !== undefined
+        ? { lastResponseId: payload.last_response_id }
+        : {}),
+      ...(payload.error_message !== undefined ? { errorMessage: payload.error_message } : {}),
+    });
+
+    return jsonResponse(request, {
+      ok: true,
+      recorded: recorded.recorded,
+    });
+  } catch (error) {
+    const typedError = toAutomationRouteError(error, "automation_route_failed");
+    const { code, message } = extractAutomationRouteError(typedError);
+    deps.logger.error("automation.trace.failed", {
+      automation_run_id: payload.automation_run_id,
+      export_status: payload.export_status,
+      error: message,
+      ...(code ? { error_code: code } : {}),
+    });
+    return jsonResponse(
+      request,
+      {
+        ok: false,
+        status: AUTOMATION_ROUTE_STATUS.traceFailed,
+        error: message,
+        ...(code ? { error_code: code } : {}),
+      },
+      500,
+    );
+  }
 };
 
 export const handleInternalAutomationSessionArtifactRequest = async (
@@ -996,6 +1102,9 @@ export const dispatchStartOwnedAutomationRuntimeRequest = async (
   }
   if (request.method === "POST" && pathname === "/internal/automations/log") {
     return await handleInternalAutomationLogRequest(request, deps ?? getDefaultDeps());
+  }
+  if (request.method === "POST" && pathname === "/internal/automations/trace") {
+    return await handleInternalAutomationTraceRequest(request, deps ?? getDefaultDeps());
   }
   if (request.method === "POST" && pathname === "/internal/automations/session-artifact") {
     return await handleInternalAutomationSessionArtifactRequest(request, deps ?? getDefaultDeps());
