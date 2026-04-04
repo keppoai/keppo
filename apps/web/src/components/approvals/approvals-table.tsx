@@ -1,4 +1,5 @@
 import { Fragment, useMemo } from "react";
+import { Layers3 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -17,6 +18,7 @@ import {
   EmptyIllustration,
   EmptyTitle,
 } from "@/components/ui/empty";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getRiskBadgeVariant } from "@/lib/action-badges";
 import { relativeTime, fullTimestamp } from "@/lib/format";
 import type { ApprovalGroup } from "@/lib/approvals-view-model";
@@ -149,6 +151,7 @@ export function ApprovalsTable({
                           <Badge variant={group.pending_count > 0 ? "secondary" : "outline"}>
                             {group.pending_count} pending
                           </Badge>
+                          {showGroupActions ? <Badge variant="warning">Batch review</Badge> : null}
                         </div>
                         <p className="text-xs text-muted-foreground">
                           {group.automation_run_started_at
@@ -161,25 +164,57 @@ export function ApprovalsTable({
                       </div>
                       {showGroupActions ? (
                         <div className="flex flex-wrap gap-2">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              void Promise.resolve(onApproveGroup(group.pending_action_ids));
-                            }}
-                            disabled={groupBusy}
-                            data-testid="approval-group-approve"
-                          >
-                            {groupBusy ? "Working..." : `Approve group (${group.pending_count})`}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => onRequestReject(group.pending_action_ids)}
-                            disabled={groupBusy}
-                            data-testid="approval-group-reject"
-                          >
-                            Reject group ({group.pending_count})
-                          </Button>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <span className="inline-flex">
+                                  <Button
+                                    size="default"
+                                    className="shadow-sm"
+                                    aria-label={`Approve all ${group.pending_count} pending actions in ${group.automation_name?.trim() || `run ${formatRunId(group.automation_run_id)}`}`}
+                                    onClick={() => {
+                                      void Promise.resolve(
+                                        onApproveGroup(group.pending_action_ids),
+                                      );
+                                    }}
+                                    disabled={groupBusy}
+                                    data-testid="approval-group-approve"
+                                  >
+                                    <Layers3 />
+                                    {groupBusy
+                                      ? "Working..."
+                                      : `Approve group (${group.pending_count})`}
+                                  </Button>
+                                </span>
+                              }
+                            />
+                            <TooltipContent>
+                              Approve every pending action still visible in this run
+                            </TooltipContent>
+                          </Tooltip>
+                          <Tooltip>
+                            <TooltipTrigger
+                              render={
+                                <span className="inline-flex">
+                                  <Button
+                                    size="default"
+                                    variant="destructive"
+                                    className="shadow-sm"
+                                    aria-label={`Reject all ${group.pending_count} pending actions in ${group.automation_name?.trim() || `run ${formatRunId(group.automation_run_id)}`}`}
+                                    onClick={() => onRequestReject(group.pending_action_ids)}
+                                    disabled={groupBusy}
+                                    data-testid="approval-group-reject"
+                                  >
+                                    <Layers3 />
+                                    Reject group ({group.pending_count})
+                                  </Button>
+                                </span>
+                              }
+                            />
+                            <TooltipContent>
+                              Reject every pending action still visible in this run
+                            </TooltipContent>
+                          </Tooltip>
                         </div>
                       ) : null}
                     </div>

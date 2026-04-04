@@ -559,6 +559,8 @@ describe("usability query bounds", () => {
           id: `act_list_${index}`,
           workspace_id: workspaceId,
           automation_run_id: runId,
+          automation_name: "Action List Automation",
+          automation_run_started_at: "2026-03-03T00:00:00.000Z",
           tool_call_id: `tcall_list_${index}`,
           action_type: "send_email",
           risk_level: "medium",
@@ -576,6 +578,8 @@ describe("usability query bounds", () => {
       await ctx.db.insert("actions", {
         id: "act_legacy_pending",
         automation_run_id: runId,
+        automation_name: "Action List Automation",
+        automation_run_started_at: "2026-03-03T00:00:00.000Z",
         tool_call_id: "tcall_legacy_pending",
         action_type: "send_email",
         risk_level: "medium",
@@ -592,6 +596,8 @@ describe("usability query bounds", () => {
       await ctx.db.insert("actions", {
         id: "act_legacy_approved",
         automation_run_id: runId,
+        automation_name: "Action List Automation",
+        automation_run_started_at: "2026-03-03T00:00:00.000Z",
         tool_call_id: "tcall_legacy_approved",
         action_type: "send_email",
         risk_level: "medium",

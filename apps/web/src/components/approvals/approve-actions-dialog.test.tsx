@@ -8,6 +8,13 @@ describe("ApproveActionsDialog", () => {
       <ApproveActionsDialog
         open
         pendingCount={2}
+        actionTypes={["gmail.sendEmail", "stripe.refund"]}
+        runSummaries={[
+          { runId: "run_1", label: "Daily Digest", pendingCount: 2 },
+          { runId: "run_2", label: "Refund Escalation", pendingCount: 1 },
+        ]}
+        criticalRiskCount={1}
+        highRiskCount={1}
         submitting={false}
         onConfirm={() => undefined}
         onCancel={() => undefined}
@@ -16,6 +23,9 @@ describe("ApproveActionsDialog", () => {
 
     expect(screen.getByRole("heading", { name: "Approve 2 actions?" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve 2" })).toBeEnabled();
+    expect(screen.getByText("Selection summary")).toBeInTheDocument();
+    expect(screen.getByText("Daily Digest: 2 pending")).toBeInTheDocument();
+    expect(screen.getByText("1 critical")).toBeInTheDocument();
   });
 
   it("disables confirmation while submission is in flight", () => {
@@ -23,6 +33,10 @@ describe("ApproveActionsDialog", () => {
       <ApproveActionsDialog
         open
         pendingCount={2}
+        actionTypes={["gmail.sendEmail"]}
+        runSummaries={[{ runId: "run_1", label: "Daily Digest", pendingCount: 2 }]}
+        criticalRiskCount={0}
+        highRiskCount={0}
         submitting
         onConfirm={() => undefined}
         onCancel={() => undefined}
@@ -39,6 +53,10 @@ describe("ApproveActionsDialog", () => {
       <ApproveActionsDialog
         open
         pendingCount={0}
+        actionTypes={[]}
+        runSummaries={[]}
+        criticalRiskCount={0}
+        highRiskCount={0}
         submitting={false}
         onConfirm={() => undefined}
         onCancel={onCancel}

@@ -116,12 +116,13 @@ function ApprovalsPage() {
   const visibleActions = approvalQueueView.ordered_actions;
   const visibleActionIds = approvalQueueView.visible_action_ids;
   const visibleGroups = approvalQueueView.groups;
+  const selectedActionIdSet = useMemo(() => new Set(selectedActionIds), [selectedActionIds]);
   const panelFeedback = useMemo(
     () => buildPanelFeedback(feedback, selectedActionId, visibleActionIds, inspectAction),
     [feedback, inspectAction, selectedActionId, visibleActionIds],
   );
   const allVisibleSelected =
-    visibleActionIds.length > 0 && visibleActionIds.every((id) => selectedActionIds.includes(id));
+    visibleActionIds.length > 0 && visibleActionIds.every((id) => selectedActionIdSet.has(id));
   const selectedAction = useMemo(
     () => visibleActions.find((action) => action.id === selectedActionId) ?? null,
     [selectedActionId, visibleActions],
@@ -154,11 +155,11 @@ function ApprovalsPage() {
   const selectedRunCount = useMemo(() => {
     const selectedRuns = new Set(
       visibleActions
-        .filter((action) => selectedActionIds.includes(action.id))
+        .filter((action) => selectedActionIdSet.has(action.id))
         .map((action) => action.automation_run_id),
     );
     return selectedRuns.size;
-  }, [selectedActionIds, visibleActions]);
+  }, [selectedActionIdSet, visibleActions]);
   const remainingAfterCurrent = Math.max(
     visiblePendingCount - (selectedAction?.status === "pending" ? 1 : 0),
     0,
@@ -170,6 +171,34 @@ function ApprovalsPage() {
     return [...new Set(approveTargetIds)].filter((id) => pendingIdSet.has(id));
   }, [approveTargetIds, visibleActions]);
   const approveDialogCount = approveDialogPendingIds.length;
+  const approveDialogSummary = useMemo(() => {
+    const pendingIdSet = new Set(approveDialogPendingIds);
+    const pendingActions = visibleActions.filter((action) => pendingIdSet.has(action.id));
+    const runs = new Map<string, { runId: string; label: string; pendingCount: number }>();
+
+    for (const action of pendingActions) {
+      const existing = runs.get(action.automation_run_id);
+      const label =
+        action.automation_name?.trim() ||
+        `Run ${action.automation_run_id.replace(/^run_/, "").slice(0, 8)}`;
+      if (existing) {
+        existing.pendingCount += 1;
+        continue;
+      }
+      runs.set(action.automation_run_id, {
+        runId: action.automation_run_id,
+        label,
+        pendingCount: 1,
+      });
+    }
+
+    return {
+      actionTypes: [...new Set(pendingActions.map((action) => action.action_type))].slice(0, 4),
+      runSummaries: [...runs.values()],
+      criticalRiskCount: pendingActions.filter((action) => action.risk_level === "critical").length,
+      highRiskCount: pendingActions.filter((action) => action.risk_level === "high").length,
+    };
+  }, [approveDialogPendingIds, visibleActions]);
 
   useEffect(() => {
     setSelectedActionIds((current) => current.filter((id) => visibleActionIds.includes(id)));
@@ -217,7 +246,10 @@ function ApprovalsPage() {
   const handleApproveIds = async (ids: string[]) => {
     const pendingIds = resolvePendingVisibleIds(ids);
     if (pendingIds.length === 0) {
-      return;
+      return {
+        successfulIds: [] as string[],
+        failedIds: [] as string[],
+      };
     }
 
     try {
@@ -273,8 +305,13 @@ function ApprovalsPage() {
           });
         }
       }
+      return { successfulIds, failedIds };
     } catch (error) {
       setPanelError(toUserFacingError(error, { fallback: "Failed to approve action." }));
+      return {
+        successfulIds: [] as string[],
+        failedIds: pendingIds,
+      };
     } finally {
       removeBusyActionIds(pendingIds);
     }
@@ -390,8 +427,8 @@ function ApprovalsPage() {
     }
     setSubmittingApprove(true);
     try {
-      await handleApproveIds(pendingIds);
-      setApproveTargetIds([]);
+      const result = await handleApproveIds(pendingIds);
+      setApproveTargetIds(result.failedIds);
     } finally {
       setSubmittingApprove(false);
     }
@@ -483,8 +520,8 @@ function ApprovalsPage() {
         </div>
 
         <div className="grid gap-3 md:grid-cols-3">
-          <div className="rounded-2xl border bg-muted/20 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+          <div className="rounded-2xl border border-primary/20 bg-background px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary/75">
               Ready now
             </p>
             <p className="mt-2 text-2xl font-semibold">{visibleActions.length}</p>
@@ -493,8 +530,8 @@ function ApprovalsPage() {
               this view
             </p>
           </div>
-          <div className="rounded-2xl border border-destructive/30 bg-destructive/8 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-destructive">
+          <div className="rounded-2xl border border-destructive/20 bg-background px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-destructive/80">
               Review first
             </p>
             <p className="mt-2 text-2xl font-semibold">{visibleHighRiskCount}</p>
@@ -502,8 +539,8 @@ function ApprovalsPage() {
               Critical or high-risk actions in this view
             </p>
           </div>
-          <div className="rounded-2xl border border-primary/25 bg-primary/8 px-4 py-3">
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">
+          <div className="rounded-2xl border border-secondary/30 bg-background px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium uppercase tracking-[0.16em] text-secondary">
               After this one
             </p>
             <p className="mt-2 text-2xl font-semibold">{remainingAfterCurrent}</p>
@@ -636,6 +673,10 @@ function ApprovalsPage() {
       <ApproveActionsDialog
         open={approveTargetIds.length > 0}
         pendingCount={approveDialogCount}
+        actionTypes={approveDialogSummary.actionTypes}
+        runSummaries={approveDialogSummary.runSummaries}
+        criticalRiskCount={approveDialogSummary.criticalRiskCount}
+        highRiskCount={approveDialogSummary.highRiskCount}
         submitting={submittingApprove}
         onConfirm={() => void handleConfirmApprove()}
         onCancel={() => setApproveTargetIds([])}

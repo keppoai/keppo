@@ -78,18 +78,16 @@ const resolveWorkspaceByRunId = async (
     return null;
   }
 
-  const automationId = run.automation_id ?? null;
-  const automation = automationId
-    ? await ctx.db
-        .query("automations")
-        .withIndex("by_custom_id", (q) => q.eq("id", automationId))
-        .unique()
-    : null;
+  const runMetadata = normalizeJsonRecord(run.metadata);
+  const metadataAutomationName =
+    typeof runMetadata.automation_name === "string" && runMetadata.automation_name.trim()
+      ? runMetadata.automation_name.trim()
+      : null;
 
   return {
     run,
     workspace,
-    automationName: automation?.name?.trim() ? automation.name.trim() : null,
+    automationName: metadataAutomationName,
   };
 };
 

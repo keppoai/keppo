@@ -788,6 +788,7 @@ const createAutomationRunInternal = async (
     client_type: "other",
     metadata: {
       automation_run_status: AUTOMATION_RUN_STATUS.pending,
+      automation_name: automation.name,
       log_bytes: 0,
       log_eviction_noted: false,
     },
