@@ -20,6 +20,9 @@ const refs = {
   upsertSubscriptionForOrg: makeFunctionReference<"mutation">(
     "billing/subscriptions:upsertSubscriptionForOrg",
   ),
+  syncAiCreditsFromGateway: makeFunctionReference<"mutation">(
+    "ai_credits:syncAiCreditsFromGateway",
+  ),
   deductAiCredit: makeFunctionReference<"mutation">("ai_credits:deductAiCredit"),
   expirePurchasedCredits: makeFunctionReference<"mutation">("ai_credits:expirePurchasedCredits"),
   resetMonthlyAllowance: makeFunctionReference<"mutation">("ai_credits:resetMonthlyAllowance"),
@@ -221,6 +224,42 @@ describe("convex ai credit functions", () => {
     expect(newer?.credits_remaining).toBe(1);
     expect(row?.purchased_balance).toBe(1);
     expect(balance.purchased_remaining).toBe(1);
+  });
+
+  it("marks nearly depleted purchased credits as depleted after a legacy deduction", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-22T12:00:00.000Z"));
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_ai_nearly_depleted_purchase";
+    const period = await seedSubscription(t, orgId, "free");
+
+    await insertAiCreditsRow(t, {
+      orgId,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      allowanceTotal: 0,
+      allowanceUsed: 0,
+      purchasedBalance: 1.0001,
+    });
+    await insertPurchase(t, {
+      id: "aicp_nearly_depleted",
+      orgId,
+      creditsRemaining: 1.0001,
+      purchasedAt: "2026-03-01T00:00:00.000Z",
+      expiresAt: "2026-06-20T12:00:00.000Z",
+    });
+
+    await t.mutation(refs.deductAiCredit, { org_id: orgId });
+
+    const purchase = await t.run((ctx) =>
+      ctx.db
+        .query("ai_credit_purchases")
+        .withIndex("by_custom_id", (q) => q.eq("id", "aicp_nearly_depleted"))
+        .unique(),
+    );
+
+    expect(purchase?.credits_remaining).toBe(0.0001);
+    expect(purchase?.status).toBe(AI_CREDIT_PURCHASE_STATUS.depleted);
   });
 
   it("consumes purchased credits in FIFO order", async () => {
@@ -453,6 +492,49 @@ describe("convex ai credit functions", () => {
     expect(reset.allowance_used).toBe(0);
     expect(reset.allowance_total).toBe(getAiCreditAllowanceForTier(SUBSCRIPTION_TIER.starter));
     expect(reset.purchased_balance).toBe(5);
+  });
+
+  it("recomputes purchased balance from active purchases during gateway sync", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-03-22T12:00:00.000Z"));
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_gateway_purchase_resync";
+    const period = await seedSubscription(t, orgId, "starter");
+
+    await insertAiCreditsRow(t, {
+      orgId,
+      periodStart: period.periodStart,
+      periodEnd: period.periodEnd,
+      allowanceTotal: getAiCreditAllowanceForTier(SUBSCRIPTION_TIER.starter),
+      allowanceUsed: 0,
+      purchasedBalance: 0,
+    });
+    await insertPurchase(t, {
+      id: "aicp_gateway_resync",
+      orgId,
+      creditsRemaining: 4,
+      purchasedAt: "2026-03-05T00:00:00.000Z",
+      expiresAt: "2026-06-20T12:00:00.000Z",
+    });
+
+    const synced = await t.mutation(refs.syncAiCreditsFromGateway, {
+      org_id: orgId,
+      spend_usd: 0,
+      max_budget_usd: 6.6667,
+      budget_reset_at: "2026-04-01T00:00:00.000Z",
+    });
+
+    const row = await t.run((ctx) =>
+      ctx.db
+        .query("ai_credits")
+        .withIndex("by_org_period", (q) =>
+          q.eq("org_id", orgId).eq("period_start", period.periodStart),
+        )
+        .unique(),
+    );
+
+    expect(synced.balance.purchased_remaining).toBe(4);
+    expect(row?.purchased_balance).toBe(4);
   });
 
   it("persists one-time reset rows when purchased credits still remain", async () => {

@@ -581,6 +581,41 @@ const diffBundledGatewaySpend = (params: {
   };
 };
 
+const maybeBuildBundledGenerationFailureResponse = async (params: {
+  request: Request;
+  deps: StartOwnedAutomationApiDeps;
+  orgId: string;
+  generatedClient: Awaited<ReturnType<typeof createOpenAiGenerationClient>> | null;
+  preBundledBalance: Awaited<ReturnType<typeof syncBundledGenerationCredits>> | null;
+}): Promise<Response | null> => {
+  if (params.generatedClient?.mode !== "bundled" || !params.preBundledBalance) {
+    return null;
+  }
+  const bundledBalance = await syncBundledGenerationCredits({
+    deps: params.deps,
+    orgId: params.orgId,
+    gatewayBaseUrl: params.generatedClient.gatewayBaseUrl,
+  }).catch(() => null);
+  if (!isAiCreditBalanceExhausted(bundledBalance?.balance)) {
+    return null;
+  }
+  const charged = diffBundledGatewaySpend({
+    beforeSpendUsd: params.preBundledBalance.spendUsd,
+    afterSpendUsd: bundledBalance!.spendUsd,
+  });
+  if (charged.chargedBudgetUsd <= 0) {
+    return null;
+  }
+  return jsonResponse(
+    params.request,
+    {
+      ok: false,
+      status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+    },
+    402,
+  );
+};
+
 const requireGeneratedClient = (
   generatedClient: Awaited<ReturnType<typeof createOpenAiGenerationClient>> | null,
 ): Awaited<ReturnType<typeof createOpenAiGenerationClient>> => {
@@ -1006,22 +1041,15 @@ export const handleGenerateAutomationQuestionsRequest = async (
             }),
     });
   } catch (error) {
-    if (generatedClient?.mode === "bundled") {
-      const bundledBalance = await syncBundledGenerationCredits({
-        deps,
-        orgId,
-        gatewayBaseUrl: generatedClient.gatewayBaseUrl,
-      }).catch(() => null);
-      if (isAiCreditBalanceExhausted(bundledBalance?.balance)) {
-        return jsonResponse(
-          request,
-          {
-            ok: false,
-            status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
-          },
-          402,
-        );
-      }
+    const bundledFailureResponse = await maybeBuildBundledGenerationFailureResponse({
+      request,
+      deps,
+      orgId,
+      generatedClient,
+      preBundledBalance,
+    });
+    if (bundledFailureResponse) {
+      return bundledFailureResponse;
     }
     const { code } = extractAutomationRouteError(error);
     return jsonResponse(
@@ -1325,22 +1353,15 @@ export const handleGenerateAutomationPromptRequest = async (
             }),
     });
   } catch (error) {
-    if (generatedClient?.mode === "bundled") {
-      const bundledBalance = await syncBundledGenerationCredits({
-        deps,
-        orgId,
-        gatewayBaseUrl: generatedClient.gatewayBaseUrl,
-      }).catch(() => null);
-      if (isAiCreditBalanceExhausted(bundledBalance?.balance)) {
-        return jsonResponse(
-          request,
-          {
-            ok: false,
-            status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
-          },
-          402,
-        );
-      }
+    const bundledFailureResponse = await maybeBuildBundledGenerationFailureResponse({
+      request,
+      deps,
+      orgId,
+      generatedClient,
+      preBundledBalance,
+    });
+    if (bundledFailureResponse) {
+      return bundledFailureResponse;
     }
     const { code } = extractAutomationRouteError(error);
     return jsonResponse(

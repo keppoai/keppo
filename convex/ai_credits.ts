@@ -544,6 +544,7 @@ export const syncAiCreditsFromGateway = internalMutation({
       tier,
       periodStart: period.periodStart,
     });
+    const activePurchases = await listActivePurchases(ctx, args.org_id, now);
     const bundledRuntimeEnabled = supportsBundledAiRuntime(tier) && hasGatewayRuntime();
     const row = await ensureAiCreditsRow(ctx, {
       orgId: args.org_id,
@@ -555,7 +556,7 @@ export const syncAiCreditsFromGateway = internalMutation({
 
     const allowanceTotal = normalizeAiCreditAmount(allowanceConfig.allowanceTotal);
     let allowanceUsed = normalizeAiCreditAmount(row.allowance_used);
-    let purchasedRemaining = normalizeAiCreditAmount(row.purchased_balance);
+    let purchasedRemaining = normalizeAiCreditAmount(sumPurchasedBalance(activePurchases));
     const previousSpendUsd = normalizeDyadGatewayBudgetUsd(row.gateway_spend_usd ?? 0);
     const currentSpendUsd = normalizeDyadGatewayBudgetUsd(args.spend_usd);
     const maxBudgetUsd = normalizeDyadGatewayBudgetUsd(args.max_budget_usd);
@@ -749,7 +750,7 @@ export const deductAiCredit = internalMutation({
         purchasedRemaining: row.purchased_balance,
         bundledRuntimeEnabled,
       });
-      if (balance.total_available === 0) {
+      if (isNearlyZero(balance.total_available)) {
         await emitAiCreditLimitNotificationBestEffort(ctx, args.org_id);
       }
       return balance;
@@ -771,7 +772,9 @@ export const deductAiCredit = internalMutation({
     await ctx.db.patch(oldest._id, {
       credits_remaining: nextRemaining,
       status:
-        nextRemaining <= 0 ? AI_CREDIT_PURCHASE_STATUS.depleted : AI_CREDIT_PURCHASE_STATUS.active,
+        nextRemaining <= AI_CREDIT_EPSILON
+          ? AI_CREDIT_PURCHASE_STATUS.depleted
+          : AI_CREDIT_PURCHASE_STATUS.active,
     });
 
     await ctx.db.patch(row._id, {

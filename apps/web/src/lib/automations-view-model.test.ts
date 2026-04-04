@@ -22,7 +22,7 @@ import {
 describe("automation runner/provider mapping", () => {
   it("strips redundant trailing zeros from formatted AI credit amounts", () => {
     expect(formatAiCreditAmount(9.001)).toBe("9");
-    expect(formatAiCreditAmount(9.1)).toBe("9.10");
+    expect(formatAiCreditAmount(9.1)).toBe("9.1");
     expect(formatAiCreditAmount(12.04)).toBe("12");
   });
 

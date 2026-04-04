@@ -111,6 +111,15 @@ type GeneratedConfig = {
   billing: GenerationBilling | null;
 };
 
+const resolveUsesBundledQuestionBilling = (params: {
+  questionBilling: GenerationBilling | null | undefined;
+  config: GeneratedConfig | null | undefined;
+  aiCreditBalance: AiCreditBalance | null | undefined;
+}): boolean =>
+  params.questionBilling?.remaining_credits !== undefined ||
+  params.config?.credit_balance.bundled_runtime_enabled === true ||
+  params.aiCreditBalance?.bundled_runtime_enabled === true;
+
 type BuilderSettings = {
   model_class: "auto" | "frontier" | "balanced" | "value";
   ai_model_provider: AiModelProvider;
@@ -719,6 +728,17 @@ export function AutomationPromptBox({
   const [questionBilling, setQuestionBilling] = useState<GenerationBilling | null>(
     initialDraft?.questionBilling ?? null,
   );
+  const [latchedUsesBundledQuestionBilling, setLatchedUsesBundledQuestionBilling] = useState<
+    boolean | null
+  >(
+    initialDraft
+      ? resolveUsesBundledQuestionBilling({
+          questionBilling: initialDraft.questionBilling,
+          config: initialDraft.config,
+          aiCreditBalance: null,
+        })
+      : null,
+  );
   const [config, setConfig] = useState<GeneratedConfig | null>(initialDraft?.config ?? null);
   const [settings, setSettings] = useState<BuilderSettings>(
     initialDraft?.settings ?? DEFAULT_SETTINGS,
@@ -749,10 +769,13 @@ export function AutomationPromptBox({
     () => summarizeAutomationClarifications(questions, answerEntries),
     [answerEntries, questions],
   );
+  const liveUsesBundledQuestionBilling = resolveUsesBundledQuestionBilling({
+    questionBilling,
+    config,
+    aiCreditBalance,
+  });
   const usesBundledQuestionBilling =
-    questionBilling?.remaining_credits !== undefined ||
-    config?.credit_balance.bundled_runtime_enabled === true ||
-    aiCreditBalance?.bundled_runtime_enabled === true;
+    latchedUsesBundledQuestionBilling ?? liveUsesBundledQuestionBilling;
   const currentQuestion = questions[currentQuestionIndex] ?? null;
   const questionStates = useMemo(
     () =>
@@ -896,6 +919,7 @@ export function AutomationPromptBox({
     setAnswers({});
     setCurrentQuestionIndex(0);
     setQuestionBilling(null);
+    setLatchedUsesBundledQuestionBilling(null);
     setConfig(null);
     setSkippedProviders([]);
     setGenerationPhase(null);
@@ -931,6 +955,9 @@ export function AutomationPromptBox({
         if (generationRequestIdRef.current !== requestId) {
           return;
         }
+        setLatchedUsesBundledQuestionBilling(
+          (current) => (current ?? false) || parsed.credit_balance.bundled_runtime_enabled === true,
+        );
         setConfig(parsed);
         setStep("draft");
         setError(null);
@@ -969,6 +996,7 @@ export function AutomationPromptBox({
     setAnswers({});
     setCurrentQuestionIndex(0);
     setQuestionBilling(null);
+    setLatchedUsesBundledQuestionBilling(liveUsesBundledQuestionBilling);
     setSkippedProviders([]);
     setGenerationPhase("questions");
     const requestId = ++generationRequestIdRef.current;
@@ -989,6 +1017,9 @@ export function AutomationPromptBox({
       setAnswers({});
       setCurrentQuestionIndex(0);
       setQuestionBilling(parsed.billing);
+      setLatchedUsesBundledQuestionBilling(
+        parsed.billing?.remaining_credits !== undefined || liveUsesBundledQuestionBilling,
+      );
       setError(null);
       if (parsed.questions.length === 0) {
         setStatusMessage("No clarifying questions were needed. Drafting the automation now.");
@@ -1003,9 +1034,16 @@ export function AutomationPromptBox({
         return;
       }
       setGenerationPhase(null);
+      setLatchedUsesBundledQuestionBilling(null);
       setError(toBuilderGenerationError(caught));
     }
-  }, [inputValue, runDraftGeneration, runtime.authClient, workspaceId]);
+  }, [
+    inputValue,
+    liveUsesBundledQuestionBilling,
+    runDraftGeneration,
+    runtime.authClient,
+    workspaceId,
+  ]);
 
   const handleQuestionContinue = useCallback(() => {
     if (!currentQuestion) {

@@ -245,18 +245,19 @@ const syncBundledGatewayForOrg = async (params: {
   }
 
   const existingUser = await getDyadGatewayUserInfo(params.orgId);
-  const syncedBalance = existingUser
-    ? await params.convex.syncAiCreditsFromGateway({
-        orgId: params.orgId,
-        spendUsd: existingUser.spend,
-        maxBudgetUsd: existingUser.max_budget,
-        budgetResetAt: existingUser.budget_reset_at,
-      })
-    : null;
+  const syncedBalance =
+    existingUser && !params.resetGatewaySpend
+      ? await params.convex.syncAiCreditsFromGateway({
+          orgId: params.orgId,
+          spendUsd: existingUser.spend,
+          maxBudgetUsd: existingUser.max_budget,
+          budgetResetAt: existingUser.budget_reset_at,
+        })
+      : null;
   const balance =
     syncedBalance?.balance ?? (await params.convex.getAiCreditBalance({ orgId: params.orgId }));
   const remainingCredits = params.resetGatewaySpend
-    ? getAiCreditAllowanceForTier(params.tier) + balance.purchased_remaining
+    ? balance.total_available
     : balance.total_available;
   const nextMaxBudgetUsd = resolveDyadGatewayMaxBudgetUsd({
     remainingCredits,
@@ -2224,6 +2225,20 @@ export const handleStripeBillingWebhookRequest = async (
               priceCents,
               stripePaymentIntentId: readCheckoutPaymentIntentId(session),
             });
+            const subscription = await deps.convex.getSubscriptionForOrg(orgId);
+            if (
+              subscription &&
+              (subscription.tier === SUBSCRIPTION_TIER.starter ||
+                subscription.tier === SUBSCRIPTION_TIER.pro)
+            ) {
+              await syncBundledGatewayForOrg({
+                convex: deps.convex,
+                orgId,
+                tier: subscription.tier,
+                status: subscription.status,
+                resetGatewaySpend: false,
+              });
+            }
             await deps.convex.createAuditEvent({
               orgId,
               actorType: AUDIT_ACTOR_TYPE.system,
