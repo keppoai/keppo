@@ -260,13 +260,7 @@ const syncBundledGatewayForOrg = async (params: {
   const existingStoredKey = await readStoredBundledGatewayKey(params.convex, params.orgId);
   let nextKey = existingStoredKey;
 
-  if (!existingUser || params.resetGatewaySpend) {
-    if (existingUser) {
-      if (existingStoredKey) {
-        await deleteDyadGatewayKeys([existingStoredKey]);
-      }
-      await deleteDyadGatewayUser(params.orgId);
-    }
+  if (!existingUser) {
     nextKey = await createDyadGatewayUser({
       orgId: params.orgId,
       maxBudgetUsd: nextMaxBudgetUsd,
@@ -275,6 +269,7 @@ const syncBundledGatewayForOrg = async (params: {
     await updateDyadGatewayUser({
       orgId: params.orgId,
       maxBudgetUsd: nextMaxBudgetUsd,
+      resetSpend: params.resetGatewaySpend,
     });
     if (!nextKey) {
       nextKey = await generateDyadGatewayKey(params.orgId);
@@ -285,14 +280,16 @@ const syncBundledGatewayForOrg = async (params: {
     throw new Error("Failed to provision bundled Dyad Gateway key.");
   }
 
-  for (const provider of BUNDLED_GATEWAY_PROVIDERS) {
-    await params.convex.upsertBundledOrgAiKey({
-      orgId: params.orgId,
-      provider,
-      rawKey: nextKey,
-      createdBy: "billing",
-    });
-  }
+  await Promise.all(
+    BUNDLED_GATEWAY_PROVIDERS.map((provider) =>
+      params.convex.upsertBundledOrgAiKey({
+        orgId: params.orgId,
+        provider,
+        rawKey: nextKey,
+        createdBy: "billing",
+      }),
+    ),
+  );
 };
 
 const toStripeStatus = (status: string | null | undefined): SubscriptionStatus => {

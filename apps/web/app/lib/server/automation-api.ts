@@ -38,6 +38,7 @@ import {
 } from "@keppo/shared/automations";
 import { parseJsonPayload, readBetterAuthSessionToken } from "./api-runtime/app-helpers.ts";
 import {
+  type BundledAiBillingState,
   createBundledOpenAiClientForOrg,
   resolveBundledGatewayUrl,
   syncBundledAiCreditsFromGateway,
@@ -453,15 +454,16 @@ const buildBundledGenerationBillingPayload = (params: {
       charged_credits: 0,
       charged_budget_usd: 0,
       remaining_credits: params.remainingCredits,
-      summary: `Keppo synced your bundled AI balance after ${stageLabel}. No additional gateway spend was recorded.`,
+      summary: `Your bundled AI credit balance updated after ${stageLabel}. No additional credits were used.`,
     };
   }
+  const creditLabel = `bundled AI credit${params.chargedCredits === 1 ? "" : "s"}`;
   return {
     stage: params.stage,
     charged_credits: params.chargedCredits,
     charged_budget_usd: params.chargedBudgetUsd,
     remaining_credits: params.remainingCredits,
-    summary: `Keppo synced ${params.chargedCredits} bundled AI credits of gateway spend for ${stageLabel}.`,
+    summary: `Keppo used ${params.chargedCredits} ${creditLabel} for ${stageLabel}.`,
   };
 };
 
@@ -486,26 +488,41 @@ const createDirectOpenAiClient = (deps: StartOwnedAutomationApiDeps): OpenAI => 
 const isBundledGenerationEnabled = (deps: StartOwnedAutomationApiDeps): boolean =>
   isGatewayRuntimeEnabled(deps.getEnv().KEPPO_LLM_GATEWAY_URL);
 
+const toBundledBillingState = (state: BundledAiBillingState) => ({
+  balance: state.balance,
+  spendUsd: state.spendUsd,
+  maxBudgetUsd: state.maxBudgetUsd,
+  budgetResetAt: state.budgetResetAt,
+});
+
 const createOpenAiGenerationClient = async (params: {
   deps: StartOwnedAutomationApiDeps;
   orgId: string;
-}): Promise<{ client: OpenAI; mode: "bundled" | "direct"; gatewayBaseUrl: string | null }> => {
+}): Promise<{
+  client: OpenAI;
+  mode: "bundled" | "direct";
+  gatewayBaseUrl: string | null;
+  billingState: ReturnType<typeof toBundledBillingState> | null;
+}> => {
   const gatewayBaseUrl = resolveBundledGatewayUrl(params.deps.getEnv().KEPPO_LLM_GATEWAY_URL);
   if (!gatewayBaseUrl || !isBundledGenerationEnabled(params.deps)) {
     return {
       client: createDirectOpenAiClient(params.deps),
       mode: "direct",
       gatewayBaseUrl: null,
+      billingState: null,
     };
   }
+  const bundled = await createBundledOpenAiClientForOrg({
+    convex: params.deps.convex,
+    orgId: params.orgId,
+    gatewayBaseUrl,
+  });
   return {
-    client: await createBundledOpenAiClientForOrg({
-      convex: params.deps.convex,
-      orgId: params.orgId,
-      gatewayBaseUrl,
-    }),
+    client: bundled.client,
     mode: "bundled",
     gatewayBaseUrl,
+    billingState: toBundledBillingState(bundled.billingState),
   };
 };
 
@@ -521,6 +538,12 @@ const syncBundledGenerationCredits = async (params: {
     gatewayBaseUrl: params.gatewayBaseUrl,
     ...(params.usageSource ? { usageSource: params.usageSource } : {}),
   });
+  if (!snapshot) {
+    throw createAutomationRouteError(
+      "automation_route_failed",
+      "Bundled AI gateway user is unavailable.",
+    );
+  }
   return {
     balance: snapshot.synced.balance,
     spendUsd: snapshot.gatewayUser.spend,
@@ -846,14 +869,7 @@ export const handleGenerateAutomationQuestionsRequest = async (
           deps,
           orgId,
         });
-    preBundledBalance =
-      generatedClient?.mode === "bundled"
-        ? await syncBundledGenerationCredits({
-            deps,
-            orgId,
-            gatewayBaseUrl: generatedClient.gatewayBaseUrl,
-          })
-        : null;
+    preBundledBalance = generatedClient?.mode === "bundled" ? generatedClient.billingState : null;
   } catch {
     return jsonResponse(
       request,
@@ -1033,14 +1049,7 @@ export const handleGenerateAutomationPromptRequest = async (
           deps,
           orgId,
         });
-    preBundledBalance =
-      generatedClient?.mode === "bundled"
-        ? await syncBundledGenerationCredits({
-            deps,
-            orgId,
-            gatewayBaseUrl: generatedClient.gatewayBaseUrl,
-          })
-        : null;
+    preBundledBalance = generatedClient?.mode === "bundled" ? generatedClient.billingState : null;
   } catch {
     return jsonResponse(
       request,

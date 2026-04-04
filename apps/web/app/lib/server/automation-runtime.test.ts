@@ -388,6 +388,7 @@ describe("start-owned automation runtime handlers", () => {
         automationRunId: "arun_dispatch_test",
         status: "running",
         sandboxId: "sandbox_test",
+        aiKeyMode: "byok",
       }),
     );
   });
@@ -680,13 +681,22 @@ describe("start-owned automation runtime handlers", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
-        new Response("event: message\ndata: {}\n\n", {
-          status: 200,
-          headers: {
-            "content-type": "text/event-stream",
-            "mcp-session-id": "mcp_test_session",
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
           },
-        }),
+        ),
       )
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(
@@ -706,7 +716,17 @@ describe("start-owned automation runtime handlers", () => {
             },
           },
         ),
-      );
+      )
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }));
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_legacy_oauth_test",
@@ -990,6 +1010,25 @@ describe("start-owned automation runtime handlers", () => {
     const fetchSpy = vi
       .spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
           headers: {
@@ -1224,6 +1263,12 @@ describe("start-owned automation runtime handlers", () => {
       }),
     );
     expect(deps.sandboxProvider.dispatch).toHaveBeenCalledTimes(1);
+    expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledWith(
+      expect.objectContaining({
+        automationRunId: "arun_bundled_missing_key",
+        aiKeyMode: "bundled",
+      }),
+    );
   });
 
   it("requires a self-managed key when the org has no bundled runtime available", async () => {
@@ -1312,6 +1357,25 @@ describe("start-owned automation runtime handlers", () => {
     });
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 6.6667,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
           headers: {
@@ -1339,6 +1403,26 @@ describe("start-owned automation runtime handlers", () => {
           },
         ),
       );
+    deps.convex.syncAiCreditsFromGateway.mockResolvedValueOnce({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-01T00:00:00.000Z",
+        period_end: "2026-04-01T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 0,
+        allowance_remaining: 100,
+        purchased_remaining: 0,
+        total_available: 100,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 6.6667,
+      current_spend_usd: 6.6667,
+      max_budget_usd: 6.6667,
+      budget_reset_at: "2026-04-01T00:00:00.000Z",
+    });
     deps.convex.syncAiCreditsFromGateway.mockResolvedValueOnce({
       balance: {
         org_id: "org_test",
@@ -1862,6 +1946,172 @@ describe("start-owned automation runtime handlers", () => {
     });
     expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledTimes(3);
     expect(deps.logger.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps successful completion callbacks green when bundled credit sync cannot find a gateway user", async () => {
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "gateway_team_test");
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
+    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_complete_bundled",
+        automation_id: "automation_complete_bundled",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "running",
+        sandbox_id: "sandbox_test",
+        ai_key_mode: "bundled",
+      },
+      automation: {
+        id: "automation_complete_bundled",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Bundled completion",
+        memory: "",
+        status: "active",
+      },
+      config: {
+        id: "cfg_test",
+        automation_id: "automation_complete_bundled",
+        trigger_type: "manual",
+        schedule_cron: null,
+        provider_trigger: null,
+        provider_trigger_migration_state: null,
+        event_provider: null,
+        event_type: null,
+        event_predicate: null,
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Do work",
+        network_access: "mcp_only",
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 404 }));
+
+    const completionRequest = withJson(
+      "/internal/automations/complete?automation_run_id=arun_complete_bundled&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_complete_bundled",
+        status: "succeeded",
+      },
+    );
+    const completeUrl = new URL(completionRequest.url);
+    completeUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(
+          `${completeUrl.pathname}:arun_complete_bundled:${completeUrl.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
+
+    const response = await handleInternalAutomationCompleteRequest(
+      new Request(completeUrl, {
+        method: "POST",
+        headers: completionRequest.headers,
+        body: await completionRequest.text(),
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: "succeeded",
+    });
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "automation.complete.credit_sync_skipped",
+      expect.objectContaining({
+        automation_run_id: "arun_complete_bundled",
+        reason: "bundled_gateway_user_missing",
+      }),
+    );
+  });
+
+  it("skips hosted completion credit sync for non-bundled runs", async () => {
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
+    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_complete_byok",
+        automation_id: "automation_complete_byok",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "running",
+        sandbox_id: "sandbox_test",
+        ai_key_mode: "byok",
+      },
+      automation: {
+        id: "automation_complete_byok",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "BYOK completion",
+        memory: "",
+        status: "active",
+      },
+      config: {
+        id: "cfg_test",
+        automation_id: "automation_complete_byok",
+        trigger_type: "manual",
+        schedule_cron: null,
+        provider_trigger: null,
+        provider_trigger_migration_state: null,
+        event_provider: null,
+        event_type: null,
+        event_predicate: null,
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Do work",
+        network_access: "mcp_only",
+      },
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const completionRequest = withJson(
+      "/internal/automations/complete?automation_run_id=arun_complete_byok&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_complete_byok",
+        status: "succeeded",
+      },
+    );
+    const completeUrl = new URL(completionRequest.url);
+    completeUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(
+          `${completeUrl.pathname}:arun_complete_byok:${completeUrl.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
+
+    const response = await handleInternalAutomationCompleteRequest(
+      new Request(completeUrl, {
+        method: "POST",
+        headers: completionRequest.headers,
+        body: await completionRequest.text(),
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: "succeeded",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("returns a typed error when completion status updates keep failing", async () => {

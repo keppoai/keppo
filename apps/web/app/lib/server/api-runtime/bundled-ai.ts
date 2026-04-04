@@ -27,6 +27,13 @@ type BundledAiSyncSnapshot = {
   synced: Awaited<ReturnType<BundledAiConvex["syncAiCreditsFromGateway"]>>;
 };
 
+export type BundledAiBillingState = {
+  balance: Awaited<ReturnType<BundledAiConvex["getAiCreditBalance"]>>;
+  spendUsd: number;
+  maxBudgetUsd: number;
+  budgetResetAt: string | null;
+};
+
 const BUNDLED_GATEWAY_PROVIDERS: AiModelProvider[] = ["openai", "anthropic"];
 
 export const resolveBundledGatewayUrl = (value: string | null | undefined): string | null => {
@@ -49,14 +56,11 @@ export const syncBundledAiCreditsFromGateway = async (params: {
   orgId: string;
   gatewayBaseUrl: string | null;
   usageSource?: AiCreditUsageSource;
-}): Promise<BundledAiSyncSnapshot> => {
+}): Promise<BundledAiSyncSnapshot | null> => {
   assertBundledGatewayManagementConfigured(params.gatewayBaseUrl);
   const gatewayUser = await getDyadGatewayUserInfo(params.orgId);
   if (!gatewayUser) {
-    throw createAutomationRouteError(
-      "automation_route_failed",
-      "Bundled AI gateway user is unavailable.",
-    );
+    return null;
   }
   const synced = await params.convex.syncAiCreditsFromGateway({
     orgId: params.orgId,
@@ -79,21 +83,15 @@ export const ensureBundledGatewayKeyForOrg = async (params: {
 }): Promise<{
   encryptedKey: string;
   credentialKind: "secret";
+  billingState: BundledAiBillingState;
 }> => {
+  assertBundledGatewayManagementConfigured(params.gatewayBaseUrl);
   const existingKey = await params.convex.getOrgAiKey({
     orgId: params.orgId,
     provider: params.provider,
     keyMode: AI_KEY_MODE.bundled,
   });
-  if (existingKey?.is_active) {
-    return {
-      encryptedKey: existingKey.encrypted_key,
-      credentialKind: "secret",
-    };
-  }
-
-  assertBundledGatewayManagementConfigured(params.gatewayBaseUrl);
-  const existingUser = await getDyadGatewayUserInfo(params.orgId);
+  let existingUser = await getDyadGatewayUserInfo(params.orgId);
   if (existingUser) {
     await params.convex.syncAiCreditsFromGateway({
       orgId: params.orgId,
@@ -108,25 +106,44 @@ export const ensureBundledGatewayKeyForOrg = async (params: {
     remainingCredits: balance.total_available,
     currentSpendUsd: existingUser?.spend ?? 0,
   });
-  const rawKey = existingUser
-    ? (await updateDyadGatewayUser({
-        orgId: params.orgId,
+
+  if (existingUser) {
+    await updateDyadGatewayUser({
+      orgId: params.orgId,
+      maxBudgetUsd,
+    });
+  }
+
+  if (existingKey?.is_active && existingUser) {
+    return {
+      encryptedKey: existingKey.encrypted_key,
+      credentialKind: "secret",
+      billingState: {
+        balance,
+        spendUsd: existingUser.spend,
         maxBudgetUsd,
-      }),
-      await generateDyadGatewayKey(params.orgId))
+        budgetResetAt: existingUser.budget_reset_at,
+      },
+    };
+  }
+
+  const rawKey = existingUser
+    ? await generateDyadGatewayKey(params.orgId)
     : await createDyadGatewayUser({
         orgId: params.orgId,
         maxBudgetUsd,
       });
 
-  for (const provider of BUNDLED_GATEWAY_PROVIDERS) {
-    await params.convex.upsertBundledOrgAiKey({
-      orgId: params.orgId,
-      provider,
-      rawKey,
-      createdBy: "bundled_ai",
-    });
-  }
+  await Promise.all(
+    BUNDLED_GATEWAY_PROVIDERS.map((provider) =>
+      params.convex.upsertBundledOrgAiKey({
+        orgId: params.orgId,
+        provider,
+        rawKey,
+        createdBy: "bundled_ai",
+      }),
+    ),
+  );
 
   const provisionedKey = await params.convex.getOrgAiKey({
     orgId: params.orgId,
@@ -143,6 +160,12 @@ export const ensureBundledGatewayKeyForOrg = async (params: {
   return {
     encryptedKey: provisionedKey.encrypted_key,
     credentialKind: "secret",
+    billingState: {
+      balance,
+      spendUsd: existingUser?.spend ?? 0,
+      maxBudgetUsd,
+      budgetResetAt: existingUser?.budget_reset_at ?? null,
+    },
   };
 };
 
@@ -150,7 +173,7 @@ export const createBundledOpenAiClientForOrg = async (params: {
   convex: BundledAiConvex;
   orgId: string;
   gatewayBaseUrl: string | null;
-}): Promise<OpenAI> => {
+}): Promise<{ client: OpenAI; billingState: BundledAiBillingState }> => {
   const gatewayBaseUrl = assertBundledGatewayManagementConfigured(params.gatewayBaseUrl);
   const bundledKey = await ensureBundledGatewayKeyForOrg({
     convex: params.convex,
@@ -158,8 +181,11 @@ export const createBundledOpenAiClientForOrg = async (params: {
     provider: "openai",
     gatewayBaseUrl,
   });
-  return new OpenAI({
-    apiKey: await decryptStoredKey(bundledKey.encryptedKey),
-    baseURL: gatewayBaseUrl,
-  });
+  return {
+    client: new OpenAI({
+      apiKey: await decryptStoredKey(bundledKey.encryptedKey),
+      baseURL: gatewayBaseUrl,
+    }),
+    billingState: bundledKey.billingState,
+  };
 };

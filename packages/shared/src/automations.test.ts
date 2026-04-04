@@ -154,7 +154,8 @@ describe("automations", () => {
     expect(convertAiCreditsToDyadGatewayBudgetUsd(100)).toBeCloseTo(6.6667, 4);
     expect(convertAiCreditsToDyadGatewayBudgetUsd(0)).toBe(0);
     expect(convertDyadGatewayBudgetUsdToAiCredits(20)).toBe(300);
-    expect(convertDyadGatewayBudgetUsdToAiCredits(6.6667)).toBeCloseTo(100.0005, 4);
+    expect(convertDyadGatewayBudgetUsdToAiCredits(6.6667)).toBe(100);
+    expect(convertDyadGatewayBudgetUsdToAiCredits(0.0667)).toBe(1);
     expect(normalizeAiCreditAmount(1.234567)).toBe(1.2346);
     expect(normalizeDyadGatewayBudgetUsd(0.123456)).toBe(0.1235);
   });

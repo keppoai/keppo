@@ -1031,6 +1031,7 @@ export class ConvexInternalClient {
     errorMessage?: string;
     sandboxId?: string | null;
     mcpSessionId?: string | null;
+    aiKeyMode?: "byok" | "bundled" | "subscription_token" | null;
   }): Promise<void> {
     return updateAutomationRunStatusImpl(this.resilientClient, params);
   }

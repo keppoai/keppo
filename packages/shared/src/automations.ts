@@ -801,10 +801,13 @@ export const convertAiCreditsToDyadGatewayBudgetUsd = (credits: number): number 
 };
 
 export const convertDyadGatewayBudgetUsdToAiCredits = (budgetUsd: number): number => {
-  return normalizeAiCreditAmount(
+  const credits =
     (normalizeDyadGatewayBudgetUsd(budgetUsd) * DYAD_GATEWAY_BUDGET_AI_CREDITS) /
-      DYAD_GATEWAY_BUDGET_USD_PER_300_AI_CREDITS,
-  );
+    DYAD_GATEWAY_BUDGET_USD_PER_300_AI_CREDITS;
+  const scale = 10 ** DYAD_GATEWAY_BUDGET_PRECISION;
+  const floored = Math.floor(credits * scale) / scale;
+  const wholeCredits = Math.floor(floored);
+  return floored - wholeCredits <= 0.001 ? wholeCredits : floored;
 };
 
 export const isGatewayRuntimeEnabled = (gatewayUrl: string | null | undefined): boolean => {

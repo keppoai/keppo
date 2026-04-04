@@ -654,6 +654,12 @@ export const handleInternalAutomationDispatchRequest = async (
         orgId: context.automation.org_id,
         gatewayBaseUrl,
       });
+      if (!bundledBalance) {
+        throw createAutomationRouteError(
+          "automation_route_failed",
+          "Bundled AI gateway user is unavailable.",
+        );
+      }
       if (bundledBalance.synced.balance.total_available === 0) {
         await deps.convex
           .updateAutomationRunStatus({
@@ -809,6 +815,7 @@ export const handleInternalAutomationDispatchRequest = async (
       status: AUTOMATION_RUN_STATUS.running,
       sandboxId: dispatch.sandbox_id,
       mcpSessionId,
+      aiKeyMode: authKeyMode,
     });
     await deps.convex.appendAutomationRunLog({
       automationRunId: context.run.id,
@@ -1094,7 +1101,7 @@ export const handleInternalAutomationCompleteRequest = async (
         automationRunId: payload.automation_run_id,
       })
       .catch(() => null);
-    if (runContext) {
+    if (runContext?.run.ai_key_mode === AI_KEY_MODE.bundled) {
       const syncError = await syncBundledAiCreditsFromGateway({
         convex: deps.convex,
         orgId: runContext.automation.org_id,
@@ -1108,16 +1115,11 @@ export const handleInternalAutomationCompleteRequest = async (
           error: message,
           ...(code ? { error_code: code } : {}),
         });
-        return jsonResponse(
-          request,
-          {
-            ok: false,
-            status: AUTOMATION_ROUTE_STATUS.completeFailed,
-            error: message,
-            ...(code ? { error_code: code } : {}),
-          },
-          500,
-        );
+      } else if (syncError === null) {
+        deps.logger.error("automation.complete.credit_sync_skipped", {
+          automation_run_id: payload.automation_run_id,
+          reason: "bundled_gateway_user_missing",
+        });
       }
     }
   }

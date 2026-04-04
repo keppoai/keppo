@@ -27,6 +27,7 @@
 
 - Quota and suspension checks must happen before provider execution.
 - Hosted bundled AI flows may sync current gateway spend before execution to fail closed on exhausted balance, but they must not permanently decrement Convex credits before provider work starts. Balance changes must come from syncing observed gateway spend.
+- Post-completion bundled credit sync must only run for runs that actually used bundled credentials, and sync failures after a run reaches a terminal state must not turn a successful callback into a `500`.
 - Tool usage finalization must record runtime even on failures and timeouts.
 - Automation sandbox dispatch must derive its runtime timeout from the org tier's `automation_limits.max_run_duration_ms` when a subscription tier is available; `KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS` is a fallback for contexts that do not resolve a tier and must not silently undercut paid-tier entitlements.
 - Usage-threshold notifications should be emitted from canonical usage-meter state, not guessed in the UI.

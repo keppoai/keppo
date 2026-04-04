@@ -42,7 +42,7 @@ const questionPayload = {
     stage: "questions",
     charged_credits: 0,
     summary:
-      "Keppo synced your bundled AI balance after clarifying questions. No additional gateway spend was recorded.",
+      "Your bundled AI credit balance updated after clarifying questions. No additional credits were used.",
   },
 } as const;
 
@@ -72,7 +72,7 @@ const draftPayload = {
     charged_credits: 1,
     charged_budget_usd: 0.0667,
     remaining_credits: 24,
-    summary: "Keppo synced 1 bundled AI credits of gateway spend for automation generation.",
+    summary: "Keppo used 1 bundled AI credit for automation generation.",
   },
 } as const;
 

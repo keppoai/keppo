@@ -87,6 +87,7 @@ export type AutomationRunDispatchContext = {
     error_message: string | null;
     sandbox_id: string | null;
     mcp_session_id: string | null;
+    ai_key_mode: "byok" | "bundled" | "subscription_token" | null;
     outcome: {
       success: boolean;
       summary: string;
@@ -172,6 +173,7 @@ export async function updateAutomationRunStatus(
     errorMessage?: string;
     sandboxId?: string | null;
     mcpSessionId?: string | null;
+    aiKeyMode?: "byok" | "bundled" | "subscription_token" | null;
   },
 ): Promise<void> {
   await client.mutation(refs.updateAutomationRunStatus, {
@@ -180,6 +182,7 @@ export async function updateAutomationRunStatus(
     ...(params.errorMessage !== undefined ? { error_message: params.errorMessage } : {}),
     ...(params.sandboxId !== undefined ? { sandbox_id: params.sandboxId } : {}),
     ...(params.mcpSessionId !== undefined ? { mcp_session_id: params.mcpSessionId } : {}),
+    ...(params.aiKeyMode !== undefined ? { ai_key_mode: params.aiKeyMode } : {}),
   });
 }
 

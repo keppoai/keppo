@@ -1302,10 +1302,10 @@ export function AutomationPromptBox({
                 </div>
               </div>
               <div className="rounded-2xl border bg-background/60 p-5">
-                <p className="text-sm font-medium">Bundled balance stays in sync</p>
+                <p className="text-sm font-medium">Credits update automatically</p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Hosted bundled mode measures actual gateway spend for questions and drafts, then
-                  syncs the remaining credits back into Keppo.
+                  In hosted mode, Keppo updates your remaining bundled credits automatically based
+                  on the AI work used for questions and drafts.
                 </p>
                 <Button
                   type="button"
@@ -1562,7 +1562,7 @@ export function AutomationPromptBox({
                   <p className="text-sm font-medium">Credit policy</p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {questionBilling?.summary ??
-                      "Keppo syncs bundled AI credits from gateway spend while it generates questions and drafts."}
+                      "Keppo updates your bundled AI credit balance automatically while it generates questions and drafts."}
                   </p>
                 </div>
 
@@ -1665,7 +1665,7 @@ export function AutomationPromptBox({
                           </p>
                           <p className="mt-1 text-sm font-medium">
                             {config.billing?.summary ??
-                              "Keppo synced the bundled AI balance after the draft completed."}
+                              "Keppo updated your bundled AI credit balance after the draft completed."}
                           </p>
                         </div>
                       </div>
@@ -1988,7 +1988,7 @@ export function AutomationPromptBox({
                       <dd className="text-muted-foreground">
                         {config.billing?.summary ??
                           questionBilling?.summary ??
-                          "Keppo syncs bundled AI credits from gateway spend while drafting."}
+                          "Keppo updates your bundled AI credit balance automatically while drafting."}
                       </dd>
                     </div>
                   </dl>
