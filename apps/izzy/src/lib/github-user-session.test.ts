@@ -15,5 +15,6 @@ describe("agent parsing", () => {
     expect(parseAgentsFromSearchParams(["gh-copilot", "?agent:gh-copilot"])).toEqual([
       "gh-copilot",
     ]);
+    expect(parseAgentsFromSearchParams("ghcopilot")).toEqual(["gh-copilot"]);
   });
 });

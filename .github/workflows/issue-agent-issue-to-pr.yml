@@ -51,6 +51,7 @@ jobs:
       COPILOT_HOME: tmp/issue-agent/copilot-home
       COPILOT_SESSION_DIR: tmp/issue-agent/copilot-session
       COPILOT_SESSION_SHARE_PATH: tmp/issue-agent/copilot-session/session.md
+      COPILOT_CLI_VERSION: 1.0.18
       WORKFLOW_BASE_PATH: .workflow-base
     steps:
       - name: Create GitHub App token
@@ -100,7 +101,7 @@ jobs:
 
       - name: Install GitHub Copilot CLI
         if: inputs.agent_kind == 'gh-copilot'
-        run: npm install -g @github/copilot
+        run: npm install -g @github/copilot@${COPILOT_CLI_VERSION}
 
       - name: Write Codex auth file
         if: inputs.agent_kind == 'codex'
@@ -239,7 +240,8 @@ jobs:
           LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
           SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
           CODEX_HOME: ${{ env.CODEX_HOME }}
-          EXTRA_UPLOAD_ROOTS: copilot-session:${{ env.COPILOT_SESSION_DIR }}
+          COPILOT_HOME: ${{ env.COPILOT_HOME }}
+          COPILOT_SESSION_SHARE_PATH: ${{ env.COPILOT_SESSION_SHARE_PATH }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
           KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}

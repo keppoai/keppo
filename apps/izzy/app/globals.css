@@ -326,6 +326,7 @@ textarea {
 .agent-pills {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
 }
 
 .agent-pill {
@@ -950,5 +951,25 @@ textarea {
   .draft-options {
     flex-direction: column;
     gap: 16px;
+  }
+
+  .step-footer {
+    justify-content: stretch;
+  }
+
+  .step-footer-right {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .step-footer-right .primary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .shortcut-hint {
+    align-self: flex-end;
   }
 }

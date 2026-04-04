@@ -25,6 +25,7 @@ Consult this file before changing GitHub Actions workflow structure, runner sele
 - `CODEX_AUTH_JSON` must contain a full working Codex CLI auth file, not a partial token fragment.
 - Codex workflows may optionally accept a two-secret rotation pool through `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2`; each populated secret must also contain a full working auth file, and the workflow helper should randomly choose one non-empty unique entry per run.
 - `gh-copilot` issue-agent runs require a fine-grained PAT with the `Copilot Requests` permission exposed to the workflow as `COPILOT_GITHUB_TOKEN`.
+- When reusable issue-agent workflows install Copilot CLI, pin `@github/copilot` to an explicit version and keep the plan and issue-to-PR workflows aligned.
 - `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` is only required when agent-driven PRs are expected to publish reviewer-facing demo videos.
 - For workflow-authored PR or issue comments, prefer a scoped GitHub App token over user PAT secrets. When the workflow writes PR conversation comments through the issues API, mint the token with `issues: write` explicitly instead of assuming `pull-requests: write` is sufficient.
 

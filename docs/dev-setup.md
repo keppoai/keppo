@@ -146,7 +146,7 @@ Label contract:
 Selection rules:
 
 - Issues default to Codex when no issue agent label is present.
-- If multiple issue agent labels are present, `/do-issue` creates one branch and PR per selected agent, while `/plan-issue` posts one plan comment per selected agent.
+- If multiple issue agent labels are present, `/do-issue` creates one branch and PR per selected agent, while `/plan-issue` posts one plan comment per selected agent, with up to three parallel issue-agent runs when all supported labels are present.
 - PRs default to Codex when neither agent label is present.
 - If both PR agent labels are present, `/fix-pr` fails closed because both agents cannot safely mutate the same PR branch at once.
 
