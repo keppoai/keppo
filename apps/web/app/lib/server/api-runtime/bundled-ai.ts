@@ -86,28 +86,30 @@ export const ensureBundledGatewayKeyForOrg = async (params: {
   billingState: BundledAiBillingState;
 }> => {
   assertBundledGatewayManagementConfigured(params.gatewayBaseUrl);
-  const existingKey = await params.convex.getOrgAiKey({
-    orgId: params.orgId,
-    provider: params.provider,
-    keyMode: AI_KEY_MODE.bundled,
-  });
-  let existingUser = await getDyadGatewayUserInfo(params.orgId);
-  if (existingUser) {
-    await params.convex.syncAiCreditsFromGateway({
+  const [existingKey, existingUser] = await Promise.all([
+    params.convex.getOrgAiKey({
       orgId: params.orgId,
-      spendUsd: existingUser.spend,
-      maxBudgetUsd: existingUser.max_budget,
-      budgetResetAt: existingUser.budget_reset_at,
-    });
-  }
-
-  const balance = await params.convex.getAiCreditBalance({ orgId: params.orgId });
+      provider: params.provider,
+      keyMode: AI_KEY_MODE.bundled,
+    }),
+    getDyadGatewayUserInfo(params.orgId),
+  ]);
+  const syncedBalance = existingUser
+    ? await params.convex.syncAiCreditsFromGateway({
+        orgId: params.orgId,
+        spendUsd: existingUser.spend,
+        maxBudgetUsd: existingUser.max_budget,
+        budgetResetAt: existingUser.budget_reset_at,
+      })
+    : null;
+  const balance =
+    syncedBalance?.balance ?? (await params.convex.getAiCreditBalance({ orgId: params.orgId }));
   const maxBudgetUsd = resolveDyadGatewayMaxBudgetUsd({
     remainingCredits: balance.total_available,
     currentSpendUsd: existingUser?.spend ?? 0,
   });
 
-  if (existingUser) {
+  if (existingUser && existingUser.max_budget !== maxBudgetUsd) {
     await updateDyadGatewayUser({
       orgId: params.orgId,
       maxBudgetUsd,

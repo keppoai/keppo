@@ -426,6 +426,22 @@ const readResponseOutputText = (response: unknown): string => {
   return chunks.join("\n").trim();
 };
 
+const AI_CREDIT_EXHAUSTED_EPSILON = 0.0001;
+
+const isAiCreditBalanceExhausted = (
+  balance:
+    | {
+        total_available: number;
+      }
+    | null
+    | undefined,
+): boolean => {
+  if (!balance) {
+    return false;
+  }
+  return balance.total_available <= AI_CREDIT_EXHAUSTED_EPSILON;
+};
+
 const toCreditBalancePayload = (balance: {
   allowance_remaining: number;
   purchased_remaining: number;
@@ -880,7 +896,7 @@ export const handleGenerateAutomationQuestionsRequest = async (
       500,
     );
   }
-  if (preBundledBalance?.balance.total_available === 0) {
+  if (isAiCreditBalanceExhausted(preBundledBalance?.balance)) {
     return jsonResponse(
       request,
       {
@@ -954,7 +970,7 @@ export const handleGenerateAutomationQuestionsRequest = async (
         orgId,
         gatewayBaseUrl: generatedClient.gatewayBaseUrl,
       }).catch(() => null);
-      if (bundledBalance?.balance.total_available === 0) {
+      if (isAiCreditBalanceExhausted(bundledBalance?.balance)) {
         return jsonResponse(
           request,
           {
@@ -1075,7 +1091,7 @@ export const handleGenerateAutomationPromptRequest = async (
 
   if (preBundledBalance) {
     balance = preBundledBalance.balance;
-    if (balance.total_available === 0) {
+    if (isAiCreditBalanceExhausted(balance)) {
       return jsonResponse(
         request,
         {
@@ -1230,7 +1246,7 @@ export const handleGenerateAutomationPromptRequest = async (
         orgId,
         gatewayBaseUrl: generatedClient.gatewayBaseUrl,
       }).catch(() => null);
-      if (bundledBalance?.balance.total_available === 0) {
+      if (isAiCreditBalanceExhausted(bundledBalance?.balance)) {
         return jsonResponse(
           request,
           {

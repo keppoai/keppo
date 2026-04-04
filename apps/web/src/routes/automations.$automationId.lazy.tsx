@@ -641,8 +641,8 @@ function AutomationDetailPage() {
           <AlertDialogHeader>
             <AlertDialogTitle>Regenerate workflow diagram?</AlertDialogTitle>
             <AlertDialogDescription>
-              Regenerating the Mermaid diagram measures actual bundled AI spend, syncs the updated
-              credit balance, and keeps the current automation prompt intact.
+              Regenerating the diagram refreshes the visual workflow and uses AI credits. The
+              current automation prompt stays the same.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

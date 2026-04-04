@@ -1027,7 +1027,6 @@ describe("start-owned automation runtime handlers", () => {
           },
         ),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }))
       .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,

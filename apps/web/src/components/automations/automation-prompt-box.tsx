@@ -734,6 +734,9 @@ export function AutomationPromptBox({
     () => summarizeAutomationClarifications(questions, answerEntries),
     [answerEntries, questions],
   );
+  const usesBundledQuestionBilling =
+    questionBilling?.remaining_credits !== undefined ||
+    config?.credit_balance.bundled_runtime_enabled === true;
   const currentQuestion = questions[currentQuestionIndex] ?? null;
   const questionStates = useMemo(
     () =>
@@ -1302,10 +1305,15 @@ export function AutomationPromptBox({
                 </div>
               </div>
               <div className="rounded-2xl border bg-background/60 p-5">
-                <p className="text-sm font-medium">Credits update automatically</p>
+                <p className="text-sm font-medium">
+                  {usesBundledQuestionBilling
+                    ? "Credits update automatically"
+                    : "This stage is free"}
+                </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  In hosted mode, Keppo updates your remaining bundled credits automatically based
-                  on the AI work used for questions and drafts.
+                  {usesBundledQuestionBilling
+                    ? "In hosted mode, Keppo updates your remaining bundled credits automatically based on the AI work used for questions and drafts."
+                    : "Clarifying questions do not deduct a credit. Keppo charges only when it generates the final automation draft."}
                 </p>
                 <Button
                   type="button"
@@ -1562,7 +1570,9 @@ export function AutomationPromptBox({
                   <p className="text-sm font-medium">Credit policy</p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {questionBilling?.summary ??
-                      "Keppo updates your bundled AI credit balance automatically while it generates questions and drafts."}
+                      (usesBundledQuestionBilling
+                        ? "Keppo updates your bundled AI credit balance automatically while it generates questions and drafts."
+                        : "Clarifying questions are free. Keppo charges only when it generates the final automation draft.")}
                   </p>
                 </div>
 
@@ -1988,7 +1998,9 @@ export function AutomationPromptBox({
                       <dd className="text-muted-foreground">
                         {config.billing?.summary ??
                           questionBilling?.summary ??
-                          "Keppo updates your bundled AI credit balance automatically while drafting."}
+                          (usesBundledQuestionBilling
+                            ? "Keppo updates your bundled AI credit balance automatically while drafting."
+                            : "Clarifying questions are free. Keppo charges only when it generates the final automation draft.")}
                       </dd>
                     </div>
                   </dl>

@@ -17,6 +17,7 @@ import {
   getAutomationRunPackagesForTier,
   supportsBundledAiRuntime,
 } from "@keppo/shared/automations";
+import { getAiCreditAllowanceForTier } from "@keppo/shared/subscriptions";
 import { NOTIFICATION_EVENT_ID } from "@keppo/shared/notifications";
 import { parseJsonRecord } from "@keppo/shared/providers/boundaries/json";
 import { isActiveStripeSubscriptionStatus } from "@keppo/shared/billing-contracts";
@@ -244,17 +245,21 @@ const syncBundledGatewayForOrg = async (params: {
   }
 
   const existingUser = await getDyadGatewayUserInfo(params.orgId);
-  if (existingUser) {
-    await params.convex.syncAiCreditsFromGateway({
-      orgId: params.orgId,
-      spendUsd: existingUser.spend,
-      maxBudgetUsd: existingUser.max_budget,
-      budgetResetAt: existingUser.budget_reset_at,
-    });
-  }
-  const balance = await params.convex.getAiCreditBalance({ orgId: params.orgId });
+  const syncedBalance = existingUser
+    ? await params.convex.syncAiCreditsFromGateway({
+        orgId: params.orgId,
+        spendUsd: existingUser.spend,
+        maxBudgetUsd: existingUser.max_budget,
+        budgetResetAt: existingUser.budget_reset_at,
+      })
+    : null;
+  const balance =
+    syncedBalance?.balance ?? (await params.convex.getAiCreditBalance({ orgId: params.orgId }));
+  const remainingCredits = params.resetGatewaySpend
+    ? getAiCreditAllowanceForTier(params.tier) + balance.purchased_remaining
+    : balance.total_available;
   const nextMaxBudgetUsd = resolveDyadGatewayMaxBudgetUsd({
-    remainingCredits: balance.total_available,
+    remainingCredits,
     currentSpendUsd: params.resetGatewaySpend ? 0 : (existingUser?.spend ?? 0),
   });
   const existingStoredKey = await readStoredBundledGatewayKey(params.convex, params.orgId);
