@@ -84,6 +84,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 - Webhook routes are generated from webhook-capable provider modules; webhook payload envelopes are parsed through shared contracts and signature verification/event extraction are delegated to module hooks (`verifyWebhook`, `extractWebhookEvent`) with delivery dedupe enforced at the edge.
 - Webhook route responses (success + error) are parse-validated against shared response contracts before returning to clients.
 - Missing/malformed webhook signatures return typed `400 invalid_signature_payload` based on shared hook verification reasons.
+- Webhook event-extraction failures also fail closed at the API boundary with typed `400 invalid_payload` responses instead of bubbling unhandled exceptions from provider hooks.
 - API-to-Convex bridge calls validate Convex action/mutation request and response payloads through shared contracts (`parseConvexPayload`) for MCP dispatch, maintenance ticks, OAuth upserts, and webhook ingestion.
 - API-to-Convex bridge calls run through explicit timeout/retry envelopes in `apps/web/app/lib/server/api-runtime/convex.ts`: queries default to `5s`, mutations to `10s`, and actions to `30s`, with exponential backoff on transient timeout/network/Convex availability failures before surfacing the error.
 - Start-owned automation internal dispatch/termination routes are protected by internal bearer auth and invoked by Convex scheduler actions.
