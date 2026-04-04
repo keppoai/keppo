@@ -5,6 +5,7 @@ import { SearchIcon } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useWorkspace } from "@/hooks/use-workspace-context";
 import { useActions } from "@/hooks/use-actions";
+import { ApproveActionsDialog } from "@/components/approvals/approve-actions-dialog";
 import { ApprovalsTable } from "@/components/approvals/approvals-table";
 import { ApprovalDetailPanel } from "@/components/approvals/approval-detail-panel";
 import { TestActionDialog } from "@/components/approvals/test-action-dialog";
@@ -25,6 +26,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { buildApprovalQueueView, getApprovalGroupForAction } from "@/lib/approvals-view-model";
+import { runBatchedSettled } from "@/lib/run-batched-settled";
 import { showUserFacingErrorToast } from "@/lib/show-user-facing-error-toast";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
 
@@ -47,6 +49,8 @@ const REJECTION_TEMPLATES = [
   "Needs manual verification",
   "Not authorized",
 ] as const;
+
+const APPROVAL_BATCH_CONCURRENCY = 10;
 
 const buildPanelFeedback = (
   feedback: { actionId: string; title: string; summary: string } | null,
@@ -82,6 +86,7 @@ function ApprovalsPage() {
   const [approveTargetIds, setApproveTargetIds] = useState<string[]>([]);
   const [rejectTargetIds, setRejectTargetIds] = useState<string[]>([]);
   const [rejectReason, setRejectReason] = useState("");
+  const [submittingApprove, setSubmittingApprove] = useState(false);
   const [submittingReject, setSubmittingReject] = useState(false);
   const [panelError, setPanelError] = useState<UserFacingError | null>(null);
   const [feedback, setFeedback] = useState<{
@@ -158,6 +163,13 @@ function ApprovalsPage() {
     visiblePendingCount - (selectedAction?.status === "pending" ? 1 : 0),
     0,
   );
+  const approveDialogPendingIds = useMemo(() => {
+    const pendingIdSet = new Set(
+      visibleActions.filter((action) => action.status === "pending").map((action) => action.id),
+    );
+    return [...new Set(approveTargetIds)].filter((id) => pendingIdSet.has(id));
+  }, [approveTargetIds, visibleActions]);
+  const approveDialogCount = approveDialogPendingIds.length;
 
   useEffect(() => {
     setSelectedActionIds((current) => current.filter((id) => visibleActionIds.includes(id)));
@@ -212,7 +224,9 @@ function ApprovalsPage() {
       setPanelError(null);
       setFeedback(null);
       addBusyActionIds(pendingIds);
-      const results = await Promise.allSettled(pendingIds.map((id) => approveAction(id)));
+      const results = await runBatchedSettled(pendingIds, APPROVAL_BATCH_CONCURRENCY, (id) =>
+        approveAction(id),
+      );
       const successfulIds: string[] = [];
       const failedIds: string[] = [];
       let firstFailureReason: unknown = null;
@@ -297,8 +311,8 @@ function ApprovalsPage() {
       setPanelError(null);
       setFeedback(null);
       addBusyActionIds(pendingIds);
-      const results = await Promise.allSettled(
-        pendingIds.map((id) => rejectAction(id, rejectReason.trim())),
+      const results = await runBatchedSettled(pendingIds, APPROVAL_BATCH_CONCURRENCY, (id) =>
+        rejectAction(id, rejectReason.trim()),
       );
       const successfulIds: string[] = [];
       const failedIds: string[] = [];
@@ -369,13 +383,18 @@ function ApprovalsPage() {
   };
 
   const handleConfirmApprove = async () => {
-    const pendingIds = resolvePendingVisibleIds(approveTargetIds);
+    const pendingIds = approveDialogPendingIds;
     if (pendingIds.length === 0) {
       setApproveTargetIds([]);
       return;
     }
-    await handleApproveIds(pendingIds);
-    setApproveTargetIds([]);
+    setSubmittingApprove(true);
+    try {
+      await handleApproveIds(pendingIds);
+      setApproveTargetIds([]);
+    } finally {
+      setSubmittingApprove(false);
+    }
   };
 
   const handleTableKeyDown = async (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -614,34 +633,13 @@ function ApprovalsPage() {
         </div>
       </div>
 
-      <Dialog
+      <ApproveActionsDialog
         open={approveTargetIds.length > 0}
-        onOpenChange={(open) => {
-          if (!open) {
-            setApproveTargetIds([]);
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>
-              Approve {approveTargetIds.length} action{approveTargetIds.length === 1 ? "" : "s"}?
-            </DialogTitle>
-            <DialogDescription>
-              This will approve every selected pending action and queue them for execution
-              immediately.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setApproveTargetIds([])}>
-              Cancel
-            </Button>
-            <Button type="button" onClick={() => void handleConfirmApprove()}>
-              Approve {approveTargetIds.length}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        pendingCount={approveDialogCount}
+        submitting={submittingApprove}
+        onConfirm={() => void handleConfirmApprove()}
+        onCancel={() => setApproveTargetIds([])}
+      />
 
       <Dialog
         open={rejectTargetIds.length > 0}

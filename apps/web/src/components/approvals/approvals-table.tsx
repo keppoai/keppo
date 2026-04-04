@@ -118,69 +118,74 @@ export function ApprovalsTable({
         {groups.map((group) => {
           const groupBusy = group.pending_action_ids.some((id) => busyIdSet.has(id));
           const showGroupActions = canApprove && group.pending_count > 1;
+          const showGroupHeader = group.actions.length > 1;
           const groupLabel = `Run group: ${
             group.automation_name?.trim() || formatRunId(group.automation_run_id)
           }, ${group.pending_count} pending`;
 
           return (
             <Fragment key={group.automation_run_id}>
-              <TableRow
-                data-testid="approval-group-row"
-                data-run-id={group.automation_run_id}
-                aria-label={groupLabel}
-                className="bg-muted/25 hover:bg-muted/25"
-              >
-                <TableCell colSpan={6} className="py-3">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                    <div className="space-y-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span role="heading" aria-level={2} className="text-sm font-semibold">
-                          {group.automation_name?.trim() ||
-                            `Automation run ${formatRunId(group.automation_run_id)}`}
-                        </span>
-                        <Badge variant="outline">Run {formatRunId(group.automation_run_id)}</Badge>
-                        <Badge variant="secondary">
-                          {group.actions.length} action{group.actions.length === 1 ? "" : "s"}
-                        </Badge>
-                        <Badge variant={group.pending_count > 0 ? "secondary" : "outline"}>
-                          {group.pending_count} pending
-                        </Badge>
+              {showGroupHeader ? (
+                <TableRow
+                  data-testid="approval-group-row"
+                  data-run-id={group.automation_run_id}
+                  aria-label={groupLabel}
+                  className="bg-muted/25 hover:bg-muted/25"
+                >
+                  <TableCell colSpan={6} className="py-3">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                      <div className="space-y-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span role="heading" aria-level={2} className="text-sm font-semibold">
+                            {group.automation_name?.trim() ||
+                              `Automation run ${formatRunId(group.automation_run_id)}`}
+                          </span>
+                          <Badge variant="outline">
+                            Run {formatRunId(group.automation_run_id)}
+                          </Badge>
+                          <Badge variant="secondary">
+                            {group.actions.length} action{group.actions.length === 1 ? "" : "s"}
+                          </Badge>
+                          <Badge variant={group.pending_count > 0 ? "secondary" : "outline"}>
+                            {group.pending_count} pending
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          {group.automation_run_started_at
+                            ? `Started ${relativeTime(group.automation_run_started_at)}`
+                            : `Latest action ${relativeTime(group.actions[0]?.created_at ?? "")}`}
+                          {group.resolved_count > 0
+                            ? ` • ${group.resolved_count} resolved in this view`
+                            : ""}
+                        </p>
                       </div>
-                      <p className="text-xs text-muted-foreground">
-                        {group.automation_run_started_at
-                          ? `Started ${relativeTime(group.automation_run_started_at)}`
-                          : `Latest action ${relativeTime(group.actions[0]?.created_at ?? "")}`}
-                        {group.resolved_count > 0
-                          ? ` • ${group.resolved_count} resolved in this view`
-                          : ""}
-                      </p>
+                      {showGroupActions ? (
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              void Promise.resolve(onApproveGroup(group.pending_action_ids));
+                            }}
+                            disabled={groupBusy}
+                            data-testid="approval-group-approve"
+                          >
+                            {groupBusy ? "Working..." : `Approve group (${group.pending_count})`}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => onRequestReject(group.pending_action_ids)}
+                            disabled={groupBusy}
+                            data-testid="approval-group-reject"
+                          >
+                            Reject group ({group.pending_count})
+                          </Button>
+                        </div>
+                      ) : null}
                     </div>
-                    {showGroupActions ? (
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() => {
-                            void Promise.resolve(onApproveGroup(group.pending_action_ids));
-                          }}
-                          disabled={groupBusy}
-                          data-testid="approval-group-approve"
-                        >
-                          {groupBusy ? "Working..." : `Approve group (${group.pending_count})`}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() => onRequestReject(group.pending_action_ids)}
-                          disabled={groupBusy}
-                          data-testid="approval-group-reject"
-                        >
-                          Reject group ({group.pending_count})
-                        </Button>
-                      </div>
-                    ) : null}
-                  </div>
-                </TableCell>
-              </TableRow>
+                  </TableCell>
+                </TableRow>
+              ) : null}
               {group.actions.map((action) => (
                 <TableRow
                   key={action.id}

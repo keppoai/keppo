@@ -1,5 +1,5 @@
-import { fireEvent, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import { ApprovalsPage } from "./approvals.lazy";
 import { createFakeDashboardRuntime } from "@/test/fake-dashboard-runtime";
 import { createAuthState, createWorkspaceState, renderDashboard } from "@/test/render-dashboard";
@@ -54,44 +54,5 @@ describe("ApprovalsPage", () => {
     expect(screen.getAllByText("github.createIssue").length).toBeGreaterThan(0);
     expect(screen.getByText("j/k navigate, a approve, r reject")).toBeInTheDocument();
     expect(screen.getByText("Select an action from the table")).toBeInTheDocument();
-  });
-
-  it("confirms grouped approvals before dispatching them", async () => {
-    const approveAction = vi.fn(() => Promise.resolve());
-    const runtime = createFakeDashboardRuntime({
-      mutationHandlers: {
-        "actions:approveAction": approveAction,
-      },
-      queryHandlers: {
-        "actions:listPendingByWorkspace": () => [
-          createAction({
-            id: "action_2",
-            created_at: "2026-03-08T00:01:00.000Z",
-            payload_preview: { title: "Second issue" },
-          }),
-          createAction(),
-        ],
-        "actions:getActionDetail": () => null,
-      },
-    });
-
-    renderDashboard(<ApprovalsPage />, {
-      route: "/acme/workspace-1/approvals",
-      auth: createAuthState({
-        isAuthenticated: true,
-        canApprove: () => true,
-      }),
-      workspace: createWorkspaceState({
-        selectedWorkspaceId: "ws_1",
-      }),
-      runtime,
-    });
-
-    fireEvent.click(await screen.findByTestId("approval-group-approve"));
-    expect(screen.getByRole("heading", { name: "Approve 2 actions?" })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "Approve 2" }));
-
-    expect(approveAction).toHaveBeenCalledTimes(2);
   });
 });

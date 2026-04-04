@@ -120,4 +120,25 @@ describe("ApprovalsTable", () => {
     expect(onApprove).toHaveBeenCalledWith("action_1");
     expect(onRequestReject).toHaveBeenCalledWith(["action_1"]);
   });
+
+  it("omits the run header when a run only has one visible action", () => {
+    render(
+      <ApprovalsTable
+        groups={[createGroup([createAction({ id: "action_1" })])]}
+        selectedActionId={null}
+        onSelect={() => undefined}
+        selectedActionIds={[]}
+        onToggleAction={() => undefined}
+        onToggleAllVisible={() => undefined}
+        allVisibleSelected={false}
+        onApprove={() => undefined}
+        onApproveGroup={() => undefined}
+        onRequestReject={() => undefined}
+        canApprove
+      />,
+    );
+
+    expect(screen.queryByTestId("approval-group-row")).not.toBeInTheDocument();
+    expect(screen.getByTestId("approval-row")).toBeInTheDocument();
+  });
 });
