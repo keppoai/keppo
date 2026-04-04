@@ -359,17 +359,29 @@ export const handleProviderWebhookRequest = async (
     outcome: PROVIDER_METRIC_OUTCOME.success,
   });
 
-  const event = webhookFacet.extractWebhookEvent(
-    payload,
-    {
-      rawBody,
-      headers: normalizedHeaders,
-    },
-    providerRuntimeContext,
-  );
+  const requestId = request.headers.get("x-request-id");
+  let event;
+  try {
+    event = webhookFacet.extractWebhookEvent(
+      payload,
+      {
+        rawBody,
+        headers: normalizedHeaders,
+      },
+      providerRuntimeContext,
+    );
+  } catch (error) {
+    return deps.webhookBoundaryResponse(
+      request,
+      provider,
+      "invalid_payload",
+      `${provider} webhook event payload is invalid`,
+      error,
+    );
+  }
+
   const dedupeKey = `${provider}:${event.deliveryId}`;
   const now = Date.now();
-  const requestId = request.headers.get("x-request-id");
 
   deps.logger.info("webhook.received", {
     provider,
