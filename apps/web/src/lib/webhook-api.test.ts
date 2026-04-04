@@ -139,6 +139,39 @@ describe("start-owned webhook api handlers", () => {
     expect(deps.convex.recordProviderWebhook).not.toHaveBeenCalled();
   });
 
+  it("returns typed boundary errors when event extraction throws", async () => {
+    const deps = createDeps();
+    deps.extractWebhookEvent.mockImplementationOnce(() => {
+      throw new Error("malformed provider event");
+    });
+
+    const response = await handleProviderWebhookRequest(
+      withWebhook(
+        "stripe",
+        {
+          id: "evt_bad_payload",
+          type: "invoice.payment_succeeded",
+        },
+        {
+          "stripe-signature": "t=1,v1=test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(400);
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    await expect(response.json()).resolves.toMatchObject({
+      error: {
+        code: "invalid_payload",
+        message: "stripe webhook event could not be extracted",
+        provider: "stripe",
+      },
+    });
+    expect(deps.convex.recordProviderWebhook).not.toHaveBeenCalled();
+    expect(deps.convex.ingestProviderEvent).not.toHaveBeenCalled();
+  });
+
   it("records webhook deliveries and returns duplicate=true on replay", async () => {
     const deps = createDeps();
     const first = await handleProviderWebhookRequest(
