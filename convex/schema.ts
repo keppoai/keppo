@@ -367,6 +367,21 @@ export default defineSchema({
     .index("by_integration", ["integration_id"])
     .index("by_integration_external_account", ["integration_id", "external_account_id"]),
 
+  provider_webhook_deliveries: defineTable({
+    id: v.string(),
+    provider: providerValidator,
+    delivery_id: v.string(),
+    external_account_id: v.union(v.string(), v.null()),
+    event_type: v.string(),
+    matched_integrations: v.number(),
+    matched_org_ids: v.array(v.string()),
+    completed_org_ids: v.array(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_custom_id", ["id"])
+    .index("by_provider_delivery", ["provider", "delivery_id"]),
+
   integration_credentials: defineTable({
     id: v.string(),
     integration_account_id: v.string(),

@@ -54,6 +54,7 @@ type StartOwnedWebhookConvex = Pick<
   | "getApiDedupeKey"
   | "getFeatureFlag"
   | "ingestProviderEvent"
+  | "markProviderWebhookOrgIngested"
   | "recordProviderMetric"
   | "recordProviderWebhook"
   | "releaseApiDedupeKey"
@@ -428,16 +429,17 @@ export const handleProviderWebhookRequest = async (
       execute: async () => {
         const result = await deps.convex.recordProviderWebhook({
           provider,
+          deliveryId: event.deliveryId,
           externalAccountId: event.externalAccountId,
           eventType: event.eventType,
           payload,
           receivedAt: new Date(now).toISOString(),
         });
-        const matchedOrgIds = result.matched_org_ids ?? [];
-        if (matchedOrgIds.length > 0) {
-          await Promise.all(
-            matchedOrgIds.map(async (orgId) =>
-              deps.convex.ingestProviderEvent({
+        const pendingOrgIds = result.pending_org_ids ?? [];
+        if (pendingOrgIds.length > 0) {
+          const ingestionResults = await Promise.allSettled(
+            pendingOrgIds.map(async (orgId) => {
+              await deps.convex.ingestProviderEvent({
                 orgId,
                 provider,
                 providerEventType: event.eventType,
@@ -445,16 +447,37 @@ export const handleProviderWebhookRequest = async (
                 deliveryMode: "webhook",
                 eventPayload: payload,
                 eventPayloadRef: event.deliveryId,
-              }),
-            ),
-          ).catch((error: unknown) => {
+              });
+              await deps.convex.markProviderWebhookOrgIngested({
+                provider,
+                deliveryId: event.deliveryId,
+                orgId,
+              });
+            }),
+          );
+          const failedIngestions = ingestionResults.flatMap((result, index) => {
+            if (result.status === "fulfilled") {
+              return [];
+            }
+            return [
+              {
+                org_id: pendingOrgIds[index] ?? "unknown_org",
+                error:
+                  result.reason instanceof Error ? result.reason.message : String(result.reason),
+              },
+            ];
+          });
+          if (failedIngestions.length > 0) {
             deps.logger.error("webhook.trigger_queue.failed", {
               provider,
               event_id: event.deliveryId,
-              error: error instanceof Error ? error.message : String(error),
+              failed_org_ids: failedIngestions.map(({ org_id }) => org_id),
+              errors: failedIngestions,
             });
-            throw error;
-          });
+            throw new Error(
+              `Failed to process ${failedIngestions.length} organization(s) for ${provider} webhook ${event.deliveryId}.`,
+            );
+          }
         }
         deps.logger.info("webhook.process.succeeded", {
           provider,

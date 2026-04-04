@@ -9,6 +9,7 @@ import { PROVIDER_MODULE_VERSION } from "./model";
 export const recordProviderWebhook = internalMutation({
   args: {
     provider: providerValidator,
+    deliveryId: v.string(),
     externalAccountId: v.optional(v.union(v.string(), v.null())),
     eventType: v.string(),
     payload: jsonRecordValidator,
@@ -18,17 +19,44 @@ export const recordProviderWebhook = internalMutation({
     matched_orgs: v.number(),
     matched_integrations: v.number(),
     matched_org_ids: v.array(v.string()),
+    pending_org_ids: v.array(v.string()),
   }),
   handler: async (ctx, args) => {
     const provider = canonicalizeProvider(args.provider);
     const receivedAt = args.receivedAt ?? nowIso();
-    const externalAccountId = args.externalAccountId?.trim();
+    const externalAccountId = args.externalAccountId?.trim() ?? null;
 
     if (!externalAccountId) {
       return {
         matched_orgs: 0,
         matched_integrations: 0,
         matched_org_ids: [],
+        pending_org_ids: [],
+      };
+    }
+
+    const existingDelivery = await ctx.db
+      .query("provider_webhook_deliveries")
+      .withIndex("by_provider_delivery", (q) =>
+        q.eq("provider", provider).eq("delivery_id", args.deliveryId),
+      )
+      .unique();
+    if (existingDelivery) {
+      if (
+        existingDelivery.event_type !== args.eventType ||
+        existingDelivery.external_account_id !== externalAccountId
+      ) {
+        throw new Error("Provider webhook replay payload does not match the stored delivery.");
+      }
+      const completedOrgIds = new Set(existingDelivery.completed_org_ids);
+      const pendingOrgIds = existingDelivery.matched_org_ids.filter(
+        (orgId) => !completedOrgIds.has(orgId),
+      );
+      return {
+        matched_orgs: existingDelivery.matched_org_ids.length,
+        matched_integrations: existingDelivery.matched_integrations,
+        matched_org_ids: existingDelivery.matched_org_ids,
+        pending_org_ids: pendingOrgIds,
       };
     }
 
@@ -87,10 +115,67 @@ export const recordProviderWebhook = internalMutation({
       });
     }
 
-    return {
-      matched_orgs: touchedOrgIds.size,
+    const matchedOrgIds = Array.from(touchedOrgIds).sort();
+    await ctx.db.insert("provider_webhook_deliveries", {
+      id: randomIdFor("pwd"),
+      provider,
+      delivery_id: args.deliveryId,
+      external_account_id: externalAccountId,
+      event_type: args.eventType,
       matched_integrations: touchedIntegrationIds.size,
-      matched_org_ids: Array.from(touchedOrgIds),
+      matched_org_ids: matchedOrgIds,
+      completed_org_ids: [],
+      created_at: receivedAt,
+      updated_at: receivedAt,
+    });
+
+    return {
+      matched_orgs: matchedOrgIds.length,
+      matched_integrations: touchedIntegrationIds.size,
+      matched_org_ids: matchedOrgIds,
+      pending_org_ids: matchedOrgIds,
+    };
+  },
+});
+
+export const markProviderWebhookOrgIngested = internalMutation({
+  args: {
+    provider: providerValidator,
+    deliveryId: v.string(),
+    orgId: v.string(),
+  },
+  returns: v.object({
+    pending_org_ids: v.array(v.string()),
+  }),
+  handler: async (ctx, args) => {
+    const provider = canonicalizeProvider(args.provider);
+    const delivery = await ctx.db
+      .query("provider_webhook_deliveries")
+      .withIndex("by_provider_delivery", (q) =>
+        q.eq("provider", provider).eq("delivery_id", args.deliveryId),
+      )
+      .unique();
+    if (!delivery) {
+      throw new Error("Provider webhook delivery state is missing.");
+    }
+    if (!delivery.matched_org_ids.includes(args.orgId)) {
+      throw new Error("Provider webhook delivery does not match the requested organization.");
+    }
+    if (delivery.completed_org_ids.includes(args.orgId)) {
+      return {
+        pending_org_ids: delivery.matched_org_ids.filter(
+          (orgId) => !delivery.completed_org_ids.includes(orgId),
+        ),
+      };
+    }
+
+    const completedOrgIds = [...delivery.completed_org_ids, args.orgId].sort();
+    await ctx.db.patch(delivery._id, {
+      completed_org_ids: completedOrgIds,
+      updated_at: nowIso(),
+    });
+    return {
+      pending_org_ids: delivery.matched_org_ids.filter((orgId) => !completedOrgIds.includes(orgId)),
     };
   },
 });

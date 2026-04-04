@@ -700,6 +700,7 @@ describe("boundary contracts", () => {
     expect(
       parseConvexPayload(convexRecordProviderWebhookPayloadSchema, {
         provider: "google",
+        deliveryId: "evt_1",
         externalAccountId: "acct_1",
         eventType: "email.delivered",
         payload: {
@@ -710,6 +711,7 @@ describe("boundary contracts", () => {
     expect(() =>
       parseConvexPayload(convexRecordProviderWebhookPayloadSchema, {
         provider: "gmail",
+        deliveryId: "evt_1",
         eventType: "email.delivered",
         payload: {},
       }),
@@ -720,6 +722,7 @@ describe("boundary contracts", () => {
         matched_orgs: 1,
         matched_integrations: 2,
         matched_org_ids: ["org_1"],
+        pending_org_ids: ["org_1"],
       }).matched_orgs,
     ).toBe(1);
     expect(() =>
@@ -727,6 +730,7 @@ describe("boundary contracts", () => {
         matched_orgs: -1,
         matched_integrations: 2,
         matched_org_ids: ["org_1"],
+        pending_org_ids: ["org_1"],
       }),
     ).toThrowError(BoundaryParseError);
 

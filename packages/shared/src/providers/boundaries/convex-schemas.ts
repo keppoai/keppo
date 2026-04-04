@@ -58,6 +58,7 @@ export const convexManagedOAuthConnectStateSchema = z.object({
 
 export const convexRecordProviderWebhookPayloadSchema = z.object({
   provider: canonicalProviderIdSchema,
+  deliveryId: nonEmptyStringSchema,
   externalAccountId: z.union([nonEmptyStringSchema, z.null()]).optional(),
   eventType: nonEmptyStringSchema,
   payload: jsonRecordSchema,
@@ -68,6 +69,7 @@ export const convexRecordProviderWebhookResultSchema = z.object({
   matched_orgs: nonNegativeIntegerSchema,
   matched_integrations: nonNegativeIntegerSchema,
   matched_org_ids: z.array(nonEmptyStringSchema),
+  pending_org_ids: z.array(nonEmptyStringSchema),
 });
 
 export const convexIngestProviderEventPayloadSchema = z.object({
@@ -84,6 +86,16 @@ export const convexIngestProviderEventPayloadSchema = z.object({
 export const convexIngestProviderEventResultSchema = z.object({
   queued_count: nonNegativeIntegerSchema,
   skipped_count: nonNegativeIntegerSchema,
+});
+
+export const convexMarkProviderWebhookOrgIngestedPayloadSchema = z.object({
+  provider: canonicalProviderIdSchema,
+  deliveryId: nonEmptyStringSchema,
+  orgId: nonEmptyStringSchema,
+});
+
+export const convexMarkProviderWebhookOrgIngestedResultSchema = z.object({
+  pending_org_ids: z.array(nonEmptyStringSchema),
 });
 
 export const convexApprovedActionDispatchSchema = z.object({

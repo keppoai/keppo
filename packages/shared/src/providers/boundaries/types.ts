@@ -47,6 +47,8 @@ import {
   convexGatingDataSchema,
   convexIngestProviderEventPayloadSchema,
   convexIngestProviderEventResultSchema,
+  convexMarkProviderWebhookOrgIngestedPayloadSchema,
+  convexMarkProviderWebhookOrgIngestedResultSchema,
   convexPendingWorkspaceActionSchema,
   convexPollRateLimitSchema,
   convexPolicyDecisionSchema,
@@ -131,6 +133,12 @@ export type ConvexIngestProviderEventPayload = z.infer<
   typeof convexIngestProviderEventPayloadSchema
 >;
 export type ConvexIngestProviderEventResult = z.infer<typeof convexIngestProviderEventResultSchema>;
+export type ConvexMarkProviderWebhookOrgIngestedPayload = z.infer<
+  typeof convexMarkProviderWebhookOrgIngestedPayloadSchema
+>;
+export type ConvexMarkProviderWebhookOrgIngestedResult = z.infer<
+  typeof convexMarkProviderWebhookOrgIngestedResultSchema
+>;
 export type ConvexApprovedActionDispatch = z.infer<typeof convexApprovedActionDispatchSchema>;
 export type ConvexExecuteApprovedActionResult = z.infer<
   typeof convexExecuteApprovedActionResultSchema

@@ -33,11 +33,13 @@ const createDeps = () => {
       getApiDedupeKey: vi.fn().mockResolvedValue(null),
       getFeatureFlag: vi.fn().mockResolvedValue(true),
       ingestProviderEvent: vi.fn().mockResolvedValue(undefined),
+      markProviderWebhookOrgIngested: vi.fn().mockResolvedValue({ pending_org_ids: [] }),
       recordProviderMetric: vi.fn().mockResolvedValue(undefined),
       recordProviderWebhook: vi.fn().mockResolvedValue({
         matched_org_ids: ["org_test"],
         matched_integrations: 1,
         matched_orgs: 1,
+        pending_org_ids: ["org_test"],
       }),
       releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
       setApiDedupePayload: vi.fn().mockResolvedValue(true),
@@ -242,6 +244,7 @@ describe("start-owned webhook api handlers", () => {
       matched_org_ids: [],
       matched_integrations: 0,
       matched_orgs: 0,
+      pending_org_ids: [],
     });
 
     const response = await handleProviderWebhookRequest(
@@ -268,6 +271,7 @@ describe("start-owned webhook api handlers", () => {
     });
     expect(deps.convex.recordProviderWebhook).toHaveBeenCalledWith({
       provider: "stripe",
+      deliveryId: "evt_missing_account",
       externalAccountId: null,
       eventType: "invoice.payment_succeeded",
       payload: {
@@ -308,13 +312,165 @@ describe("start-owned webhook api handlers", () => {
     expect(deps.logger.error).toHaveBeenCalledWith("webhook.trigger_queue.failed", {
       provider: "stripe",
       event_id: "evt_webhook_test",
-      error: "convex unavailable",
+      failed_org_ids: ["org_test"],
+      errors: [
+        {
+          org_id: "org_test",
+          error: "convex unavailable",
+        },
+      ],
     });
     expect(deps.convex.completeApiDedupeKey).not.toHaveBeenCalled();
+    expect(deps.convex.markProviderWebhookOrgIngested).not.toHaveBeenCalled();
     expect(deps.convex.releaseApiDedupeKey).toHaveBeenCalledWith({
       scope: "webhook_delivery",
       dedupeKey: "stripe:evt_webhook_test",
     });
+  });
+
+  it("retries only the organizations that previously failed ingestion", async () => {
+    const deps = createDeps();
+    deps.convex.claimApiDedupeKey.mockReset().mockResolvedValue({
+      claimed: true,
+      status: "pending",
+      payload: null,
+      expiresAtMs: Date.now() + 60_000,
+    });
+    deps.convex.recordProviderWebhook
+      .mockResolvedValueOnce({
+        matched_org_ids: ["org_one", "org_two"],
+        matched_integrations: 2,
+        matched_orgs: 2,
+        pending_org_ids: ["org_one", "org_two"],
+      })
+      .mockResolvedValueOnce({
+        matched_org_ids: ["org_one", "org_two"],
+        matched_integrations: 2,
+        matched_orgs: 2,
+        pending_org_ids: ["org_two"],
+      });
+    deps.convex.ingestProviderEvent.mockImplementation(async (params: { orgId: string }) => {
+      const { orgId } = params;
+      if (orgId === "org_two" && deps.convex.ingestProviderEvent.mock.calls.length === 2) {
+        throw new Error("broken org config");
+      }
+      return { queued_count: 1, skipped_count: 0 };
+    });
+
+    const first = await handleProviderWebhookRequest(
+      withWebhook(
+        "stripe",
+        {
+          id: "evt_partial_failure",
+          type: "invoice.payment_succeeded",
+          account: "acct_test",
+        },
+        {
+          "stripe-signature": "t=1,v1=test",
+        },
+      ),
+      deps,
+    );
+    const retry = await handleProviderWebhookRequest(
+      withWebhook(
+        "stripe",
+        {
+          id: "evt_partial_failure",
+          type: "invoice.payment_succeeded",
+          account: "acct_test",
+        },
+        {
+          "stripe-signature": "t=1,v1=test",
+        },
+      ),
+      deps,
+    );
+
+    expect(first.status).toBe(500);
+    expect(retry.status).toBe(200);
+    await expect(retry.json()).resolves.toMatchObject({
+      received: true,
+      provider: "stripe",
+      duplicate: false,
+      matched_integrations: 2,
+      matched_orgs: 2,
+    });
+    expect(deps.convex.recordProviderWebhook).toHaveBeenNthCalledWith(1, {
+      provider: "stripe",
+      deliveryId: "evt_webhook_test",
+      externalAccountId: "acct_test",
+      eventType: "invoice.payment_succeeded",
+      payload: {
+        account: "acct_test",
+        id: "evt_partial_failure",
+        type: "invoice.payment_succeeded",
+      },
+      receivedAt: expect.any(String),
+    });
+    expect(deps.convex.recordProviderWebhook).toHaveBeenNthCalledWith(2, {
+      provider: "stripe",
+      deliveryId: "evt_webhook_test",
+      externalAccountId: "acct_test",
+      eventType: "invoice.payment_succeeded",
+      payload: {
+        account: "acct_test",
+        id: "evt_partial_failure",
+        type: "invoice.payment_succeeded",
+      },
+      receivedAt: expect.any(String),
+    });
+    expect(deps.convex.ingestProviderEvent).toHaveBeenCalledTimes(3);
+    expect(deps.convex.ingestProviderEvent).toHaveBeenNthCalledWith(1, {
+      orgId: "org_one",
+      provider: "stripe",
+      providerEventType: "invoice.payment_succeeded",
+      providerEventId: "evt_webhook_test",
+      deliveryMode: "webhook",
+      eventPayload: {
+        account: "acct_test",
+        id: "evt_partial_failure",
+        type: "invoice.payment_succeeded",
+      },
+      eventPayloadRef: "evt_webhook_test",
+    });
+    expect(deps.convex.ingestProviderEvent).toHaveBeenNthCalledWith(2, {
+      orgId: "org_two",
+      provider: "stripe",
+      providerEventType: "invoice.payment_succeeded",
+      providerEventId: "evt_webhook_test",
+      deliveryMode: "webhook",
+      eventPayload: {
+        account: "acct_test",
+        id: "evt_partial_failure",
+        type: "invoice.payment_succeeded",
+      },
+      eventPayloadRef: "evt_webhook_test",
+    });
+    expect(deps.convex.ingestProviderEvent).toHaveBeenNthCalledWith(3, {
+      orgId: "org_two",
+      provider: "stripe",
+      providerEventType: "invoice.payment_succeeded",
+      providerEventId: "evt_webhook_test",
+      deliveryMode: "webhook",
+      eventPayload: {
+        account: "acct_test",
+        id: "evt_partial_failure",
+        type: "invoice.payment_succeeded",
+      },
+      eventPayloadRef: "evt_webhook_test",
+    });
+    expect(deps.convex.markProviderWebhookOrgIngested).toHaveBeenNthCalledWith(1, {
+      provider: "stripe",
+      deliveryId: "evt_webhook_test",
+      orgId: "org_one",
+    });
+    expect(deps.convex.markProviderWebhookOrgIngested).toHaveBeenNthCalledWith(2, {
+      provider: "stripe",
+      deliveryId: "evt_webhook_test",
+      orgId: "org_two",
+    });
+    expect(deps.convex.releaseApiDedupeKey).toHaveBeenCalledTimes(1);
+    expect(deps.convex.completeApiDedupeKey).toHaveBeenCalledTimes(1);
   });
 
   it("dispatches only matching Start-owned webhook routes", async () => {
