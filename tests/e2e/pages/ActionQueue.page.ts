@@ -150,6 +150,9 @@ export class ActionQueuePage extends BasePage {
     const group = this.groupRow(runId);
     await expect(group).toBeVisible();
     await group.getByTestId("approval-group-approve").click();
+    const dialog = this.page.getByRole("dialog").filter({ hasText: /Approve \d+ actions\?/i });
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("button", { name: /Approve \d+/i }).click();
     await expect(group).toHaveCount(0);
   }
 

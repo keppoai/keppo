@@ -118,19 +118,23 @@ export function ApprovalsTable({
         {groups.map((group) => {
           const groupBusy = group.pending_action_ids.some((id) => busyIdSet.has(id));
           const showGroupActions = canApprove && group.pending_count > 1;
+          const groupLabel = `Run group: ${
+            group.automation_name?.trim() || formatRunId(group.automation_run_id)
+          }, ${group.pending_count} pending`;
 
           return (
             <Fragment key={group.automation_run_id}>
               <TableRow
                 data-testid="approval-group-row"
                 data-run-id={group.automation_run_id}
+                aria-label={groupLabel}
                 className="bg-muted/25 hover:bg-muted/25"
               >
                 <TableCell colSpan={6} className="py-3">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div className="space-y-1">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-semibold">
+                        <span role="heading" aria-level={2} className="text-sm font-semibold">
                           {group.automation_name?.trim() ||
                             `Automation run ${formatRunId(group.automation_run_id)}`}
                         </span>

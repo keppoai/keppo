@@ -29,7 +29,7 @@ test("pending-to-approved", async ({ pages, auth, provider, page }) => {
 
     await pages.actions.open();
     mkdirSync("ux-artifacts", { recursive: true });
-    await expect(page.getByPlaceholder("Search action type or payload")).toBeVisible();
+    await expect(page.getByLabel("Search actions, runs, or payload")).toBeVisible();
     await expect(page.getByText("Ready now", { exact: true })).toBeVisible();
     await expect(page.getByText("Review first", { exact: true })).toBeVisible();
     await expect(page.getByText("After this one", { exact: true })).toBeVisible();

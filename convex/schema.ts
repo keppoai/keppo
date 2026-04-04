@@ -661,6 +661,8 @@ export default defineSchema({
     id: v.string(),
     workspace_id: v.optional(v.string()),
     automation_run_id: v.string(),
+    automation_name: v.optional(v.union(v.string(), v.null())),
+    automation_run_started_at: v.optional(v.union(v.string(), v.null())),
     tool_call_id: v.string(),
     action_type: v.string(),
     risk_level: actionRiskValidator,

@@ -276,6 +276,8 @@ const toActionView = (
   action: {
     id: string;
     automation_run_id: string;
+    automation_name?: string | null;
+    automation_run_started_at?: string | null;
     action_type: string;
     risk_level: ActionRiskLevel;
     status: ActionStatus;
@@ -292,8 +294,9 @@ const toActionView = (
 ): ActionView => ({
   id: action.id,
   automation_run_id: action.automation_run_id,
-  automation_name: runContext?.automation_name ?? null,
-  automation_run_started_at: runContext?.automation_run_started_at ?? null,
+  automation_name: action.automation_name ?? runContext?.automation_name ?? null,
+  automation_run_started_at:
+    action.automation_run_started_at ?? runContext?.automation_run_started_at ?? null,
   action_type: action.action_type,
   risk_level: action.risk_level,
   status: action.status,
@@ -443,54 +446,7 @@ const listWorkspaceActions = async (
         .order("desc")
         .take(WORKSPACE_ACTION_LIST_LIMIT);
 
-  const uniqueRunIds = [...new Set(rows.map((row) => row.automation_run_id))];
-  const runs = await Promise.all(
-    uniqueRunIds.map(async (runId) => {
-      const run = await ctx.db
-        .query("automation_runs")
-        .withIndex("by_custom_id", (q) => q.eq("id", runId))
-        .unique();
-      return [runId, run] as const;
-    }),
-  );
-  const uniqueAutomationIds = [
-    ...new Set(
-      runs
-        .map(([, run]) => run?.automation_id)
-        .filter((automationId): automationId is string => typeof automationId === "string"),
-    ),
-  ];
-  const automations = await Promise.all(
-    uniqueAutomationIds.map(async (automationId) => {
-      const automation = await ctx.db
-        .query("automations")
-        .withIndex("by_custom_id", (q) => q.eq("id", automationId))
-        .unique();
-      return [automationId, automation] as const;
-    }),
-  );
-  const automationNameById = new Map(
-    automations.map(([automationId, automation]) => [
-      automationId,
-      automation?.name?.trim() ? automation.name.trim() : null,
-    ]),
-  );
-  const runContextByRunId = new Map(
-    runs.map(([runId, run]) => [
-      runId,
-      {
-        automation_name:
-          run?.automation_id && automationNameById.has(run.automation_id)
-            ? (automationNameById.get(run.automation_id) ?? null)
-            : null,
-        automation_run_started_at: run?.started_at ?? null,
-      },
-    ]),
-  );
-
-  return rows.map((row) =>
-    toAction(toActionView(row, runContextByRunId.get(row.automation_run_id))),
-  );
+  return rows.map((row) => toAction(toActionView(row)));
 };
 
 export const listByWorkspace = query({
@@ -841,6 +797,8 @@ export const createTestAction = mutation({
       id: actionId,
       workspace_id: args.workspaceId,
       automation_run_id: runId,
+      automation_name: null,
+      automation_run_started_at: now,
       tool_call_id: toolCallId,
       action_type: inferred.actionType,
       risk_level: inferred.riskLevel,

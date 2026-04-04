@@ -51,12 +51,12 @@ export const buildApprovalQueueView = (
   actions: Action[],
   searchTerm: string,
 ): ApprovalQueueView => {
-  const orderedActions = [...actions]
+  const sortedActions = [...actions]
     .filter((action) => searchApprovalAction(action, searchTerm))
     .sort(sortApprovalActions);
   const groupsByRunId = new Map<string, ApprovalGroup>();
 
-  for (const action of orderedActions) {
+  for (const action of sortedActions) {
     const existing = groupsByRunId.get(action.automation_run_id);
     if (existing) {
       existing.actions.push(action);
@@ -80,10 +80,13 @@ export const buildApprovalQueueView = (
     });
   }
 
+  const groups = [...groupsByRunId.values()];
+  const orderedActions = groups.flatMap((group) => group.actions);
+
   return {
     ordered_actions: orderedActions,
     visible_action_ids: orderedActions.map((action) => action.id),
-    groups: [...groupsByRunId.values()],
+    groups,
   };
 };
 

@@ -586,6 +586,8 @@ export const seedAutomationCascadeFixture = mutation({
       id: actionId,
       workspace_id: seeded.workspaceId,
       automation_run_id: runId,
+      automation_name: null,
+      automation_run_started_at: seeded.createdAt,
       tool_call_id: toolCallId,
       action_type: "fixture_action",
       risk_level: "low",

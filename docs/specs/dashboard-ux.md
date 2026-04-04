@@ -202,6 +202,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Approvals queue renders actions grouped by `automation_run_id`, using automation name and run start time when available and falling back to a compact run identifier when that context is unavailable.
 - Approvals queue supports live status filtering (`All`, `Pending`, `Approved`, `Rejected`), client-side search across action type, payload preview, automation name, and run id, keyboard review shortcuts (`j/k/a/r`) when the table region is focused, and batch approve/reject controls for multi-select review.
 - Run sections with multiple pending actions in the current filtered view expose `Approve group` and `Reject group` controls for that run only, while preserving per-action row controls and the split detail panel for single-action review.
+- Any multi-action approval path requires an explicit confirmation dialog before mutations fire so high-radius approvals stay deliberate.
 - Approve/reject via Convex mutations.
 - Dashboard "Test Action" dialog tool presets/field serialization are sourced from shared provider UI contracts (`@keppo/shared/providers-ui`) instead of dashboard-local provider maps.
 - No SSE dependency.

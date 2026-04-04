@@ -79,6 +79,7 @@ function ApprovalsPage() {
   const [statusFilter, setStatusFilter] = useState<ApprovalStatusFilter>("pending");
   const [searchTerm, setSearchTerm] = useState("");
   const [selectedActionIds, setSelectedActionIds] = useState<string[]>([]);
+  const [approveTargetIds, setApproveTargetIds] = useState<string[]>([]);
   const [rejectTargetIds, setRejectTargetIds] = useState<string[]>([]);
   const [rejectReason, setRejectReason] = useState("");
   const [submittingReject, setSubmittingReject] = useState(false);
@@ -179,6 +180,14 @@ function ApprovalsPage() {
     tableRegionRef.current?.focus();
   };
 
+  const addBusyActionIds = (ids: string[]) => {
+    setBusyActionIds((current) => [...new Set([...current, ...ids])]);
+  };
+
+  const removeBusyActionIds = (ids: string[]) => {
+    setBusyActionIds((current) => current.filter((id) => !ids.includes(id)));
+  };
+
   const resolvePendingVisibleIds = (ids: string[]) => {
     const pendingIdSet = new Set(
       visibleActions.filter((action) => action.status === "pending").map((action) => action.id),
@@ -202,7 +211,7 @@ function ApprovalsPage() {
     try {
       setPanelError(null);
       setFeedback(null);
-      setBusyActionIds(pendingIds);
+      addBusyActionIds(pendingIds);
       const results = await Promise.allSettled(pendingIds.map((id) => approveAction(id)));
       const successfulIds: string[] = [];
       const failedIds: string[] = [];
@@ -253,7 +262,7 @@ function ApprovalsPage() {
     } catch (error) {
       setPanelError(toUserFacingError(error, { fallback: "Failed to approve action." }));
     } finally {
-      setBusyActionIds([]);
+      removeBusyActionIds(pendingIds);
     }
   };
 
@@ -262,7 +271,12 @@ function ApprovalsPage() {
   };
 
   const handleBatchApprove = async () => {
-    await handleApproveIds(selectedActionIds);
+    const pendingIds = resolvePendingVisibleIds(selectedActionIds);
+    if (pendingIds.length <= 1) {
+      await handleApproveIds(pendingIds);
+      return;
+    }
+    setApproveTargetIds(pendingIds);
   };
 
   const openRejectDialog = (ids: string[]) => {
@@ -282,7 +296,7 @@ function ApprovalsPage() {
     try {
       setPanelError(null);
       setFeedback(null);
-      setBusyActionIds(pendingIds);
+      addBusyActionIds(pendingIds);
       const results = await Promise.allSettled(
         pendingIds.map((id) => rejectAction(id, rejectReason.trim())),
       );
@@ -341,14 +355,34 @@ function ApprovalsPage() {
       }
     } finally {
       setSubmittingReject(false);
-      setBusyActionIds([]);
+      removeBusyActionIds(pendingIds);
     }
+  };
+
+  const handleApproveGroup = (ids: string[]) => {
+    const pendingIds = resolvePendingVisibleIds(ids);
+    if (pendingIds.length <= 1) {
+      void handleApproveIds(pendingIds);
+      return;
+    }
+    setApproveTargetIds(pendingIds);
+  };
+
+  const handleConfirmApprove = async () => {
+    const pendingIds = resolvePendingVisibleIds(approveTargetIds);
+    if (pendingIds.length === 0) {
+      setApproveTargetIds([]);
+      return;
+    }
+    await handleApproveIds(pendingIds);
+    setApproveTargetIds([]);
   };
 
   const handleTableKeyDown = async (event: React.KeyboardEvent<HTMLDivElement>) => {
     const target = event.target as HTMLElement | null;
     const tagName = target?.tagName?.toLowerCase();
     if (
+      approveTargetIds.length > 0 ||
       rejectTargetIds.length > 0 ||
       tagName === "input" ||
       tagName === "textarea" ||
@@ -424,6 +458,7 @@ function ApprovalsPage() {
               onChange={(event) => setSearchTerm(event.currentTarget.value)}
               className="pl-9"
               placeholder="Search actions, runs, or payload"
+              aria-label="Search actions, runs, or payload"
             />
           </div>
         </div>
@@ -526,7 +561,7 @@ function ApprovalsPage() {
                     focusTableRegion();
                   }}
                   onApprove={handleApprove}
-                  onApproveGroup={handleApproveIds}
+                  onApproveGroup={handleApproveGroup}
                   onRequestReject={openRejectDialog}
                   canApprove={canApproveActions}
                   busyActionIds={busyActionIds}
@@ -578,6 +613,35 @@ function ApprovalsPage() {
           </div>
         </div>
       </div>
+
+      <Dialog
+        open={approveTargetIds.length > 0}
+        onOpenChange={(open) => {
+          if (!open) {
+            setApproveTargetIds([]);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Approve {approveTargetIds.length} action{approveTargetIds.length === 1 ? "" : "s"}?
+            </DialogTitle>
+            <DialogDescription>
+              This will approve every selected pending action and queue them for execution
+              immediately.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={() => setApproveTargetIds([])}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => void handleConfirmApprove()}>
+              Approve {approveTargetIds.length}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={rejectTargetIds.length > 0}

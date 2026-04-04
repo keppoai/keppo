@@ -23,7 +23,7 @@ const createAction = (overrides: Partial<Action> = {}): Action => ({
 });
 
 describe("approvals view model", () => {
-  it("groups queue rows by automation run while preserving queue order", () => {
+  it("groups queue rows by automation run while preserving the rendered order", () => {
     const view = buildApprovalQueueView(
       [
         createAction({
@@ -59,6 +59,42 @@ describe("approvals view model", () => {
       "act_high_oldest",
     ]);
     expect(view.groups[1]?.automation_run_id).toBe("run_b");
+  });
+
+  it("keeps visible ids aligned with the grouped table order when runs interleave", () => {
+    const view = buildApprovalQueueView(
+      [
+        createAction({
+          id: "act_run_a_high",
+          automation_run_id: "run_a",
+          automation_name: "Run A",
+          risk_level: "high",
+          created_at: "2026-03-08T00:03:00.000Z",
+        }),
+        createAction({
+          id: "act_run_b_medium",
+          automation_run_id: "run_b",
+          automation_name: "Run B",
+          risk_level: "medium",
+          created_at: "2026-03-08T00:02:00.000Z",
+        }),
+        createAction({
+          id: "act_run_a_medium",
+          automation_run_id: "run_a",
+          automation_name: "Run A",
+          risk_level: "medium",
+          created_at: "2026-03-08T00:01:00.000Z",
+        }),
+      ],
+      "",
+    );
+
+    expect(view.groups.map((group) => group.automation_run_id)).toEqual(["run_a", "run_b"]);
+    expect(view.visible_action_ids).toEqual([
+      "act_run_a_high",
+      "act_run_a_medium",
+      "act_run_b_medium",
+    ]);
   });
 
   it("tracks pending and resolved counts inside each run group", () => {

@@ -57,7 +57,11 @@ const actionStatusFromOutcome = (outcome: DecisionOutcome) => {
 const resolveWorkspaceByRunId = async (
   ctx: MutationCtx,
   runId: string,
-): Promise<{ run: Doc<"automation_runs">; workspace: Doc<"workspaces"> } | null> => {
+): Promise<{
+  run: Doc<"automation_runs">;
+  workspace: Doc<"workspaces">;
+  automationName: string | null;
+} | null> => {
   const run = await ctx.db
     .query("automation_runs")
     .withIndex("by_custom_id", (q) => q.eq("id", runId))
@@ -73,7 +77,20 @@ const resolveWorkspaceByRunId = async (
   if (!workspace) {
     return null;
   }
-  return { run, workspace };
+
+  const automationId = run.automation_id ?? null;
+  const automation = automationId
+    ? await ctx.db
+        .query("automations")
+        .withIndex("by_custom_id", (q) => q.eq("id", automationId))
+        .unique()
+    : null;
+
+  return {
+    run,
+    workspace,
+    automationName: automation?.name?.trim() ? automation.name.trim() : null,
+  };
 };
 
 const toActionBoundary = (action: Doc<"actions">) => {
@@ -311,6 +328,8 @@ export const createActionFromDecision = internalMutation({
       id: actionId,
       workspace_id: resolved.workspace.id,
       automation_run_id: args.runId,
+      automation_name: resolved.automationName,
+      automation_run_started_at: resolved.run.started_at,
       tool_call_id: args.toolCallId,
       action_type: args.actionType,
       risk_level: args.riskLevel,
