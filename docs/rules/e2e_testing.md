@@ -30,6 +30,7 @@
 - Code-mode sandbox verification is explicit. Default local browser runs may skip `execute_code` specs when Docker/Vercel sandbox infrastructure is unavailable, but intentional sandbox verification must set `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` so the same condition fails fast instead of silently reducing coverage.
 - PR and `main` GitHub Actions browser lanes must export `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1` plus explicit Docker sandbox-provider env (`KEPPO_SANDBOX_PROVIDER=docker`, `KEPPO_CODE_MODE_SANDBOX_PROVIDER=docker`) so automation-runner and Code Mode coverage fail closed instead of skipping when Docker is missing.
 - When a workflow needs Playwright video artifacts from passing tests, control video capture through repo-owned config/env (for example `KEPPO_PLAYWRIGHT_VIDEO_MODE=on`), not unsupported ad-hoc CLI flags like `--video=on`.
+- Reviewer-facing PR demo capture should follow [demo video rules](demo-video.md). Keep demo-only pacing, trimming, and review steps out of regression specs unless the spec is intentionally dedicated to demo capture.
 
 ## Isolation
 
