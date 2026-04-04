@@ -733,13 +733,12 @@ export const handleInternalAutomationDispatchRequest = async (
       runtimeEnv.VERCEL_AUTOMATION_BYPASS_SECRET = vercelAutomationBypassSecret;
     }
     if (resolvedModel.aiModelProvider === "openai") {
-      if (authKeyMode === AI_KEY_MODE.subscriptionToken && credentialKind === "openai_oauth") {
-        if (!("org_id" in key) || !("created_by" in key)) {
-          throw createAutomationRouteError(
-            "automation_route_failed",
-            "Missing OpenAI OAuth key metadata for automation runtime.",
-          );
-        }
+      if (
+        authKeyMode === AI_KEY_MODE.subscriptionToken &&
+        credentialKind === "openai_oauth" &&
+        "org_id" in key &&
+        "created_by" in key
+      ) {
         const credentials = await maybeRefreshOpenAiOauthCredentials({
           key,
           decryptedKey,
