@@ -51,6 +51,37 @@ const assertBundledGatewayManagementConfigured = (gatewayBaseUrl: string | null)
   return gatewayBaseUrl;
 };
 
+const provisionBundledGatewayKey = async (params: {
+  orgId: string;
+  maxBudgetUsd: number;
+  existingUser: DyadGatewayUserInfo | null;
+}): Promise<{ rawKey: string; user: DyadGatewayUserInfo | null }> => {
+  if (params.existingUser) {
+    return {
+      rawKey: await generateDyadGatewayKey(params.orgId),
+      user: params.existingUser,
+    };
+  }
+  try {
+    return {
+      rawKey: await createDyadGatewayUser({
+        orgId: params.orgId,
+        maxBudgetUsd: params.maxBudgetUsd,
+      }),
+      user: await getDyadGatewayUserInfo(params.orgId),
+    };
+  } catch (error) {
+    const concurrentUser = await getDyadGatewayUserInfo(params.orgId);
+    if (!concurrentUser) {
+      throw error;
+    }
+    return {
+      rawKey: await generateDyadGatewayKey(params.orgId),
+      user: concurrentUser,
+    };
+  }
+};
+
 export const syncBundledAiCreditsFromGateway = async (params: {
   convex: BundledAiConvex;
   orgId: string;
@@ -129,29 +160,23 @@ export const ensureBundledGatewayKeyForOrg = async (params: {
     };
   }
 
-  const rawKey = existingUser
-    ? await generateDyadGatewayKey(params.orgId)
-    : await createDyadGatewayUser({
-        orgId: params.orgId,
-        maxBudgetUsd,
-      });
+  const provisioned = await provisionBundledGatewayKey({
+    orgId: params.orgId,
+    maxBudgetUsd,
+    existingUser,
+  });
 
-  await Promise.all(
+  const provisionedKeys = await Promise.all(
     BUNDLED_GATEWAY_PROVIDERS.map((provider) =>
       params.convex.upsertBundledOrgAiKey({
         orgId: params.orgId,
         provider,
-        rawKey,
+        rawKey: provisioned.rawKey,
         createdBy: "bundled_ai",
       }),
     ),
   );
-
-  const provisionedKey = await params.convex.getOrgAiKey({
-    orgId: params.orgId,
-    provider: params.provider,
-    keyMode: AI_KEY_MODE.bundled,
-  });
+  const provisionedKey = provisionedKeys.find((key) => key.provider === params.provider) ?? null;
   if (!provisionedKey?.is_active) {
     throw createAutomationRouteError(
       "automation_route_failed",
@@ -164,9 +189,9 @@ export const ensureBundledGatewayKeyForOrg = async (params: {
     credentialKind: "secret",
     billingState: {
       balance,
-      spendUsd: existingUser?.spend ?? 0,
+      spendUsd: provisioned.user?.spend ?? existingUser?.spend ?? 0,
       maxBudgetUsd,
-      budgetResetAt: existingUser?.budget_reset_at ?? null,
+      budgetResetAt: provisioned.user?.budget_reset_at ?? existingUser?.budget_reset_at ?? null,
     },
   };
 };

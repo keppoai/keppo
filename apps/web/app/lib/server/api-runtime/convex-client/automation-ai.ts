@@ -334,16 +334,16 @@ export async function upsertBundledOrgAiKey(
     rawKey: string;
     createdBy?: string;
   },
-): Promise<void> {
+): Promise<OrgAiKey> {
   const internalClient = client as unknown as {
     mutation: (reference: unknown, args: unknown) => Promise<unknown>;
   };
-  await internalClient.mutation(refs.upsertBundledOrgAiKey, {
+  return (await internalClient.mutation(refs.upsertBundledOrgAiKey, {
     org_id: params.orgId,
     provider: params.provider,
     raw_key: params.rawKey,
     ...(params.createdBy ? { created_by: params.createdBy } : {}),
-  });
+  })) as OrgAiKey;
 }
 
 export async function deactivateBundledOrgAiKeys(

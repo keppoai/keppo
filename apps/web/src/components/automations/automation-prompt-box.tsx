@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -29,6 +29,7 @@ import { ApiError } from "@/lib/api-errors";
 import { normalizeMermaidContent, validateMermaidContent } from "@/lib/automation-mermaid";
 import { MermaidDiagram } from "@/components/automations/automation-description-content";
 import { AutomationBuilderQuestionsStep } from "@/components/automations/automation-builder-questions-step";
+import { useAuth } from "@/hooks/use-auth";
 import { useIntegrations } from "@/hooks/use-integrations";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
@@ -45,6 +46,7 @@ import {
   getAutomationPathSegment,
   getAutomationModelClassMeta,
   getNetworkAccessMeta,
+  parseAiCreditBalance,
 } from "@/lib/automations-view-model";
 import { getProviderMeta } from "@/components/integrations/provider-icons";
 import { Badge } from "@/components/ui/badge";
@@ -681,11 +683,21 @@ export function AutomationPromptBox({
 }: AutomationPromptBoxProps) {
   const runtime = useDashboardRuntime();
   const navigate = useNavigate();
+  const { getOrgId } = useAuth();
   const { buildOrgPath, buildWorkspacePath } = useRouteParams();
   const reduceMotion = useReducedMotion();
   const { integrations, providerCatalog, connectProvider } = useIntegrations();
   const createAutomationMutation = useMutation(
     makeFunctionReference<"mutation">("automations:createAutomation"),
+  );
+  const orgId = getOrgId();
+  const aiCreditBalanceRaw = useQuery(
+    makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
+    orgId ? { org_id: orgId } : "skip",
+  );
+  const aiCreditBalance = useMemo(
+    () => parseAiCreditBalance(aiCreditBalanceRaw),
+    [aiCreditBalanceRaw],
   );
   const initialDraft = useMemo(() => loadPersistedDraft(workspaceId), [workspaceId]);
   const [inputValue, setInputValue] = useState(initialDraft?.inputValue ?? "");
@@ -736,7 +748,8 @@ export function AutomationPromptBox({
   );
   const usesBundledQuestionBilling =
     questionBilling?.remaining_credits !== undefined ||
-    config?.credit_balance.bundled_runtime_enabled === true;
+    config?.credit_balance.bundled_runtime_enabled === true ||
+    aiCreditBalance?.bundled_runtime_enabled === true;
   const currentQuestion = questions[currentQuestionIndex] ?? null;
   const questionStates = useMemo(
     () =>
@@ -1675,7 +1688,9 @@ export function AutomationPromptBox({
                           </p>
                           <p className="mt-1 text-sm font-medium">
                             {config.billing?.summary ??
-                              "Keppo updated your bundled AI credit balance after the draft completed."}
+                              (usesBundledQuestionBilling
+                                ? "Keppo updated your bundled AI credit balance after the draft completed."
+                                : "This draft used 1 AI credit after it completed.")}
                           </p>
                         </div>
                       </div>

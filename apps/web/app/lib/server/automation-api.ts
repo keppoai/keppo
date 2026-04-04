@@ -767,7 +767,13 @@ const resolveAutomationWorkspaceContext = async (
 
   try {
     workspaceContext = await deps.convex.getWorkspaceCodeModeContext(workspaceId);
-  } catch {
+  } catch (error) {
+    const { code, message } = extractAutomationRouteError(error);
+    console.error("automation.workspace_context_failed", {
+      workspaceId,
+      error: message,
+      ...(code ? { error_code: code } : {}),
+    });
     return jsonResponse(
       request,
       {
@@ -886,7 +892,13 @@ export const handleGenerateAutomationQuestionsRequest = async (
           orgId,
         });
     preBundledBalance = generatedClient?.mode === "bundled" ? generatedClient.billingState : null;
-  } catch {
+  } catch (error) {
+    const { code, message } = extractAutomationRouteError(error);
+    console.error("automation.questions.client_setup_failed", {
+      orgId,
+      error: message,
+      ...(code ? { error_code: code } : {}),
+    });
     return jsonResponse(
       request,
       {
@@ -1066,7 +1078,13 @@ export const handleGenerateAutomationPromptRequest = async (
           orgId,
         });
     preBundledBalance = generatedClient?.mode === "bundled" ? generatedClient.billingState : null;
-  } catch {
+  } catch (error) {
+    const { code, message } = extractAutomationRouteError(error);
+    console.error("automation.prompt.client_setup_failed", {
+      orgId,
+      error: message,
+      ...(code ? { error_code: code } : {}),
+    });
     return jsonResponse(
       request,
       {

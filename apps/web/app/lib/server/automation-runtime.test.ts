@@ -94,7 +94,25 @@ const createDeps = () => {
     }),
     storeAutomationRunSessionTrace: vi.fn().mockResolvedValue({ stored: true }),
     updateAutomationRunStatus: vi.fn().mockResolvedValue(undefined),
-    upsertBundledOrgAiKey: vi.fn().mockResolvedValue(undefined),
+    upsertBundledOrgAiKey: vi.fn().mockImplementation(async (args) => ({
+      id: `oak_${args.provider}`,
+      org_id: args.orgId,
+      provider: args.provider,
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, args.rawKey),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: args.createdBy ?? "bundled_ai",
+      created_at: "2026-03-01T00:00:00.000Z",
+      updated_at: "2026-03-01T00:00:00.000Z",
+    })),
     upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
   };
   const sandboxProvider = {
@@ -1178,23 +1196,7 @@ describe("start-owned automation runtime handlers", () => {
         network_access: "mcp_only",
       },
     });
-    deps.convex.getOrgAiKey.mockResolvedValueOnce(null).mockResolvedValueOnce({
-      org_id: "org_test",
-      encrypted_key: await encryptStoredKeyForTest(
-        process.env.KEPPO_MASTER_KEY!,
-        "bundled-gateway-secret",
-      ),
-      credential_kind: "secret",
-      is_active: true,
-      key_hint: "...bundled",
-      key_version: 1,
-      subject_email: null,
-      account_id: null,
-      token_expires_at: null,
-      last_refreshed_at: null,
-      last_validated_at: null,
-      created_by: "billing",
-    });
+    deps.convex.getOrgAiKey.mockResolvedValueOnce(null);
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(new Response(null, { status: 404 }))
       .mockResolvedValueOnce(
@@ -1204,6 +1206,24 @@ describe("start-owned automation runtime handlers", () => {
             "content-type": "application/json",
           },
         }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
       )
       .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
@@ -1247,7 +1267,7 @@ describe("start-owned automation runtime handlers", () => {
     );
 
     expect(response.status).toBe(200);
-    expect(deps.convex.getOrgAiKey).toHaveBeenCalledTimes(2);
+    expect(deps.convex.getOrgAiKey).toHaveBeenCalledTimes(1);
     expect(deps.convex.getOrgAiKey).toHaveBeenCalledWith({
       orgId: "org_test",
       provider: "openai",

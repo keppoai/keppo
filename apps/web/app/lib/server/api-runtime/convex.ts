@@ -1109,8 +1109,8 @@ export class ConvexInternalClient {
     provider: AiModelProvider;
     rawKey: string;
     createdBy?: string;
-  }): Promise<void> {
-    await upsertBundledOrgAiKeyImpl(this.resilientClient, params);
+  }): Promise<OrgAiKey> {
+    return await upsertBundledOrgAiKeyImpl(this.resilientClient, params);
   }
 
   async deactivateBundledOrgAiKeys(params: { orgId: string }): Promise<void> {

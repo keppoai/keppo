@@ -124,10 +124,19 @@ const AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS = 250;
 const AUTOMATION_LOG_BATCH_SIZE = 50;
 const AUTOMATION_LOG_MAX_LINES = 200;
 const MIN_AUTOMATION_TIMEOUT_MS = 60_000;
+const AI_CREDIT_EXHAUSTED_EPSILON = 0.0001;
 const AUTOMATION_SANDBOX_MODEL_ERROR =
   "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.";
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
+const isAiCreditBalanceExhausted = (
+  balance: { total_available: number } | null | undefined,
+): boolean => {
+  if (!balance) {
+    return false;
+  }
+  return balance.total_available <= AI_CREDIT_EXHAUSTED_EPSILON;
+};
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
   "invalid_payload",
   "invalid_automation_run_terminal_status",
@@ -660,7 +669,7 @@ export const handleInternalAutomationDispatchRequest = async (
           "Bundled AI gateway user is unavailable.",
         );
       }
-      if (bundledBalance.synced.balance.total_available === 0) {
+      if (isAiCreditBalanceExhausted(bundledBalance.synced.balance)) {
         await deps.convex
           .updateAutomationRunStatus({
             automationRunId: context.run.id,
@@ -1094,13 +1103,26 @@ export const handleInternalAutomationCompleteRequest = async (
   }
 
   const gatewayBaseUrl = resolveBundledGatewayUrl(deps.getEnv().KEPPO_LLM_GATEWAY_URL);
-  if (gatewayBaseUrl) {
-    const runContext = await deps.convex
-      .getAutomationRunDispatchContext({
-        automationRunId: payload.automation_run_id,
-      })
-      .catch(() => null);
-    if (runContext?.run.ai_key_mode === AI_KEY_MODE.bundled) {
+  let runContext: Awaited<ReturnType<typeof deps.convex.getAutomationRunDispatchContext>> | null =
+    null;
+  try {
+    runContext = await deps.convex.getAutomationRunDispatchContext({
+      automationRunId: payload.automation_run_id,
+    });
+  } catch (error) {
+    deps.logger.error("automation.complete.dispatch_context_failed", {
+      automation_run_id: payload.automation_run_id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (runContext?.run.ai_key_mode === AI_KEY_MODE.bundled) {
+    if (!gatewayBaseUrl) {
+      deps.logger.error("automation.complete.credit_sync_failed", {
+        automation_run_id: payload.automation_run_id,
+        error: "Missing KEPPO_LLM_GATEWAY_URL for bundled completion sync.",
+        error_code: "missing_env",
+      });
+    } else {
       const syncError = await syncBundledAiCreditsFromGateway({
         convex: deps.convex,
         orgId: runContext.automation.org_id,

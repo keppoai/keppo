@@ -367,6 +367,7 @@ const consumePurchasedCreditsInPlace = async (
   const purchases = await listActivePurchases(ctx, params.orgId, params.now);
   let remainingToConsume = normalizeAiCreditAmount(params.creditsToConsume);
   let consumedCredits = 0;
+  let purchasedRemaining = sumPurchasedBalance(purchases);
   const consumedPurchaseIds: string[] = [];
 
   for (const purchase of purchases) {
@@ -390,12 +391,13 @@ const consumePurchasedCreditsInPlace = async (
           : AI_CREDIT_PURCHASE_STATUS.active,
     });
     consumedCredits = normalizeAiCreditAmount(consumedCredits + consumedFromPurchase);
+    purchasedRemaining = normalizeAiCreditAmount(purchasedRemaining - consumedFromPurchase);
     remainingToConsume = normalizeAiCreditAmount(remainingToConsume - consumedFromPurchase);
     consumedPurchaseIds.push(purchase.id);
   }
 
   return {
-    purchasedRemaining: normalizeAiCreditAmount(sumPurchasedBalance(purchases) - consumedCredits),
+    purchasedRemaining,
     consumedCredits,
     consumedPurchaseIds,
   };
@@ -561,6 +563,15 @@ export const syncAiCreditsFromGateway = internalMutation({
       currentSpendUsd + AI_CREDIT_EPSILON < previousSpendUsd
         ? 0
         : normalizeDyadGatewayBudgetUsd(currentSpendUsd - previousSpendUsd);
+    if (currentSpendUsd + AI_CREDIT_EPSILON < previousSpendUsd) {
+      console.warn("ai_credits.gateway_spend_decreased", {
+        orgId: args.org_id,
+        previousSpendUsd,
+        currentSpendUsd,
+        previousBudgetResetAt: row.gateway_budget_reset_at ?? null,
+        nextBudgetResetAt: args.budget_reset_at,
+      });
+    }
     const chargedCredits = convertDyadGatewayBudgetUsdToAiCredits(chargedBudgetUsd);
 
     let remainingCreditsToConsume = chargedCredits;
@@ -590,6 +601,14 @@ export const syncAiCreditsFromGateway = internalMutation({
     }
 
     if (remainingCreditsToConsume > AI_CREDIT_EPSILON) {
+      console.warn("ai_credits.gateway_overspend_detected", {
+        orgId: args.org_id,
+        remainingCreditsToConsume,
+        chargedCredits,
+        currentSpendUsd,
+        maxBudgetUsd,
+        usageSource: args.usage_source ?? null,
+      });
       purchasedRemaining = 0;
       allowanceUsed = allowanceTotal;
     }

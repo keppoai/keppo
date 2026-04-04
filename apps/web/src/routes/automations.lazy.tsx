@@ -10,7 +10,11 @@ import { Button } from "@/components/ui/button";
 import { AutomationList } from "@/components/automations/automation-list";
 import { AutomationPromptBox } from "@/components/automations/automation-prompt-box";
 import { useRouteParams } from "@/hooks/use-route-params";
-import { formatAiCreditAmount, parseAiCreditBalance } from "@/lib/automations-view-model";
+import {
+  formatAiCreditAmount,
+  isAiCreditBalanceExhausted,
+  parseAiCreditBalance,
+} from "@/lib/automations-view-model";
 
 export const automationsRouteLazy = createLazyRoute(automationsRoute.id)({
   component: AutomationsPage,
@@ -70,7 +74,7 @@ function AutomationsPage() {
                 ? `${formatAiCreditAmount(aiCreditBalance.total_available)} credits`
                 : "Credits loading"}
             </Badge>
-            {aiCreditBalance?.total_available === 0 ? (
+            {isAiCreditBalanceExhausted(aiCreditBalance) ? (
               <Button
                 variant="outline"
                 size="sm"

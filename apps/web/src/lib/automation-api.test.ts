@@ -5,6 +5,22 @@ import {
   handleGenerateAutomationPromptRequest,
 } from "../../app/lib/server/automation-api";
 
+const encryptStoredKeyForTest = async (secret: string, rawValue: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(rawValue),
+  );
+  const toHex = (bytes: Uint8Array): string =>
+    Array.from(bytes)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  return `keppo-v1.${toHex(iv)}.${toHex(new Uint8Array(encrypted))}`;
+};
+
 const createDeps = () => {
   const convex = {
     checkRateLimit: vi.fn().mockResolvedValue({
@@ -89,7 +105,25 @@ const createDeps = () => {
       max_budget_usd: 8.2667,
       budget_reset_at: "2026-04-14T00:00:00.000Z",
     }),
-    upsertBundledOrgAiKey: vi.fn().mockResolvedValue(undefined),
+    upsertBundledOrgAiKey: vi.fn().mockImplementation(async (args) => ({
+      id: `oak_${args.provider}`,
+      org_id: args.orgId,
+      provider: args.provider,
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, args.rawKey),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: args.createdBy ?? "bundled_ai",
+      created_at: "2026-03-14T00:00:00.000Z",
+      updated_at: "2026-03-14T00:00:00.000Z",
+    })),
   };
 
   return {
