@@ -116,6 +116,14 @@ case "${AGENT_KIND}" in
       "claude-config-projects:${HOME}/.config/claude/projects"
     )
     ;;
+  gh-copilot)
+    if [[ -n "${COPILOT_HOME:-}" ]]; then
+      roots+=("copilot-logs:${COPILOT_HOME}/logs")
+    fi
+    if [[ -n "${COPILOT_SESSION_SHARE_PATH:-}" ]]; then
+      roots+=("copilot-session:$(dirname "${COPILOT_SESSION_SHARE_PATH}")")
+    fi
+    ;;
   *)
     echo "Unsupported agent kind: ${AGENT_KIND}" >&2
     exit 1

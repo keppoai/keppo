@@ -83,6 +83,14 @@ export function DraftStep(props: {
               />
               Claude
             </label>
+            <label className="agent-pill" data-selected={props.agents.includes("gh-copilot")}>
+              <input
+                checked={props.agents.includes("gh-copilot")}
+                onChange={() => props.onAgentToggle("gh-copilot")}
+                type="checkbox"
+              />
+              GitHub Copilot
+            </label>
           </div>
         </div>
       </div>

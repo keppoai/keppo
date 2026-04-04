@@ -48,6 +48,10 @@ jobs:
       LOG_MARKER_PATH: tmp/issue-agent/session-log-marker
       SESSION_LOG_COMMENT_PATH: tmp/issue-agent/session-log-comment.md
       CODEX_HOME: tmp/issue-agent/codex-home
+      COPILOT_HOME: tmp/issue-agent/copilot-home
+      COPILOT_SESSION_DIR: tmp/issue-agent/copilot-session
+      COPILOT_SESSION_SHARE_PATH: tmp/issue-agent/copilot-session/session.md
+      COPILOT_CLI_VERSION: 1.0.18
       WORKFLOW_BASE_PATH: .workflow-base
     steps:
       - name: Create GitHub App token
@@ -94,6 +98,10 @@ jobs:
       - name: Install Codex CLI
         if: inputs.agent_kind == 'codex'
         run: npm install -g @openai/codex@latest
+
+      - name: Install GitHub Copilot CLI
+        if: inputs.agent_kind == 'gh-copilot'
+        run: npm install -g @github/copilot@${COPILOT_CLI_VERSION}
 
       - name: Write Codex auth file
         if: inputs.agent_kind == 'codex'
@@ -165,6 +173,15 @@ jobs:
           PROMPT_PATH: ${{ env.PROMPT_PATH }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-codex.sh"
 
+      - name: Run GitHub Copilot
+        if: inputs.agent_kind == 'gh-copilot'
+        env:
+          PROMPT_PATH: ${{ env.PROMPT_PATH }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          COPILOT_HOME: ${{ env.COPILOT_HOME }}
+          COPILOT_SESSION_SHARE_PATH: ${{ env.COPILOT_SESSION_SHARE_PATH }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-gh-copilot.sh"
+
       - name: Create GitHub App token for post-agent operations
         if: always()
         id: post-agent-app-token
@@ -223,6 +240,8 @@ jobs:
           LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
           SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
           CODEX_HOME: ${{ env.CODEX_HOME }}
+          COPILOT_HOME: ${{ env.COPILOT_HOME }}
+          COPILOT_SESSION_SHARE_PATH: ${{ env.COPILOT_SESSION_SHARE_PATH }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
           KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
           KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}

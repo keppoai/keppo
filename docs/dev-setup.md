@@ -125,6 +125,7 @@ The `issue-agent.yml` and `fix-pr.yml` workflows run in the `ai-bots` GitHub Act
 - environment secret `CLAUDE_CODE_OAUTH_TOKEN`
 - environment secret `CODEX_AUTH_JSON`
 - optional environment secrets `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` for random Codex auth rotation in GitHub Actions
+- environment secret `COPILOT_GITHUB_TOKEN` with a fine-grained PAT that has the `Copilot Requests` permission when `?agent:gh-copilot` issue runs are enabled
 - environment secret `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` when agent-driven PRs are expected to publish demo videos
 - environment variable `KEPPO_SESSION_LOG_UPLOAD_URL` when issue-agent runs should publish session logs
 - environment secret `KEPPO_SESSION_LOG_UPLOAD_TOKEN` for bearer-authenticated session log uploads
@@ -133,18 +134,19 @@ Notes:
 
 - `CODEX_AUTH_JSON` must contain the full contents of a working Codex CLI auth file, equivalent to `~/.codex/auth.json`.
 - When `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` are present, Codex workflows randomly choose one non-empty unique auth blob from that pool plus `CODEX_AUTH_JSON` on each run.
+- `COPILOT_GITHUB_TOKEN` should be a fine-grained PAT from a GitHub user with an active Copilot license and the `Copilot Requests` permission.
 - `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` should point at a public Vercel Blob store reserved for reviewer-facing PR demos.
 - Session-log upload endpoints should return a `viewer_url` immediately for uploaded or duplicate logs.
 
 Label contract:
 
-- Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`, `prompt-injection-risk`
+- Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `?agent:gh-copilot`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`, `prompt-injection-risk`
 - PR labels: `/fix-pr`, `?agent:claude`, `?agent:codex`, `fix-pr:pending|done|failed`, `/sync-pr`, `sync-pr:pending|failed`, `needs-human:review-issue`, `needs-human:final-check`
 
 Selection rules:
 
-- Issues default to Codex when neither agent label is present.
-- If both issue agent labels are present, `/do-issue` creates two branches and two PRs, while `/plan-issue` posts two separate plan comments.
+- Issues default to Codex when no issue agent label is present.
+- If multiple issue agent labels are present, `/do-issue` creates one branch and PR per selected agent, while `/plan-issue` posts one plan comment per selected agent, with up to three parallel issue-agent runs when all supported labels are present.
 - PRs default to Codex when neither agent label is present.
 - If both PR agent labels are present, `/fix-pr` fails closed because both agents cannot safely mutate the same PR branch at once.
 

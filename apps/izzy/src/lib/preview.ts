@@ -132,6 +132,7 @@ export const getPreviewSeed = (
         "/do-issue",
         "?agent:codex",
         "?agent:claude",
+        "?agent:gh-copilot",
         "needs-human:review-issue",
       ],
       contextFiles: [

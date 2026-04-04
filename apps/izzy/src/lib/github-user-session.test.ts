@@ -10,4 +10,11 @@ describe("agent parsing", () => {
     expect(parseAgentsFromSearchParams(["claude", "codex"])).toEqual(["claude", "codex"]);
     expect(parseAgentsFromSearchParams("claude,codex")).toEqual(["claude", "codex"]);
   });
+
+  it("supports the GitHub Copilot label and alias", () => {
+    expect(parseAgentsFromSearchParams(["gh-copilot", "?agent:gh-copilot"])).toEqual([
+      "gh-copilot",
+    ]);
+    expect(parseAgentsFromSearchParams("ghcopilot")).toEqual(["gh-copilot"]);
+  });
 });
