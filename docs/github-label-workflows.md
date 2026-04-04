@@ -23,6 +23,7 @@ This document defines the naming scheme for GitHub issue and pull request labels
 
 - `?agent:claude`
 - `?agent:codex`
+- `?agent:gh-copilot` (issues only)
 
 ### Issue workflow state labels
 

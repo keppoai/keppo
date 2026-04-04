@@ -116,6 +116,8 @@ case "${AGENT_KIND}" in
       "claude-config-projects:${HOME}/.config/claude/projects"
     )
     ;;
+  gh-copilot)
+    ;;
   *)
     echo "Unsupported agent kind: ${AGENT_KIND}" >&2
     exit 1

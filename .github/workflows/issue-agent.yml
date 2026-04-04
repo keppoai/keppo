@@ -22,6 +22,7 @@ jobs:
       action: ${{ steps.gate.outputs.action }}
       run_claude: ${{ steps.gate.outputs.run_claude }}
       run_codex: ${{ steps.gate.outputs.run_codex }}
+      run_gh_copilot: ${{ steps.gate.outputs.run_gh_copilot }}
       issue_number: ${{ steps.gate.outputs.issue_number }}
       issue_title: ${{ steps.gate.outputs.issue_title }}
       issue_body: ${{ steps.gate.outputs.issue_body }}
@@ -125,8 +126,10 @@ jobs:
             const labels = new Set((issue.labels || []).map((label) => label.name));
             const hasClaude = labels.has('?agent:claude');
             const hasCodex = labels.has('?agent:codex');
+            const hasGhCopilot = labels.has('?agent:gh-copilot');
             const runClaude = hasClaude ? 'true' : 'false';
-            const runCodex = hasCodex || (!hasClaude && !hasCodex) ? 'true' : 'false';
+            const runCodex = hasCodex || (!hasClaude && !hasCodex && !hasGhCopilot) ? 'true' : 'false';
+            const runGhCopilot = hasGhCopilot ? 'true' : 'false';
 
             const slugBase = (issue.title || `issue-${issue.number}`)
               .toLowerCase()
@@ -140,6 +143,7 @@ jobs:
             core.setOutput('action', normalizedAction);
             core.setOutput('run_claude', runClaude);
             core.setOutput('run_codex', runCodex);
+            core.setOutput('run_gh_copilot', runGhCopilot);
             core.setOutput('issue_number', String(issue.number));
             core.setOutput('issue_title', issue.title || '');
             core.setOutput('issue_body', issue.body || '');
@@ -392,8 +396,29 @@ jobs:
       default_branch: ${{ github.event.repository.default_branch }}
     secrets: inherit
 
+  gh-copilot-do-issue:
+    needs: [gate, mark-pending, injection-check]
+    if: needs.gate.outputs.run_gh_copilot == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    permissions:
+      actions: read
+      contents: write
+      issues: write
+      pull-requests: write
+    uses: ./.github/workflows/issue-agent-issue-to-pr.yml
+    with:
+      agent_kind: gh-copilot
+      agent_name: GitHub Copilot
+      branch_prefix: gh-copilot
+      issue_number: ${{ needs.gate.outputs.issue_number }}
+      issue_title: ${{ needs.gate.outputs.issue_title }}
+      issue_body: ${{ needs.gate.outputs.issue_body }}
+      issue_comments_json: ${{ needs.gate.outputs.issue_comments_json }}
+      branch_slug: ${{ needs.gate.outputs.branch_slug }}
+      default_branch: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
   finalize-do-issue:
-    needs: [gate, mark-pending, injection-check, cc-do-issue, codex-do-issue]
+    needs: [gate, mark-pending, injection-check, cc-do-issue, codex-do-issue, gh-copilot-do-issue]
     if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
     environment: ai-bots
     runs-on: ubuntu-latest
@@ -420,6 +445,9 @@ jobs:
             }
             if ('${{ needs.gate.outputs.run_codex }}' === 'true') {
               requestedResults.push({ agent: 'Codex', result: '${{ needs.codex-do-issue.result }}' });
+            }
+            if ('${{ needs.gate.outputs.run_gh_copilot }}' === 'true') {
+              requestedResults.push({ agent: 'GitHub Copilot', result: '${{ needs['gh-copilot-do-issue'].result }}' });
             }
 
             const allSucceeded = requestedResults.every((entry) => entry.result === 'success');
@@ -493,9 +521,27 @@ jobs:
       default_branch: ${{ github.event.repository.default_branch }}
     secrets: inherit
 
+  gh-copilot-plan-issue:
+    needs: [gate, mark-pending, injection-check]
+    if: needs.gate.outputs.run_gh_copilot == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true' && needs.injection-check.outputs.is_safe == 'true'
+    permissions:
+      actions: read
+      contents: read
+      issues: write
+    uses: ./.github/workflows/issue-agent-plan.yml
+    with:
+      agent_kind: gh-copilot
+      agent_name: GitHub Copilot
+      issue_number: ${{ needs.gate.outputs.issue_number }}
+      issue_title: ${{ needs.gate.outputs.issue_title }}
+      issue_body: ${{ needs.gate.outputs.issue_body }}
+      issue_comments_json: ${{ needs.gate.outputs.issue_comments_json }}
+      default_branch: ${{ github.event.repository.default_branch }}
+    secrets: inherit
+
   finalize-plan-issue:
     needs:
-      [gate, mark-pending, injection-check, cc-plan-issue, codex-plan-issue]
+      [gate, mark-pending, injection-check, cc-plan-issue, codex-plan-issue, gh-copilot-plan-issue]
     if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.injection-check.outputs.is_safe == 'true'
     environment: ai-bots
     runs-on: ubuntu-latest
@@ -522,6 +568,9 @@ jobs:
             }
             if ('${{ needs.gate.outputs.run_codex }}' === 'true') {
               requestedResults.push({ agent: 'Codex', result: '${{ needs.codex-plan-issue.result }}' });
+            }
+            if ('${{ needs.gate.outputs.run_gh_copilot }}' === 'true') {
+              requestedResults.push({ agent: 'GitHub Copilot', result: '${{ needs['gh-copilot-plan-issue'].result }}' });
             }
 
             const allSucceeded = requestedResults.every((entry) => entry.result === 'success');

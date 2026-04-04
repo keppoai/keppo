@@ -26,7 +26,7 @@ const contextFiles: RepoContextDefinition[] = [
   },
   {
     path: "docs/github-label-workflows.md",
-    tags: ["labels", "plan-issue", "do-issue", "claude", "codex", "agents"],
+    tags: ["labels", "plan-issue", "do-issue", "claude", "codex", "gh-copilot", "agents"],
     description: "Human-applied and workflow-owned GitHub labels.",
   },
   {

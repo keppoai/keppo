@@ -4,7 +4,7 @@ import { ACTION_LABELS, AGENT_LABELS } from "./labels";
 const nonEmptyString = z.string().trim().min(1);
 
 export const issueActionSchema = z.enum(["plan", "do"]);
-export const agentChoiceSchema = z.enum(["claude", "codex"]);
+export const agentChoiceSchema = z.enum(["claude", "codex", "gh-copilot"]);
 
 export const uploadedImageSchema = z.object({
   url: z.string().url(),
@@ -43,7 +43,7 @@ export const clarificationQuestionGenerationSchema = z.object({
 export const questionsRequestSchema = z.object({
   prompt: nonEmptyString.max(4_000),
   action: issueActionSchema,
-  agents: z.array(agentChoiceSchema).min(1).max(2),
+  agents: z.array(agentChoiceSchema).min(1).max(3),
   images: z.array(uploadedImageSchema).max(4).default([]),
 });
 
@@ -63,7 +63,7 @@ export const answerValueSchema = z.union([z.string(), z.array(z.string())]);
 export const draftRequestSchema = z.object({
   prompt: nonEmptyString.max(4_000),
   action: issueActionSchema,
-  agents: z.array(agentChoiceSchema).min(1).max(2),
+  agents: z.array(agentChoiceSchema).min(1).max(3),
   images: z.array(uploadedImageSchema).max(4).default([]),
   answers: z.record(nonEmptyString.max(64), answerValueSchema).default({}),
 });

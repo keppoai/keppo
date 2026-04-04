@@ -6,6 +6,7 @@ export const ACTION_LABELS = {
 export const AGENT_LABELS = {
   claude: "?agent:claude",
   codex: "?agent:codex",
+  "gh-copilot": "?agent:gh-copilot",
 } as const;
 
 export type IssueAction = keyof typeof ACTION_LABELS;
@@ -16,6 +17,7 @@ export const ALL_WORKFLOW_LABELS = [
   ACTION_LABELS.do,
   AGENT_LABELS.claude,
   AGENT_LABELS.codex,
+  AGENT_LABELS["gh-copilot"],
 ] as const;
 
 export const buildIssueLabels = (action: IssueAction, agents: AgentChoice[]): string[] => {
@@ -47,6 +49,9 @@ export const parseAgentsFromSearchParams = (
     }
     if (value === "codex" || value === AGENT_LABELS.codex) {
       agents.add("codex");
+    }
+    if (value === "gh-copilot" || value === "ghcopilot" || value === AGENT_LABELS["gh-copilot"]) {
+      agents.add("gh-copilot");
     }
   }
   if (agents.size === 0) {
