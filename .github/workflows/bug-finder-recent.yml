@@ -23,7 +23,17 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  gate:
+    uses: ./.github/workflows/recent-main-activity-gate.yml
+    permissions:
+      contents: read
+    with:
+      caller_event_name: ${{ github.event_name }}
+      run_reason: bug finder
+
   review:
+    needs: gate
+    if: needs.gate.outputs.should_run == 'true'
     environment: ai-bots
     # This is an expensive long-running job and it's safer
     # to run it on a larger runner to avoid OOM issues
