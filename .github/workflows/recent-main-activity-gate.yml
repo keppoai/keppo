@@ -3,6 +3,10 @@ name: Recent Main Activity Gate
 on:
   workflow_call:
     inputs:
+      caller_event_name:
+        description: Event name from the calling workflow.
+        required: true
+        type: string
       max_age_seconds:
         description: Maximum allowed age of the latest default-branch commit.
         required: false
@@ -38,12 +42,13 @@ jobs:
       - name: Decide whether to run
         id: decide
         env:
+          CALLER_EVENT_NAME: ${{ inputs.caller_event_name }}
           MAX_AGE_SECONDS: ${{ inputs.max_age_seconds }}
           RUN_REASON: ${{ inputs.run_reason }}
         run: |
           set -euo pipefail
 
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          if [[ "${CALLER_EVENT_NAME}" == "workflow_dispatch" ]]; then
             echo "should_run=true" >> "$GITHUB_OUTPUT"
             echo "workflow_dispatch trigger - running ${RUN_REASON}"
             exit 0

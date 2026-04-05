@@ -1,0 +1,11 @@
+- [x] Self-review the PR context, changed files, and applicable workflow/rule files.
+- [x] Investigate the non-E2E `fix-pr` GitHub Actions check and determine whether any concrete failure remains to fix in this pass.
+- [x] Address the trusted cubic thread about manual `workflow_dispatch` handling in the reusable gate workflow.
+- [x] Address the trusted cubic thread about missing `contents: read` permissions on reusable workflow callers.
+- [x] Review trusted top-level feedback in `trustedReviews` and `trustedIssueComments`, decide what requires action, and incorporate any needed changes.
+- [x] Make the required code changes in the workflow files.
+- [x] Verify whether any PR-related E2E failure requires local E2E validation for this pass.
+- [x] Run `pnpm check` and fix every failure until it passes.
+- [ ] Self-review the final diff and prepare thread resolutions/replies plus the top-level summary.
+- [ ] Write `tmp/pr-review-responder/actions.json`.
+- [ ] Delete `TODOS.md`.

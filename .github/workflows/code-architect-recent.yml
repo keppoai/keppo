@@ -25,7 +25,10 @@ concurrency:
 jobs:
   gate:
     uses: ./.github/workflows/recent-main-activity-gate.yml
+    permissions:
+      contents: read
     with:
+      caller_event_name: ${{ github.event_name }}
       run_reason: architecture review
 
   review:
