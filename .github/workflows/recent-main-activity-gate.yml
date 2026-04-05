@@ -1,0 +1,65 @@
+name: Recent Main Activity Gate
+
+on:
+  workflow_call:
+    inputs:
+      max_age_seconds:
+        description: Maximum allowed age of the latest default-branch commit.
+        required: false
+        default: 86400
+        type: number
+      run_reason:
+        description: Short label used in log messages for the gated workflow.
+        required: false
+        default: review
+        type: string
+    outputs:
+      should_run:
+        description: Whether the caller should continue running.
+        value: ${{ jobs.gate.outputs.should_run }}
+
+permissions: {}
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      should_run: ${{ steps.decide.outputs.should_run }}
+    steps:
+      - name: Checkout default branch
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Decide whether to run
+        id: decide
+        env:
+          MAX_AGE_SECONDS: ${{ inputs.max_age_seconds }}
+          RUN_REASON: ${{ inputs.run_reason }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "workflow_dispatch trigger - running ${RUN_REASON}"
+            exit 0
+          fi
+
+          latest_commit_ts="$(git log -1 --format=%ct HEAD)"
+          now_ts="$(date +%s)"
+          age_seconds=$((now_ts - latest_commit_ts))
+          if (( age_seconds < 0 )); then
+            age_seconds=0
+          fi
+
+          if (( age_seconds <= MAX_AGE_SECONDS )); then
+            echo "should_run=true" >> "$GITHUB_OUTPUT"
+            echo "Latest commit on ${GITHUB_REF_NAME:-default branch} is ${age_seconds}s old - running ${RUN_REASON}"
+          else
+            echo "should_run=false" >> "$GITHUB_OUTPUT"
+            echo "Latest commit on ${GITHUB_REF_NAME:-default branch} is ${age_seconds}s old - skipping scheduled ${RUN_REASON}"
+          fi
