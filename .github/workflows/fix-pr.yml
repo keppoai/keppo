@@ -43,11 +43,9 @@ jobs:
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
           permission-actions: read
           permission-checks: read
-          # write required for GraphQL resolveReviewThread mutation
-          # see: https://github.com/orgs/community/discussions/44650
-          permission-contents: write
-          permission-issues: write
-          permission-pull-requests: write
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
 
       - name: Get PR info and check labels
         id: pr-info
@@ -349,7 +347,9 @@ jobs:
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-contents: read
+          # write required for GraphQL resolveReviewThread mutation
+          # see: https://github.com/orgs/community/discussions/44650
+          permission-contents: write
           permission-issues: write
           permission-pull-requests: write
 
