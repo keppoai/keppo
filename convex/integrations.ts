@@ -17,7 +17,7 @@ import {
 } from "./integrations/lifecycle.js";
 import { markIntegrationHealth, testProvider } from "./integrations/health.js";
 import { listForCurrentOrg, providerCatalog } from "./integrations/read_model.js";
-import { recordProviderWebhook } from "./integrations/webhooks.js";
+import { markProviderWebhookOrgIngested, recordProviderWebhook } from "./integrations/webhooks.js";
 
 export {
   connectProvider,
@@ -27,6 +27,7 @@ export {
   disconnectProvider,
   getProviderTriggerIntegrationContext,
   listForCurrentOrg,
+  markProviderWebhookOrgIngested,
   markCredentialRefreshResult,
   markIntegrationHealth,
   migrateLegacyIntegrationCredentialTokens,

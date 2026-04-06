@@ -173,6 +173,7 @@ export const e2eResetTables = [
   "rate_limits",
   "integration_accounts",
   "integrations",
+  "provider_webhook_deliveries",
   "workspace_integrations",
   "custom_mcp_tools",
   "workspace_custom_servers",

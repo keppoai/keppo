@@ -73,6 +73,7 @@ export const refs = {
   deleteManagedOAuthConnectState: adminRef(internal.integrations.deleteManagedOAuthConnectState),
   upsertOAuthProviderForOrg: adminRef(internal.integrations.upsertOAuthProviderForOrg),
   recordProviderWebhook: adminRef(internal.integrations.recordProviderWebhook),
+  markProviderWebhookOrgIngested: adminRef(internal.integrations.markProviderWebhookOrgIngested),
   ingestProviderEvent: adminRef(internal.automation_triggers.ingestProviderEvent),
   matchAndQueueAutomationTriggers: adminRef(
     internal.automation_triggers.matchAndQueueAutomationTriggers,

@@ -15,6 +15,8 @@ import {
   convexExecuteApprovedActionResultSchema,
   convexIngestProviderEventPayloadSchema,
   convexIngestProviderEventResultSchema,
+  convexMarkProviderWebhookOrgIngestedPayloadSchema,
+  convexMarkProviderWebhookOrgIngestedResultSchema,
   convexRecordProviderWebhookPayloadSchema,
   convexRecordProviderWebhookResultSchema,
   convexUpsertOAuthProviderPayloadSchema,
@@ -928,11 +930,17 @@ export class ConvexInternalClient {
 
   async recordProviderWebhook(params: {
     provider: CanonicalProviderId;
+    deliveryId: string;
     externalAccountId?: string | null;
     eventType: string;
     payload: Record<string, unknown>;
     receivedAt?: string;
-  }): Promise<{ matched_orgs: number; matched_integrations: number; matched_org_ids: string[] }> {
+  }): Promise<{
+    matched_orgs: number;
+    matched_integrations: number;
+    matched_org_ids: string[];
+    pending_org_ids: string[];
+  }> {
     const payload = parseConvexPayload(convexRecordProviderWebhookPayloadSchema, params);
     const parsed = parseConvexPayload(
       convexRecordProviderWebhookResultSchema,
@@ -940,6 +948,7 @@ export class ConvexInternalClient {
         refs.recordProviderWebhook,
         {
           provider: payload.provider,
+          deliveryId: payload.deliveryId,
           ...(payload.externalAccountId !== undefined
             ? { externalAccountId: payload.externalAccountId }
             : {}),
@@ -954,7 +963,28 @@ export class ConvexInternalClient {
       matched_orgs: parsed.matched_orgs,
       matched_integrations: parsed.matched_integrations,
       matched_org_ids: parsed.matched_org_ids ?? [],
+      pending_org_ids: parsed.pending_org_ids ?? [],
     };
+  }
+
+  async markProviderWebhookOrgIngested(params: {
+    provider: CanonicalProviderId;
+    deliveryId: string;
+    orgId: string;
+  }): Promise<{ pending_org_ids: string[] }> {
+    const payload = parseConvexPayload(convexMarkProviderWebhookOrgIngestedPayloadSchema, params);
+    return parseConvexPayload(
+      convexMarkProviderWebhookOrgIngestedResultSchema,
+      await this.callMutation(
+        refs.markProviderWebhookOrgIngested,
+        {
+          provider: payload.provider,
+          deliveryId: payload.deliveryId,
+          orgId: payload.orgId,
+        },
+        "mutation:markProviderWebhookOrgIngested",
+      ),
+    );
   }
 
   async matchAndQueueAutomationTriggers(params: {
