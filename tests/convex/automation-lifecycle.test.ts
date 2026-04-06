@@ -1,10 +1,20 @@
 import { makeFunctionReference } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
-import { AUTOMATION_RUN_STATUS, RUN_STATUS } from "../../convex/domain_constants";
+import {
+  AUTOMATION_RUN_STATUS,
+  RUN_STATUS,
+  SUBSCRIPTION_STATUS,
+  SUBSCRIPTION_TIER,
+} from "../../convex/domain_constants";
+import { getTierConfig, getDefaultBillingPeriod } from "../../packages/shared/src/subscriptions.js";
 import { MCP_CREDENTIAL_AUTH_STATUS } from "../../packages/shared/src/mcp-auth.js";
+import { getAutomationRunTopupBalanceForOrg } from "../../convex/automation_run_topups";
 import { createConvexTestHarness, seedAutomationFixture } from "./harness";
 
 const refs = {
+  addPurchasedAutomationRuns: makeFunctionReference<"mutation">(
+    "automation_run_topups:addPurchasedAutomationRuns",
+  ),
   authenticateCredential: makeFunctionReference<"mutation">("mcp:authenticateCredential"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
   issueAutomationWorkspaceCredential: makeFunctionReference<"mutation">(
@@ -15,6 +25,9 @@ const refs = {
   ),
   recordAutomationRunTrace: makeFunctionReference<"mutation">(
     "automation_runs:recordAutomationRunTrace",
+  ),
+  upsertSubscriptionForOrg: makeFunctionReference<"mutation">(
+    "billing/subscriptions:upsertSubscriptionForOrg",
   ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
@@ -235,6 +248,99 @@ describe("convex automation lifecycle functions", () => {
         summary: "Finished successfully despite the timeout.",
       }),
     ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
+  });
+
+  it("keeps purchased run capacity available across multiple overage runs", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-04-03T12:00:00.000Z"));
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_automation_topup_limit";
+    const fixture = await seedAutomationFixture(t, orgId);
+    const period = getDefaultBillingPeriod(new Date());
+    const starterBaseLimit = getTierConfig(SUBSCRIPTION_TIER.starter).automation_limits
+      .max_runs_per_period;
+
+    await t.mutation(refs.upsertSubscriptionForOrg, {
+      orgId,
+      tier: SUBSCRIPTION_TIER.starter,
+      status: SUBSCRIPTION_STATUS.active,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      currentPeriodStart: period.periodStart,
+      currentPeriodEnd: period.periodEnd,
+    });
+    await t.mutation(refs.addPurchasedAutomationRuns, {
+      orgId,
+      tier: SUBSCRIPTION_TIER.starter,
+      multiplier: "x1",
+      runs: 2,
+      toolCalls: 0,
+      toolCallTimeMs: 0,
+      priceCents: 1500,
+      stripePaymentIntentId: null,
+    });
+
+    await t.run(async (ctx) => {
+      for (let index = 0; index < starterBaseLimit; index += 1) {
+        await ctx.db.insert("automation_runs", {
+          id: `arun_${orgId}_${index}`,
+          automation_id: fixture.automationId,
+          org_id: orgId,
+          workspace_id: fixture.workspaceId,
+          config_version_id: fixture.configVersionId,
+          trigger_type: "manual",
+          error_message: null,
+          sandbox_id: null,
+          outcome_success: true,
+          outcome_summary: "Seeded completed run",
+          outcome_source: "agent_recorded",
+          outcome_recorded_at: period.periodStart,
+          log_storage_id: null,
+          session_trace_storage_id: null,
+          session_trace_relative_path: null,
+          created_at: period.periodStart,
+          mcp_session_id: null,
+          client_type: "other",
+          metadata: {
+            automation_run_status: AUTOMATION_RUN_STATUS.succeeded,
+            log_bytes: 0,
+            log_eviction_noted: false,
+          },
+          started_at: period.periodStart,
+          ended_at: period.periodStart,
+          status: RUN_STATUS.ended,
+        });
+      }
+    });
+
+    const firstPurchasedRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+    expect(firstPurchasedRun.status).toBe(AUTOMATION_RUN_STATUS.pending);
+    await expect(
+      t.run((ctx) => getAutomationRunTopupBalanceForOrg(ctx, orgId)),
+    ).resolves.toMatchObject({
+      purchased_runs_balance: 1,
+    });
+
+    const secondPurchasedRun = await t.mutation(refs.createAutomationRun, {
+      automation_id: fixture.automationId,
+      trigger_type: "manual",
+    });
+    expect(secondPurchasedRun.status).toBe(AUTOMATION_RUN_STATUS.pending);
+    await expect(
+      t.run((ctx) => getAutomationRunTopupBalanceForOrg(ctx, orgId)),
+    ).resolves.toMatchObject({
+      purchased_runs_balance: 0,
+    });
+
+    await expect(
+      t.mutation(refs.createAutomationRun, {
+        automation_id: fixture.automationId,
+        trigger_type: "manual",
+      }),
+    ).rejects.toThrow("AUTOMATION_RUN_LIMIT_REACHED");
   });
 
   it("reaps stale running runs into timed out status", async () => {

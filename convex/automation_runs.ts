@@ -87,6 +87,16 @@ const zeroAutomationRunTopupBalance = {
   purchased_tool_call_time_ms_balance: 0,
 } as const;
 
+const effectiveAutomationRunLimit = (
+  baseLimit: number,
+  runsThisPeriod: number,
+  purchasedRunsBalance: number,
+) => {
+  // Purchased runs are also deducted from the remaining balance, so the cap must
+  // include already-consumed overage runs or it shrinks mid-period.
+  return Math.max(baseLimit, runsThisPeriod) + purchasedRunsBalance;
+};
+
 const automationRunOutcomeViewValidator = v.object({
   success: v.boolean(),
   summary: v.string(),
@@ -702,13 +712,17 @@ const createAutomationRunInternal = async (
     tier === SUBSCRIPTION_TIER.free
       ? zeroAutomationRunTopupBalance
       : await getAutomationRunTopupBalanceForOrg(ctx, automation.org_id);
-  const effectiveRunLimit = limits.max_runs_per_period + topupBalance.purchased_runs_balance;
 
   const runsThisPeriod = await periodRunCountForOrg(
     ctx,
     automation.org_id,
     period.periodStart,
     period.periodEnd,
+  );
+  const effectiveRunLimit = effectiveAutomationRunLimit(
+    limits.max_runs_per_period,
+    runsThisPeriod,
+    topupBalance.purchased_runs_balance,
   );
   if (runsThisPeriod >= effectiveRunLimit) {
     await ctx.runMutation(refs.emitNotificationForOrg, {
@@ -1368,13 +1382,18 @@ export const getCurrentOrgAutomationRunUsage = query({
         ? zeroAutomationRunTopupBalance
         : await getAutomationRunTopupBalanceForOrg(ctx, auth.orgId);
     const baseLimit = getTierConfig(tier).automation_limits.max_runs_per_period;
+    const effectiveRunLimit = effectiveAutomationRunLimit(
+      baseLimit,
+      runCount,
+      topupBalance.purchased_runs_balance,
+    );
 
     return {
       period_start: period.periodStart,
       period_end: period.periodEnd,
       run_count: runCount,
       purchased_runs_balance: topupBalance.purchased_runs_balance,
-      max_runs_per_period: baseLimit + topupBalance.purchased_runs_balance,
+      max_runs_per_period: effectiveRunLimit,
     };
   },
 });

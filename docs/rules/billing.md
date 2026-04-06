@@ -34,6 +34,7 @@
 - Usage-threshold notifications should be emitted from canonical usage-meter state, not guessed in the UI.
 - Hosted bundled prompt generation, Mermaid generation, and automation runtime must use the same gateway-metered spend model. Do not mix gateway-metered runtime with direct-provider prompt generation inside the hosted bundled entitlement path.
 - Automation run top-ups extend the effective run, tool-call, and total tool-time limits for paid tiers only. Run and tool-call deductions consume the oldest active purchased package first; purchased tool time is additive for the active package lifetime and disappears on expiry.
+- Effective automation run capacity must stay stable after each purchased-run deduction. When deriving the current period cap from the cached remaining-balance ledger, include already-consumed overage runs so the limit does not shrink mid-period.
 - Normal top-up reads should use the cached org-level ledger; reserve per-purchase scans for write-side recomputation or missing-ledger fallback paths.
 
 ## Credits and seats
