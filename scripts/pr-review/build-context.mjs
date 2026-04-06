@@ -10,7 +10,9 @@ const githubOutputPath = process.env.GITHUB_OUTPUT;
 
 if (!token) throw new Error("GITHUB_TOKEN is required");
 if (!repository) throw new Error("GITHUB_REPOSITORY is required");
-if (!Number.isFinite(prNumber)) throw new Error("PR_NUMBER is required");
+if (!Number.isInteger(prNumber) || prNumber <= 0) {
+  throw new Error("PR_NUMBER must be a positive integer");
+}
 if (!outputPath) throw new Error("OUTPUT_PATH is required");
 if (!githubOutputPath) throw new Error("GITHUB_OUTPUT is required");
 
@@ -138,15 +140,16 @@ try {
 
 const maxPatchChars = 48000;
 const normalizedFiles = files.map((file) => {
-  const patch = typeof file.patch === "string" ? file.patch : "";
+  const fullPatch = typeof file.patch === "string" ? file.patch : "";
   return {
     path: file.filename,
     status: file.status,
     additions: file.additions,
     deletions: file.deletions,
     changes: file.changes,
-    patch: patch.slice(0, maxPatchChars),
-    patchTruncated: patch.length > maxPatchChars,
+    patch: fullPatch.slice(0, maxPatchChars),
+    patchTruncated: fullPatch.length > maxPatchChars,
+    commentableLineRanges: getCommentableLineRanges(fullPatch),
   };
 });
 
@@ -166,10 +169,7 @@ const payload = {
     additions: pullRequest.additions ?? 0,
     deletions: pullRequest.deletions ?? 0,
   },
-  files: normalizedFiles.map((file) => ({
-    ...file,
-    commentableLineRanges: getCommentableLineRanges(file.patch),
-  })),
+  files: normalizedFiles,
   diff,
   diffTruncated,
 };

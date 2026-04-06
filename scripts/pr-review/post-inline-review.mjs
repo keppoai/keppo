@@ -8,7 +8,9 @@ const findingsPath = process.env.FINDINGS_PATH;
 
 if (!token) throw new Error("GITHUB_TOKEN is required");
 if (!repository) throw new Error("GITHUB_REPOSITORY is required");
-if (!Number.isFinite(prNumber)) throw new Error("PR_NUMBER is required");
+if (!Number.isInteger(prNumber) || prNumber <= 0) {
+  throw new Error("PR_NUMBER must be a positive integer");
+}
 if (!contextPath) throw new Error("CONTEXT_PATH is required");
 if (!findingsPath) throw new Error("FINDINGS_PATH is required");
 
@@ -78,9 +80,8 @@ const response = await fetch(
 );
 
 if (!response.ok) {
-  const errorText = await response.text();
   throw new Error(
-    `Failed to create Codex review comments: ${response.status} ${response.statusText}\n${errorText}`,
+    `Failed to create Codex review comments: ${response.status} ${response.statusText}`,
   );
 }
 

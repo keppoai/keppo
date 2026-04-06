@@ -58,6 +58,10 @@ if (!findingsPath) {
   process.exit(0);
 }
 
+if (!fs.existsSync(findingsPath)) {
+  throw new Error("Findings output file is missing");
+}
+
 const filesByPath = new Map(
   (context.files ?? []).map((file) => [file.path, file]),
 );
@@ -66,17 +70,19 @@ const lineInRanges = (line, ranges) =>
   Array.isArray(ranges) &&
   ranges.some((range) => Number.isInteger(range.start) && Number.isInteger(range.end) && line >= range.start && line <= range.end);
 
-let findingsPayload = { findings: [] };
-if (fs.existsSync(findingsPath)) {
-  const findingsRaw = fs.readFileSync(findingsPath, "utf8").trim();
-  if (findingsRaw) {
-    findingsPayload = JSON.parse(findingsRaw);
-  }
+const findingsRaw = fs.readFileSync(findingsPath, "utf8").trim();
+if (!findingsRaw) {
+  throw new Error("Findings output file is empty");
+}
+const findingsPayload = JSON.parse(findingsRaw);
+if (!findingsPayload || typeof findingsPayload !== "object") {
+  throw new Error("Findings output must be a JSON object");
+}
+if (!Array.isArray(findingsPayload.findings)) {
+  throw new Error("Findings output must include a findings array");
 }
 
-const rawFindings = Array.isArray(findingsPayload.findings)
-  ? findingsPayload.findings
-  : [];
+const rawFindings = findingsPayload.findings;
 const normalizedFindings = [];
 const seenKeys = new Set();
 
@@ -96,7 +102,8 @@ for (const [index, finding] of rawFindings.entries()) {
     throw new Error(`Finding ${index} references unknown changed file: ${path}`);
   }
 
-  const line = Number.parseInt(`${finding.line ?? ""}`, 10);
+  const lineRaw = `${finding.line ?? ""}`.trim();
+  const line = /^\d+$/.test(lineRaw) ? Number(lineRaw) : Number.NaN;
   if (!Number.isInteger(line) || line <= 0) {
     throw new Error(`Finding ${index} has invalid line: ${finding.line}`);
   }
@@ -132,6 +139,32 @@ for (const [index, finding] of rawFindings.entries()) {
     body,
     ...(suggestion ? { suggestion } : {}),
   });
+}
+
+const hasExplicitRecommendation = Boolean(recMatch);
+const recommendation = recMatch?.[1] ?? "human-review";
+const highFindings = normalizedFindings.filter(
+  (finding) => finding.severity === "HIGH",
+);
+if (recommendation === "ready" && highFindings.length > 0) {
+  throw new Error("Review summary says ready but findings include HIGH issues");
+}
+if (
+  hasExplicitRecommendation &&
+  (recommendation === "auto-fix" || recommendation === "human-review") &&
+  highFindings.length === 0
+) {
+  throw new Error(
+    `Review summary says ${recommendation} but findings do not include HIGH issues`,
+  );
+}
+if (
+  normalizedFindings.length > 0 &&
+  finalSummary.includes(":white_check_mark: No significant issues found.")
+) {
+  throw new Error(
+    "Review summary says no significant issues found but findings were emitted",
+  );
 }
 
 fs.writeFileSync(
