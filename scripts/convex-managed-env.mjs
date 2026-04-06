@@ -12,6 +12,11 @@ const managedConvexEnv = [
     modes: ["local", "hosted"],
     defaultByMode: { local: "true", hosted: "false" },
   },
+  {
+    key: "KEPPO_ENVIRONMENT",
+    modes: ["hosted"],
+    hostedEnvironments: ["preview", "staging", "production"],
+  },
   { key: "KEPPO_ADMIN_USER_IDS", modes: ["local", "hosted"] },
   {
     key: "KEPPO_LOCAL_ADMIN_BYPASS",

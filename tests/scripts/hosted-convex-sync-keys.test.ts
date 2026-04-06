@@ -40,4 +40,9 @@ describe("scripts/hosted-convex-sync-keys.mjs", () => {
       "VERCEL_AUTOMATION_BYPASS_SECRET",
     );
   });
+
+  it("syncs KEPPO_ENVIRONMENT into hosted Convex runtimes", () => {
+    expect(listManagedConvexEnvKeys("hosted", "preview")).toContain("KEPPO_ENVIRONMENT");
+    expect(listManagedConvexEnvKeys("hosted", "production")).toContain("KEPPO_ENVIRONMENT");
+  });
 });

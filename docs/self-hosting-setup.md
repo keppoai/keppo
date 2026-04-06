@@ -13,6 +13,7 @@ Bootstrap shared defaults from [`.env.example`](../.env.example) into your deplo
 - Preview, staging, and production use the same project boundary. Preview relies on deployment-provided env, while staging and production bundle the selected environment-specific runtime env file into the Nitro server output.
 - Hosted builds sync Convex env and run `convex deploy --cmd '<build command>'` so schema/function changes ship with the matching web artifact.
 - Preview builds must also export the derived preview origin (`KEPPO_URL` and same-origin Better Auth companions such as `KEPPO_API_INTERNAL_BASE_URL`) into the shell before `convex deploy` begins, because Convex analyzes auth modules before the later hosted env sync step. `KEPPO_API_INTERNAL_BASE_URL` must remain reachable from automation sandboxes for signed log, trace, and completion callbacks.
+- Hosted preview deployments intentionally do not register the `maintenance-sweep` or `automation-provider-trigger-reconcile` Convex cron jobs to avoid background compute in short-lived environments. Use `POST /internal/cron/maintenance` for explicit preview maintenance runs, and invoke the provider-trigger reconcile action directly when you need preview-side trigger validation.
 - Provider rollout is controlled by feature flags rather than route removal.
 - Validate deployment changes with `pnpm run check:security`.
 
@@ -26,6 +27,7 @@ Bootstrap shared defaults from [`.env.example`](../.env.example) into your deplo
 | `VITE_CONVEX_SITE_URL`       | client         | Convex site URL (`https://<deployment>.convex.site`) used by the app-server auth proxy to reach Better Auth                                                                   |
 | `VITE_VAPID_PUBLIC_KEY`      | client         | Browser Web Push VAPID public key                                                                                                                                             |
 | `BETTER_AUTH_SECRET`         | server, convex | Secret for signing better-auth sessions/JWTs. Must be unique per deployment and explicitly set.                                                                               |
+| `KEPPO_ENVIRONMENT`          | build, server, convex | Hosted environment selector (`preview`, `staging`, or `production`). Hosted Convex sync also pushes this into the Convex runtime so preview-only cron registration behaves correctly.                                      |
 | `KEPPO_URL`                  | server, convex | Unified web origin for better-auth and in-app redirects. Must be unique per deployment. `KEPPO_API_INTERNAL_BASE_URL` derives as `${KEPPO_URL}/api`.                          |
 | `CONVEX_URL`                 | server         | Convex deployment URL (server-side)                                                                                                                                           |
 | `KEPPO_CONVEX_ADMIN_KEY`     | server         | Admin key for internal Convex calls. Auto-resolved from `.convex/local/default/config.json` for local dev. Required in prod.                                                  |

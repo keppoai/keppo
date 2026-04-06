@@ -548,6 +548,83 @@ describe.sequential("Local Convex Automation Integration", () => {
     });
   }, 20_000);
 
+  it("allows direct provider-trigger reconciliation without relying on cron registration", async () => {
+    const namespace = createNamespace("local", "gmail-trigger-direct-reconcile");
+    const created = await http.mutation(refs.createAutomationViaContract, {
+      tier: "free",
+      triggerType: "event",
+      providerTrigger: {
+        provider_id: "google",
+        trigger_key: "incoming_email",
+        schema_version: 1,
+        filter: {
+          from: "alerts@example.com",
+          unread_only: true,
+        },
+        delivery: {
+          preferred_mode: "webhook",
+          supported_modes: ["webhook", "polling"],
+          fallback_mode: "polling",
+        },
+        subscription_state: {
+          status: "inactive",
+          active_mode: null,
+          last_error: null,
+          updated_at: null,
+        },
+      },
+    });
+
+    await http.mutation(refs.upsertOAuthProviderForOrg, {
+      orgId: created.orgId,
+      provider: "google",
+      displayName: "Google",
+      scopes: ["gmail.readonly", "gmail.modify"],
+      externalAccountId: "automation@example.com",
+      accessToken: "fake_gmail_access_token",
+      refreshToken: "fake_gmail_refresh_token",
+      expiresAt: null,
+      metadata: {
+        e2e_namespace: namespace,
+      },
+    });
+
+    await postGatewaySeed(fakeGatewayBaseUrl, namespace, "google", {
+      messages: [
+        {
+          id: "msg_existing_direct_reconcile",
+          threadId: "thr_existing_direct_reconcile",
+          from: "alerts@example.com",
+          to: "automation@example.com",
+          subject: "Preview-safe direct reconcile",
+          snippet: "Preview-safe direct reconcile",
+          body: "Preview-safe direct reconcile",
+          unread: true,
+          historyId: "3001",
+          labelIds: ["INBOX", "UNREAD"],
+        },
+      ],
+      historyCounter: 3001,
+    });
+
+    const reconcile = await http.action(refs.reconcileProviderTriggerSubscriptions, {});
+    expect(reconcile.processed).toBeGreaterThanOrEqual(1);
+
+    const publicViewsAfterReconcile = await http.query(refs.getAutomationFixturePublicViews, {
+      automationId: created.created.automation.id,
+      workspaceId: created.workspaceId,
+      configVersionId: created.created.config_version.id,
+    });
+    expect(
+      publicViewsAfterReconcile.detail.current_config_version.provider_trigger?.subscription_state,
+    ).toEqual({
+      status: "active",
+      active_mode: "polling",
+      last_error: null,
+      updated_at: expect.any(String),
+    });
+  }, 15_000);
+
   it("reconciles Reddit mentions through the generic polling scheduler and suppresses the initial backlog", async () => {
     const namespace = createNamespace("local", "reddit-trigger-lifecycle");
     const created = await http.mutation(refs.createAutomationViaContract, {

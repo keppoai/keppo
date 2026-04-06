@@ -325,6 +325,125 @@ describe("convex maintenance mutations", () => {
     );
   });
 
+  it("keeps manual maintenance available when preview omits the scheduled cron", async () => {
+    vi.stubEnv("KEPPO_ENVIRONMENT", "preview");
+    try {
+      const t = createConvexTestHarness();
+      const orgId = "org_convex_maintenance_manual_preview";
+      await seedAutomationFixture(t, orgId);
+      const expiredAt = new Date(Date.now() - 60_000).toISOString();
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("invites", {
+          id: "inv_expired_manual_preview",
+          org_id: orgId,
+          email: "expired-preview@example.com",
+          role: "viewer",
+          token_hash: "hash_expired_manual_preview",
+          invited_by: "usr_test",
+          status: INVITE_STATUS.pending,
+          created_at: expiredAt,
+          expires_at: expiredAt,
+          accepted_at: null,
+        });
+      });
+
+      const result = await t.action(refs.scheduledMaintenanceSweepManual, {});
+      expect(result.queue).toEqual({
+        attempted: 0,
+        dispatched: 0,
+        skipped: 0,
+      });
+      expect(result.skippedReason).toBeNull();
+      expect(result.invites).toEqual({
+        expired: 1,
+      });
+
+      const invite = await t.run((ctx) =>
+        ctx.db
+          .query("invites")
+          .withIndex("by_custom_id", (q) => q.eq("id", "inv_expired_manual_preview"))
+          .unique(),
+      );
+
+      expect(invite?.status).toBe(INVITE_STATUS.expired);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("omits preview-disabled cron health entries even when stale heartbeat rows already exist", async () => {
+    vi.stubEnv("KEPPO_ENVIRONMENT", "preview");
+    try {
+      const t = createConvexTestHarness();
+      const staleAt = new Date(Date.now() - 30 * 60_000).toISOString();
+
+      await t.run(async (ctx) => {
+        await ctx.db.insert("cron_heartbeats", {
+          id: "cron_preview_maintenance",
+          job_name: "maintenance-sweep",
+          last_success_at: staleAt,
+          last_failure_at: null,
+          last_error: null,
+          consecutive_failures: 0,
+          updated_at: staleAt,
+        });
+        await ctx.db.insert("cron_heartbeats", {
+          id: "cron_preview_scheduler",
+          job_name: "automation-scheduler-check",
+          last_success_at: staleAt,
+          last_failure_at: null,
+          last_error: null,
+          consecutive_failures: 0,
+          updated_at: staleAt,
+        });
+      });
+
+      const cronHealth = await t.query(refs.checkCronHealth, {});
+
+      expect(cronHealth.map((job) => job.jobName)).not.toContain("maintenance-sweep");
+      expect(cronHealth).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            jobName: "automation-scheduler-check",
+            status: "STALE",
+          }),
+        ]),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("marks missing expected cron heartbeats stale once other cron activity proves the deployment has been live", async () => {
+    const t = createConvexTestHarness();
+    const staleAt = new Date(Date.now() - 30 * 60_000).toISOString();
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("cron_heartbeats", {
+        id: "cron_prod_scheduler",
+        job_name: "automation-scheduler-check",
+        last_success_at: staleAt,
+        last_failure_at: null,
+        last_error: null,
+        consecutive_failures: 0,
+        updated_at: staleAt,
+      });
+    });
+
+    const cronHealth = await t.query(refs.checkCronHealth, {});
+
+    expect(cronHealth).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          jobName: "maintenance-sweep",
+          status: "STALE",
+          lastSuccessAt: null,
+        }),
+      ]),
+    );
+  });
+
   it("preserves lease ownership when heartbeat mutations update sweep status", async () => {
     const t = createConvexTestHarness();
     const jobName = "maintenance-sweep";
