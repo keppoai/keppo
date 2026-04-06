@@ -13,6 +13,7 @@ Bootstrap shared defaults from [`.env.example`](../.env.example) into your deplo
 - Preview, staging, and production use the same project boundary. Preview relies on deployment-provided env, while staging and production bundle the selected environment-specific runtime env file into the Nitro server output.
 - Hosted builds sync Convex env and run `convex deploy --cmd '<build command>'` so schema/function changes ship with the matching web artifact.
 - Preview builds must also export the derived preview origin (`KEPPO_URL` and same-origin Better Auth companions such as `KEPPO_API_INTERNAL_BASE_URL`) into the shell before `convex deploy` begins, because Convex analyzes auth modules before the later hosted env sync step. `KEPPO_API_INTERNAL_BASE_URL` must remain reachable from automation sandboxes for signed log, trace, and completion callbacks.
+- Hosted preview deployments intentionally do not register the `maintenance-sweep` or `automation-provider-trigger-reconcile` Convex cron jobs to avoid background compute in short-lived environments. Use `POST /internal/cron/maintenance` for explicit preview maintenance runs, and invoke the provider-trigger reconcile action directly when you need preview-side trigger validation.
 - Provider rollout is controlled by feature flags rather than route removal.
 - Validate deployment changes with `pnpm run check:security`.
 

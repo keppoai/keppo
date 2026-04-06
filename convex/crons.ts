@@ -1,5 +1,11 @@
 import { cronJobs, makeFunctionReference } from "convex/server";
 
+const normalizeEnvironment = (value: string | undefined): string =>
+  value?.trim().toLowerCase() ?? "";
+
+const isHostedPreviewEnvironment = (): boolean =>
+  normalizeEnvironment(process.env.KEPPO_ENVIRONMENT) === "preview";
+
 const crons = cronJobs();
 const checkScheduledAutomationsRef = makeFunctionReference<"mutation">(
   "cron_heartbeats:checkScheduledAutomationsWithHeartbeat",
@@ -41,18 +47,23 @@ const autoRetryDlqRef = makeFunctionReference<"mutation">(
 const syntheticCanaryRef = makeFunctionReference<"action">(
   "cron_heartbeats:syntheticCanaryWithHeartbeat",
 );
+const shouldRegisterPreviewDisabledCrons = !isHostedPreviewEnvironment();
 
 crons.interval("automation-scheduler-check", { minutes: 1 }, checkScheduledAutomationsRef, {
   limit: 200,
 });
-crons.interval(
-  "automation-provider-trigger-reconcile",
-  { minutes: 1 },
-  reconcileProviderTriggerSubscriptionsRef,
-  {
-    limit: 100,
-  },
-);
+if (shouldRegisterPreviewDisabledCrons) {
+  // Hosted preview intentionally skips these higher-cost background jobs to reduce compute.
+  // Manual maintenance and direct provider-trigger reconciliation remain available.
+  crons.interval(
+    "automation-provider-trigger-reconcile",
+    { minutes: 1 },
+    reconcileProviderTriggerSubscriptionsRef,
+    {
+      limit: 100,
+    },
+  );
+}
 crons.interval(
   "automation-trigger-event-processor",
   { minutes: 1 },
@@ -62,7 +73,9 @@ crons.interval(
   },
 );
 crons.interval("automation-stale-run-reaper", { minutes: 1 }, reapStaleRunsRef, { limit: 250 });
-crons.interval("maintenance-sweep", { minutes: 2 }, scheduledMaintenanceSweepRef, {});
+if (shouldRegisterPreviewDisabledCrons) {
+  crons.interval("maintenance-sweep", { minutes: 2 }, scheduledMaintenanceSweepRef, {});
+}
 crons.interval("abuse-heuristics", { minutes: 15 }, runAbuseHeuristicsRef, {});
 crons.interval("automation-hot-log-archival", { hours: 1 }, archiveHotLogsRef, {
   limit: 50,
