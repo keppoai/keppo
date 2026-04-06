@@ -17,6 +17,32 @@ const isRetryableExecuteCodeError = (error: unknown): boolean =>
   isSessionExpiredMcpError(error) ||
   isOptimisticConcurrencyMcpError(error);
 
+/**
+ * error_code values that indicate the code-mode sandbox failed to start or
+ * encountered a transient runtime failure — these are infra flakes, not
+ * product defects, and should be retried before the test asserts product
+ * behavior.
+ */
+const TRANSIENT_SANDBOX_FAILURE_CODES = new Set([
+  "sandbox_unavailable",
+  "sandbox_startup_failed",
+  "sandbox_runtime_failed",
+]);
+
+const isTransientSandboxFailurePayload = (
+  value: Record<string, unknown> | string | undefined,
+): boolean => {
+  if (value === undefined) {
+    return false;
+  }
+  const payload =
+    typeof value === "string" ? findJsonPayloadInOutput(value) : (value as Record<string, unknown>);
+  return (
+    payload.status === "execution_failed" &&
+    TRANSIENT_SANDBOX_FAILURE_CODES.has(String(payload.error_code ?? ""))
+  );
+};
+
 const findJsonPayloadInOutput = (
   value: Record<string, unknown> | string,
 ): Record<string, unknown> => {
@@ -204,7 +230,9 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
 
   // Retry on transient Convex timeouts, OCC, or session expiry — the
   // blocked-provider path is fast but can hit 1s mutation budget under CI
-  // resource contention.
+  // resource contention. Also retry when the sandbox itself reports a
+  // transient startup/runtime failure, which would otherwise mask the
+  // product behavior this test asserts.
   let output: Record<string, unknown> | string | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -212,6 +240,10 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
         description: "Try a Slack read to verify disabled providers are blocked.",
         code: 'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
       });
+      if (attempt < 2 && isTransientSandboxFailurePayload(output)) {
+        await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+        continue;
+      }
       break;
     } catch (error) {
       if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
