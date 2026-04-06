@@ -97,8 +97,8 @@ jobs:
             local branch="$1"
             branch_debug_reason=""
 
-            if [[ "${pr_lookup_ok}" != "true" || "${base_branch_lookup_ok}" != "true" ]]; then
-              branch_debug_reason="unable to verify GitHub PR or base-branch state"
+            if [[ "${pr_lookup_ok}" != "true" ]]; then
+              branch_debug_reason="unable to verify GitHub PR state"
               return 1
             fi
 
@@ -107,13 +107,8 @@ jobs:
               return 1
             fi
 
-            if branch_in_list "${branch}" "${base_repo_branches}"; then
-              branch_debug_reason="branch still exists in the base repository"
-              return 1
-            fi
-
             if branch_in_list "${branch}" "${closed_pr_branches}"; then
-              branch_debug_reason="branch maps to a closed PR and no longer exists in the base repo"
+              branch_debug_reason="branch maps to a closed PR"
               return 0
             fi
 
@@ -160,19 +155,6 @@ jobs:
             echo "Warning: failed to load GitHub PR state; keeping recent previews unless they exceed the age cutoff."
           fi
 
-          base_branch_lookup_ok=false
-          base_repo_branches=""
-          if base_repo_branches=$(git ls-remote --heads \
-            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
-            | sed 's#.*refs/heads/##'); then
-            base_branch_lookup_ok=true
-            base_branch_count=$(wc -l <<<"${base_repo_branches}" | tr -d '[:space:]')
-            echo "Loaded base repository branch state for preview cleanup."
-            echo "Base repository branch inventory: ${base_branch_count} branches."
-          else
-            echo "Warning: failed to load base repository branch state; keeping recent previews unless they exceed the age cutoff."
-          fi
-
           while IFS= read -r deployment; do
             name=$(echo "$deployment" | jq -r '.name')
             create_time=$(echo "$deployment" | jq -r '.createTime')
@@ -187,7 +169,7 @@ jobs:
               old_count=$((old_count + 1))
             elif [[ -n "$preview_identifier" ]]; then
               if should_delete_for_closed_pr "$preview_identifier"; then
-                delete_reason="GitHub branch has no open PR and is no longer present in the base repo"
+                delete_reason="GitHub branch maps to a closed PR"
                 closed_count=$((closed_count + 1))
               fi
               echo "Branch-state decision for ${name}: ${branch_debug_reason}"
@@ -219,6 +201,6 @@ jobs:
 
           echo "---"
           echo "Total previews: ${total}"
-          echo "${action} ${deleted} preview deployment(s): ${old_count} old, ${closed_count} without an open PR and absent from the base repo."
+          echo "${action} ${deleted} preview deployment(s): ${old_count} old, ${closed_count} mapped to a closed PR."
           echo "Kept ${kept} preview deployment(s) with recent activity or an open PR."
           echo "Previews missing previewIdentifier: ${missing_identifier_count}"
