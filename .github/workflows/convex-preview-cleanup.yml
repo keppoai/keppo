@@ -43,7 +43,6 @@ jobs:
 
           api_base="https://api.convex.dev/v1"
           cutoff_ms=$(( ($(date +%s) - MAX_AGE_DAYS * 86400) * 1000 ))
-          repo_owner="${GITHUB_REPOSITORY%%/*}"
 
           echo "Max age: ${MAX_AGE_DAYS} days"
           echo "Cutoff timestamp (ms): ${cutoff_ms}"
@@ -60,20 +59,92 @@ jobs:
           old_count=0
           closed_count=0
 
-          is_branch_open() {
-            local branch="$1"
-            local encoded_branch
-            local pr_count
+          fetch_pull_requests() {
+            local page=1
+            local page_response
+            local page_count
 
-            encoded_branch=$(jq -rn --arg value "${repo_owner}:${branch}" '$value | @uri')
-            pr_count=$(curl -sf \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${encoded_branch}&per_page=1" \
-              | jq 'length')
+            while true; do
+              if ! page_response=$(curl -sf \
+                -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+                -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls?state=all&per_page=100&page=${page}"); then
+                return 1
+              fi
 
-            [[ "${pr_count}" -gt 0 ]]
+              if ! jq -e 'type == "array"' >/dev/null <<<"${page_response}"; then
+                return 1
+              fi
+
+              printf '%s\n' "${page_response}"
+              page_count=$(jq 'length' <<<"${page_response}")
+              if [[ "${page_count}" -lt 100 ]]; then
+                break
+              fi
+              page=$((page + 1))
+            done
           }
+
+          branch_in_list() {
+            local branch="$1"
+            local branch_list="$2"
+
+            grep -Fqx -- "${branch}" <<<"${branch_list}"
+          }
+
+          should_delete_for_closed_pr() {
+            local branch="$1"
+
+            if [[ "${pr_lookup_ok}" != "true" || "${base_branch_lookup_ok}" != "true" ]]; then
+              echo "Warning: unable to verify GitHub PR or branch state for ${branch}; keeping preview."
+              return 1
+            fi
+
+            if branch_in_list "${branch}" "${open_pr_branches}"; then
+              return 1
+            fi
+
+            if branch_in_list "${branch}" "${base_repo_branches}"; then
+              return 1
+            fi
+
+            branch_in_list "${branch}" "${closed_pr_branches}"
+          }
+
+          pr_lookup_ok=false
+          open_pr_branches=""
+          closed_pr_branches=""
+          if pr_response=$(fetch_pull_requests); then
+            pr_lookup_ok=true
+            open_pr_branches=$(jq -rs '
+              map(.[])
+              | map(select(.state == "open") | .head.ref)
+              | map(select(type == "string" and length > 0))
+              | unique
+              | .[]
+            ' <<<"${pr_response}")
+            closed_pr_branches=$(jq -rs '
+              map(.[])
+              | map(select(.state != "open") | .head.ref)
+              | map(select(type == "string" and length > 0))
+              | unique
+              | .[]
+            ' <<<"${pr_response}")
+            echo "Loaded GitHub PR state for preview cleanup."
+          else
+            echo "Warning: failed to load GitHub PR state; keeping recent previews unless they exceed the age cutoff."
+          fi
+
+          base_branch_lookup_ok=false
+          base_repo_branches=""
+          if base_repo_branches=$(git ls-remote --heads \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            | sed 's#.*refs/heads/##'); then
+            base_branch_lookup_ok=true
+            echo "Loaded base repository branch state for preview cleanup."
+          else
+            echo "Warning: failed to load base repository branch state; keeping recent previews unless they exceed the age cutoff."
+          fi
 
           while IFS= read -r deployment; do
             name=$(echo "$deployment" | jq -r '.name')
@@ -84,8 +155,8 @@ jobs:
             if [[ "$create_time" -lt "$cutoff_ms" ]]; then
               delete_reason="older than ${MAX_AGE_DAYS} days"
               old_count=$((old_count + 1))
-            elif [[ -n "$preview_identifier" ]] && ! is_branch_open "$preview_identifier"; then
-              delete_reason="GitHub branch has no open PR"
+            elif [[ -n "$preview_identifier" ]] && should_delete_for_closed_pr "$preview_identifier"; then
+              delete_reason="GitHub branch has no open PR and is no longer present in the base repo"
               closed_count=$((closed_count + 1))
             fi
 
@@ -113,5 +184,5 @@ jobs:
 
           echo "---"
           echo "Total previews: ${total}"
-          echo "${action} ${deleted} preview deployment(s): ${old_count} old, ${closed_count} without an open PR."
+          echo "${action} ${deleted} preview deployment(s): ${old_count} old, ${closed_count} without an open PR and absent from the base repo."
           echo "Kept ${kept} preview deployment(s) with recent activity or an open PR."
