@@ -1,0 +1,32 @@
+---
+title: LinkedIn
+description: Use one approved LinkedIn provider boundary for social, ads, recruiting, and sales workflows.
+audience: user-guide
+---
+
+## Best fit
+
+Use LinkedIn when the workflow depends on an approved LinkedIn API surface but you still want Keppo approvals, audit trails, and workspace-scoped credentials:
+
+- community management and outbound posting
+- recruiting or talent-system follow-up
+- sales or lead-processing workflows
+- ads and campaign operations
+
+## What to expect
+
+- LinkedIn in Keppo is a low-level request/response provider, not a hand-modeled tool catalog for every endpoint family.
+- Your LinkedIn app may not be approved for every product family. Connect success only proves the app can complete the OAuth flow and use the scopes it was actually granted.
+- Write requests should stay approval-gated until the team is comfortable with the exact payloads being sent.
+
+## Common first flow
+
+1. Connect LinkedIn in the workspace.
+2. Verify the app has approval for the specific LinkedIn product family you need.
+3. Start with `linkedin.getProfile` or a narrow `linkedin.readApi` request.
+4. Add `linkedin.writeApi` only after you have reviewed the target payload shape and approval copy.
+
+## Related docs
+
+- [Self-hosted provider setup](/docs/self-hosted/providers)
+- [Building Automations](/docs/user-guide/automations/building-automations)

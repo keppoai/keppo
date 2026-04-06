@@ -6,7 +6,7 @@ import {
   handleOAuthProviderConnectRequest,
 } from "../../app/lib/server/oauth-api";
 
-const createDeps = (provider: "google" | "reddit" | "x" = "google") => {
+const createDeps = (provider: "google" | "reddit" | "x" | "linkedin" = "google") => {
   const storedPkceCodeVerifier = provider === "x" ? "pkce_verifier_test" : null;
   const buildAuthRequest = vi.fn().mockResolvedValue({
     oauth_start_url: `https://auth.test/oauth/start?provider=${provider}`,
@@ -824,6 +824,76 @@ describe("start-owned oauth api handlers", () => {
         provider: "reddit",
         displayName: "Reddit",
         externalAccountId: "reddit_account_test",
+      }),
+    );
+  });
+
+  it("supports LinkedIn as a managed OAuth provider in Start-owned routes", async () => {
+    const deps = createDeps("linkedin");
+    const connectResponse = await handleOAuthProviderConnectRequest(
+      withJson(
+        "/api/oauth/integrations/linkedin/connect",
+        {
+          org_id: "org_test",
+          return_to: "/integrations",
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+          "x-keppo-e2e-namespace": "oauth-linkedin",
+        },
+      ),
+      deps,
+    );
+
+    expect(connectResponse.status).toBe(200);
+    await expect(connectResponse.json()).resolves.toMatchObject({
+      status: "requires_oauth",
+      oauth_start_url: "https://auth.test/oauth/start?provider=linkedin",
+      provider: "linkedin",
+    });
+    expect(deps.getRedirectUri).toHaveBeenCalledWith(
+      "http://127.0.0.1/api/oauth/integrations/linkedin/connect",
+      "linkedin",
+    );
+
+    const signedState = `signed:${JSON.stringify({
+      org_id: "org_test",
+      provider: "linkedin",
+      return_to: "/integrations",
+      scopes: ["scope:read"],
+      display_name: "LinkedIn",
+      correlation_id: "corr_linkedin_test",
+      created_at: new Date().toISOString(),
+      e2e_namespace: "oauth-linkedin",
+    })}`;
+
+    const callbackResponse = await handleOAuthProviderCallbackRequest(
+      withGet(
+        `/oauth/integrations/linkedin/callback?code=oauth_code_test&state=${encodeURIComponent(signedState)}`,
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(callbackResponse.status).toBe(302);
+    expect(callbackResponse.headers.get("location")).toBe(
+      "http://127.0.0.1/integrations?integration_connected=linkedin",
+    );
+    expect(deps.exchangeCredentials).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "oauth_code_test",
+        redirectUri: "http://127.0.0.1/oauth/integrations/linkedin/callback",
+      }),
+      {},
+    );
+    expect(deps.convex.upsertOAuthProviderForOrg).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_test",
+        provider: "linkedin",
+        displayName: "LinkedIn",
+        externalAccountId: "linkedin_account_test",
       }),
     );
   });

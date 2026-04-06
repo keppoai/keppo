@@ -10,6 +10,7 @@ export const SDK_MIGRATED_CONNECTOR_PROVIDERS: ReadonlyArray<CanonicalProviderId
   "notion",
   "reddit",
   "x",
+  "linkedin",
 ];
 
 const sdkMigratedProviderSet = new Set<string>(SDK_MIGRATED_CONNECTOR_PROVIDERS);

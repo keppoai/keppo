@@ -25,6 +25,9 @@ const [
   githubProviderId,
   notionProviderId,
   redditProviderId,
+  xProviderId,
+  linkedinProviderId,
+  customProviderId,
 ] = CANONICAL_PROVIDER_IDS;
 
 const providerCapabilityMap: Record<CanonicalProviderId, ProviderMatrixEntry> = {
@@ -76,18 +79,26 @@ const providerCapabilityMap: Record<CanonicalProviderId, ProviderMatrixEntry> = 
     auth: "OAuth",
     capabilities: ["Search posts", "Reply or post", "Moderation actions"],
   },
-  x: {
-    provider: "x",
-    title: getProviderDisplayName("x"),
-    description: getProviderDescription("x"),
+  [xProviderId]: {
+    provider: xProviderId,
+    title: getProviderDisplayName(xProviderId),
+    description: getProviderDescription(xProviderId),
     bestFor: "Monitoring mentions and preparing outbound social responses.",
     auth: "OAuth",
     capabilities: ["Search posts", "Publish posts", "Draft response flows"],
   },
-  custom: {
-    provider: "custom",
-    title: getProviderDisplayName("custom"),
-    description: getProviderDescription("custom"),
+  [linkedinProviderId]: {
+    provider: linkedinProviderId,
+    title: getProviderDisplayName(linkedinProviderId),
+    description: getProviderDescription(linkedinProviderId),
+    bestFor: "Approved LinkedIn community, marketing, recruiting, and sales API workflows.",
+    auth: "OAuth",
+    capabilities: ["Read approved APIs", "Run approved writes", "Keep one provider boundary"],
+  },
+  [customProviderId]: {
+    provider: customProviderId,
+    title: getProviderDisplayName(customProviderId),
+    description: getProviderDescription(customProviderId),
     bestFor: "Internal tools, private APIs, and bespoke operational actions.",
     auth: "Custom",
     capabilities: ["Read APIs", "Write via approved actions", "Bring your own contract"],

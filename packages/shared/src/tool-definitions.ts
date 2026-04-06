@@ -2,6 +2,7 @@ import { customTools } from "./tool-definitions/custom.js";
 import { githubTools } from "./tool-definitions/github.js";
 import { gmailTools } from "./tool-definitions/google.js";
 import { keppoInternalTools } from "./tool-definitions/keppo.js";
+import { linkedinTools } from "./tool-definitions/linkedin.js";
 import { notionTools } from "./tool-definitions/notion.js";
 import { redditTools } from "./tool-definitions/reddit.js";
 import { slackTools } from "./tool-definitions/slack.js";
@@ -15,6 +16,7 @@ export {
   githubTools,
   gmailTools,
   keppoInternalTools,
+  linkedinTools,
   notionTools,
   redditTools,
   slackTools,
@@ -30,6 +32,7 @@ export const allTools: ToolDefinition[] = [
   ...notionTools,
   ...redditTools,
   ...xTools,
+  ...linkedinTools,
   ...customTools,
   ...keppoInternalTools,
 ];

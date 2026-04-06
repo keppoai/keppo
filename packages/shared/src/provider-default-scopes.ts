@@ -15,6 +15,7 @@ export const PROVIDER_DEFAULT_SCOPES: Record<CanonicalProviderId, Array<string>>
   notion: ["notion.read", "notion.write"],
   reddit: ["reddit.read", "reddit.write"],
   x: ["x.read", "x.write"],
+  linkedin: ["openid", "profile", "email"],
   custom: ["custom.read", "custom.write"],
 };
 

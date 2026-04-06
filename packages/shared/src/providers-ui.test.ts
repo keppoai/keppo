@@ -201,6 +201,7 @@ describe("provider UI contracts", () => {
 
   it("returns provider color metadata from shared UI registry", () => {
     expect(getProviderColorClass("google")).toContain("bg-red-50");
+    expect(getProviderColorClass("linkedin")).toContain("bg-sky-50");
     expect(getProviderColorClass("custom")).toContain("bg-blue-50");
   });
 
@@ -208,6 +209,15 @@ describe("provider UI contracts", () => {
     expect(getProviderWriteToolDefaultInput("slack.postMessage")).toEqual({
       channel: "#support",
       text: "Test message from integration detail page",
+    });
+    expect(getProviderWriteToolDefaultInput("linkedin.writeApi")).toEqual({
+      method: "POST",
+      path: "/rest/posts",
+      linkedinVersion: "202504",
+      body: {
+        commentary: "Integration test post from Keppo",
+        visibility: "PUBLIC",
+      },
     });
     expect(getProviderWriteToolDefaultInput("unknown.tool")).toEqual({});
   });

@@ -6,6 +6,8 @@ const DEFAULT_EXTERNAL_FETCH_ALLOWLIST = [
   "api.github.com:443",
   "github.com:443",
   "api.x.com:443",
+  "www.linkedin.com:443",
+  "api.linkedin.com:443",
 ] as const;
 
 export type SafeFetchErrorCode = "network_blocked" | "network_request_failed";
@@ -59,6 +61,9 @@ const resolveDerivedAllowlistEntries = (): string[] => {
     process.env.GITHUB_OAUTH_AUTH_URL,
     process.env.GITHUB_OAUTH_TOKEN_URL,
     process.env.X_API_BASE_URL,
+    process.env.LINKEDIN_API_BASE_URL,
+    process.env.LINKEDIN_OAUTH_AUTH_URL,
+    process.env.LINKEDIN_OAUTH_TOKEN_URL,
   ]
     .map((value) => value?.trim() ?? "")
     .filter((value) => value.length > 0);

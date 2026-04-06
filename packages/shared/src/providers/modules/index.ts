@@ -4,6 +4,7 @@ import { assertProviderModulesV2Invariants } from "../registry/invariants.js";
 import { customProviderModule } from "./custom/index.js";
 import { githubProviderModule } from "./github/index.js";
 import { googleProviderModule } from "./google/index.js";
+import { linkedinProviderModule } from "./linkedin/index.js";
 import { notionProviderModule } from "./notion/index.js";
 import { redditProviderModule } from "./reddit/index.js";
 import { slackProviderModule } from "./slack/index.js";
@@ -14,6 +15,7 @@ export {
   customProviderModule,
   githubProviderModule,
   googleProviderModule,
+  linkedinProviderModule,
   notionProviderModule,
   redditProviderModule,
   slackProviderModule,
@@ -23,6 +25,7 @@ export {
 
 export const providerModulesV2: Array<ProviderModuleV2> = [
   googleProviderModule,
+  linkedinProviderModule,
   stripeProviderModule,
   githubProviderModule,
   slackProviderModule,

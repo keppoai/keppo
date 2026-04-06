@@ -1,4 +1,4 @@
 {
   "title": "Integrations",
-  "pages": ["index", "google", "github", "stripe", "custom-servers"]
+  "pages": ["index", "google", "github", "stripe", "linkedin", "custom-servers"]
 }

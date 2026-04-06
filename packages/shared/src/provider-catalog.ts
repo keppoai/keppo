@@ -38,6 +38,7 @@ const providerConfigurationRequirements: Partial<Record<CanonicalProviderId, str
   github: ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
   google: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
   reddit: ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"],
+  linkedin: ["LINKEDIN_CLIENT_ID", "LINKEDIN_CLIENT_SECRET"],
   stripe: ["STRIPE_CLIENT_ID", "STRIPE_SECRET_KEY"],
 };
 

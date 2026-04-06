@@ -17,16 +17,17 @@ Do not edit manually. Run `pnpm run update:provider-docs`.
 
 ## Provider Matrix
 
-| Provider | Auth     | Capabilities                  | Feature Gate                             | Risk     | Deprecation |
-| -------- | -------- | ----------------------------- | ---------------------------------------- | -------- | ----------- |
-| `custom` | `custom` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_CUSTOM_FULL` | `high`   | -           |
-| `github` | `oauth2` | read, write, refresh, webhook | `KEPPO_FEATURE_INTEGRATIONS_GITHUB_FULL` | `medium` | -           |
-| `google` | `oauth2` | read, write, refresh          | `KEPPO_FEATURE_INTEGRATIONS_GOOGLE_FULL` | `high`   | -           |
-| `notion` | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_NOTION_FULL` | `medium` | -           |
-| `reddit` | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_REDDIT_FULL` | `medium` | -           |
-| `slack`  | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_SLACK_FULL`  | `medium` | -           |
-| `stripe` | `oauth2` | read, write, refresh, webhook | `KEPPO_FEATURE_INTEGRATIONS_STRIPE_FULL` | `high`   | -           |
-| `x`      | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_X_FULL`      | `medium` | -           |
+| Provider   | Auth     | Capabilities                  | Feature Gate                               | Risk     | Deprecation |
+| ---------- | -------- | ----------------------------- | ------------------------------------------ | -------- | ----------- |
+| `custom`   | `custom` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_CUSTOM_FULL`   | `high`   | -           |
+| `github`   | `oauth2` | read, write, refresh, webhook | `KEPPO_FEATURE_INTEGRATIONS_GITHUB_FULL`   | `medium` | -           |
+| `google`   | `oauth2` | read, write, refresh          | `KEPPO_FEATURE_INTEGRATIONS_GOOGLE_FULL`   | `high`   | -           |
+| `linkedin` | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_LINKEDIN_FULL` | `high`   | -           |
+| `notion`   | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_NOTION_FULL`   | `medium` | -           |
+| `reddit`   | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_REDDIT_FULL`   | `medium` | -           |
+| `slack`    | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_SLACK_FULL`    | `medium` | -           |
+| `stripe`   | `oauth2` | read, write, refresh, webhook | `KEPPO_FEATURE_INTEGRATIONS_STRIPE_FULL`   | `high`   | -           |
+| `x`        | `oauth2` | read, write                   | `KEPPO_FEATURE_INTEGRATIONS_X_FULL`        | `medium` | -           |
 
 ## Provider Details
 
@@ -165,6 +166,19 @@ Do not edit manually. Run `pnpm run update:provider-docs`.
 | `gmail.updateSendAsAlias`        | `write`    | `medium` | `true`   |
 | `gmail.updateVacation`           | `write`    | `medium` | `true`   |
 | `gmail.watch`                    | `write`    | `medium` | `true`   |
+
+### LinkedIn (`linkedin`)
+
+- Description: Low-level request and response tools for approved LinkedIn APIs
+- Auth mode: `oauth2`
+- Feature gate: `KEPPO_FEATURE_INTEGRATIONS_LINKEDIN_FULL`
+- Env requirements: `LINKEDIN_CLIENT_ID`, `LINKEDIN_CLIENT_SECRET`
+
+| Tool                  | Capability | Risk     | Approval |
+| --------------------- | ---------- | -------- | -------- |
+| `linkedin.getProfile` | `read`     | `low`    | `false`  |
+| `linkedin.readApi`    | `read`     | `medium` | `false`  |
+| `linkedin.writeApi`   | `write`    | `high`   | `true`   |
 
 ### Notion (`notion`)
 

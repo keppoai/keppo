@@ -7,6 +7,10 @@ import { createFakeSlackClientStore, createFakeSlackSdk } from "../provider-sdk/
 import { createFakeNotionClientStore, createFakeNotionSdk } from "../provider-sdk/notion/fake.js";
 import { createFakeRedditClientStore, createFakeRedditSdk } from "../provider-sdk/reddit/fake.js";
 import { createFakeXClientStore, createFakeXSdk } from "../provider-sdk/x/fake.js";
+import {
+  createFakeLinkedInClientStore,
+  createFakeLinkedInSdk,
+} from "../provider-sdk/linkedin/fake.js";
 import type { ProviderSdkCallLog } from "../provider-sdk/port.js";
 import { createGoogleConnector } from "../providers/modules/google/connector.js";
 import { createStripeConnector } from "../providers/modules/stripe/connector.js";
@@ -15,6 +19,7 @@ import { createSlackConnector } from "../providers/modules/slack/connector.js";
 import { createNotionConnector } from "../providers/modules/notion/connector.js";
 import { createRedditConnector } from "../providers/modules/reddit/connector.js";
 import { createXConnector } from "../providers/modules/x/connector.js";
+import { createLinkedInConnector } from "../providers/modules/linkedin/connector.js";
 import type { CanonicalProviderId } from "../provider-ids.js";
 
 export type SdkBackedProviderId = Exclude<CanonicalProviderId, "custom">;
@@ -115,6 +120,15 @@ const createHarnessInternals = (providerId: SdkBackedProviderId): HarnessInterna
       const sdk = createFakeXSdk({ clientStore });
       return {
         connector: createXConnector({ sdk }),
+        sdk,
+        clientStore,
+      };
+    }
+    case "linkedin": {
+      const clientStore = createFakeLinkedInClientStore();
+      const sdk = createFakeLinkedInSdk({ clientStore });
+      return {
+        connector: createLinkedInConnector({ sdk }),
         sdk,
         clientStore,
       };
