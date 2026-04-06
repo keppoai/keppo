@@ -1,6 +1,8 @@
 # Plan: Add LinkedIn Provider
 
-## Status: Draft
+## Status: Done
+[PLAN HAS BEEN COMPLETED]
+[PLAN DONE AT COMMIT 5bd874d]
 
 ## Goal
 
@@ -231,3 +233,4 @@ Keppo currently has no LinkedIn provider, so users cannot connect LinkedIn throu
 
 | Iteration | Timestamp | Summary | Commit | Errors/Issues |
 | --------- | --------- | ------- | ------ | ------------- |
+| 1 | 2026-04-06T17:08:04Z | Implemented the canonical LinkedIn provider with managed OAuth, generic read/write tools, shared SDK and fake support, docs/spec updates, and targeted verification. | 5bd874d | — |
