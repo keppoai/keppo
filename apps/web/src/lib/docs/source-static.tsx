@@ -244,6 +244,11 @@ export const docsPageTreeData = {
               "user-guide/integrations/stripe.mdx",
             ),
             page(
+              "LinkedIn",
+              "/docs/user-guide/integrations/linkedin",
+              "user-guide/integrations/linkedin.mdx",
+            ),
+            page(
               "Custom Servers",
               "/docs/user-guide/integrations/custom-servers",
               "user-guide/integrations/custom-servers.mdx",

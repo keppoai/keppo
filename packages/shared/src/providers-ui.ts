@@ -187,7 +187,6 @@ const GENERIC_TOOL_DEFAULT_INPUTS: Record<string, Record<string, unknown>> = {
   "linkedin.writeApi": {
     method: "POST",
     path: "/rest/posts",
-    linkedinVersion: "202504",
     body: {
       commentary: "Integration test post from Keppo",
       visibility: "PUBLIC",

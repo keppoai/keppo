@@ -26,10 +26,10 @@ LinkedIn is an integration provider here, not dashboard login. Do not point your
 The provider integration OAuth callback is:
 
 ```
-${KEPPO_API_INTERNAL_BASE_URL}/oauth/integrations/linkedin/callback
+${new URL("/oauth/integrations/linkedin/callback", `${KEPPO_API_INTERNAL_BASE_URL}/`).toString()}
 ```
 
-This is derived automatically from the running API base URL.
+This is derived automatically from the running API base URL with root-owned URL semantics, so a base like `https://app.example.com/api` still resolves to `https://app.example.com/oauth/integrations/linkedin/callback`.
 
 ## API surface
 

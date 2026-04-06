@@ -13,6 +13,7 @@ import type {
 
 const DEFAULT_LINKEDIN_API_BASE_URL = "https://api.linkedin.com";
 const DEFAULT_RESTLI_PROTOCOL_VERSION = "2.0.0";
+const MAX_LINKEDIN_RESPONSE_BYTES = 2 * 1024 * 1024;
 const RESERVED_HEADER_NAMES = new Set([
   "accept",
   "authorization",
@@ -57,8 +58,20 @@ const buildRequestUrl = (
   if (!trimmedPath.startsWith("/") || trimmedPath.startsWith("//")) {
     throw new Error("invalid_request: LinkedIn API path must start with '/'.");
   }
+  if (
+    trimmedPath.includes("\\") ||
+    trimmedPath.includes("/../") ||
+    trimmedPath.endsWith("/..") ||
+    /[\u0000-\u001f\u007f\s]/u.test(trimmedPath)
+  ) {
+    throw new Error("invalid_request: LinkedIn API path contains unsupported characters.");
+  }
 
   const url = new URL(trimmedPath.replace(/^\/+/, ""), withTrailingSlash(baseUrl));
+  const basePathname = new URL(withTrailingSlash(baseUrl)).pathname;
+  if (!url.pathname.startsWith(basePathname)) {
+    throw new Error("invalid_request: LinkedIn API path escapes the configured base path.");
+  }
   if (query) {
     for (const [key, value] of Object.entries(query)) {
       url.searchParams.set(key, String(value));
@@ -91,12 +104,44 @@ const responseHeadersToObject = (response: Response): Record<string, string> => 
   return Object.fromEntries(response.headers.entries());
 };
 
+const readResponseTextCapped = async (response: Response): Promise<string> => {
+  const declaredLength = Number(response.headers.get("content-length") ?? "");
+  if (Number.isFinite(declaredLength) && declaredLength > MAX_LINKEDIN_RESPONSE_BYTES) {
+    throw new Error("provider_error: LinkedIn API response exceeded the maximum allowed size.");
+  }
+
+  if (!response.body) {
+    return await response.text();
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let total = 0;
+  let text = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    total += value.byteLength;
+    if (total > MAX_LINKEDIN_RESPONSE_BYTES) {
+      await reader.cancel();
+      throw new Error("provider_error: LinkedIn API response exceeded the maximum allowed size.");
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+
+  text += decoder.decode();
+  return text;
+};
+
 const parseResponseBody = async (response: Response): Promise<unknown> => {
   if (response.status === 204) {
     return null;
   }
 
-  const text = await response.text();
+  const text = await readResponseTextCapped(response);
   if (!text.trim()) {
     return null;
   }

@@ -5,8 +5,19 @@ const apiPathSchema = z
   .string()
   .trim()
   .min(1)
+  .max(512, "Path must be 512 characters or fewer.")
   .refine((value) => value.startsWith("/"), "Path must start with '/'.")
-  .refine((value) => !value.startsWith("//"), "Path must be relative to the LinkedIn API root.");
+  .refine((value) => !value.startsWith("//"), "Path must be relative to the LinkedIn API root.")
+  .refine((value) => !value.includes("\\"), "Path must not contain backslashes.")
+  .refine(
+    (value) => !value.includes("/../") && !value.endsWith("/.."),
+    "Path must not contain '..' segments.",
+  )
+  .refine(
+    (value) => !/[\u0000-\u001f\u007f\s]/u.test(value),
+    "Path must not contain whitespace or control characters.",
+  )
+  .regex(/^\/[A-Za-z0-9._~!$&'()*+,;=:@/%-]*$/u, "Path contains unsupported characters.");
 
 const headerValueSchema = z.string().trim().min(1);
 const headersSchema = z.record(z.string().trim().min(1), headerValueSchema);

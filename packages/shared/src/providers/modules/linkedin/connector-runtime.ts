@@ -27,7 +27,10 @@ type LinkedInWriteDispatchInput = {
   namespace: string | undefined;
 };
 
-const requiredScopesByTool: Record<string, string[]> = {};
+const LINKEDIN_IDENTITY_SCOPES = new Set(["openid", "profile", "email"]);
+const requiredScopesByTool: Record<string, string[]> = {
+  "linkedin.getProfile": ["openid"],
+};
 const providerCircuitBreaker = createProviderCircuitBreaker("linkedin");
 
 const asQuery = (value: unknown): Record<string, string | number | boolean> | undefined => {
@@ -114,6 +117,13 @@ const buildRequestArgs = (
   }
 
   return request;
+};
+
+const hasLinkedInApiScope = (scopes: string[]): boolean => {
+  return scopes.some((scope) => {
+    const trimmed = scope.trim();
+    return trimmed.length > 0 && !LINKEDIN_IDENTITY_SCOPES.has(trimmed);
+  });
 };
 
 export const createLinkedInConnector = (options?: { sdk?: LinkedInSdkPort }): Connector => {
@@ -224,6 +234,14 @@ export const createLinkedInConnector = (options?: { sdk?: LinkedInSdkPort }): Co
       });
     }
 
+    override listTools(context: ConnectorContext) {
+      const tools = super.listTools(context);
+      if (hasLinkedInApiScope(context.scopes)) {
+        return tools;
+      }
+      return tools.filter((tool) => tool.name === "linkedin.getProfile");
+    }
+
     protected getToken(context: ConnectorContext): string {
       if (typeof context.access_token === "string" && context.access_token.trim().length > 0) {
         return context.access_token;
@@ -244,12 +262,36 @@ export const createLinkedInConnector = (options?: { sdk?: LinkedInSdkPort }): Co
       };
     }
 
+    protected override async beforeRead(
+      toolName: string,
+      _validated: Record<string, unknown>,
+      context: ConnectorContext,
+    ): Promise<void> {
+      if (toolName === "linkedin.readApi" && !hasLinkedInApiScope(context.scopes)) {
+        throw new Error(
+          "Missing scopes for linkedin.readApi: reconnect LinkedIn with the approved product scopes required for this API.",
+        );
+      }
+    }
+
     protected buildPrepareDispatchInput(
       _toolName: string,
       validated: Record<string, unknown>,
       _context: ConnectorContext,
     ): LinkedInPrepareDispatchInput {
       return { validated };
+    }
+
+    protected override async beforePrepareWrite(
+      toolName: string,
+      _validated: Record<string, unknown>,
+      context: ConnectorContext,
+    ): Promise<void> {
+      if (toolName === "linkedin.writeApi" && !hasLinkedInApiScope(context.scopes)) {
+        throw new Error(
+          "Missing scopes for linkedin.writeApi: reconnect LinkedIn with the approved product scopes required for this API.",
+        );
+      }
     }
 
     protected buildWriteDispatchInput(
@@ -263,6 +305,18 @@ export const createLinkedInConnector = (options?: { sdk?: LinkedInSdkPort }): Co
         accessToken: runtime.accessToken,
         namespace: runtime.namespace,
       };
+    }
+
+    protected override async beforeWrite(
+      toolName: string,
+      _normalizedPayload: Record<string, unknown>,
+      context: ConnectorContext,
+    ): Promise<void> {
+      if (toolName === "linkedin.writeApi" && !hasLinkedInApiScope(context.scopes)) {
+        throw new Error(
+          "Missing scopes for linkedin.writeApi: reconnect LinkedIn with the approved product scopes required for this API.",
+        );
+      }
     }
   }
 

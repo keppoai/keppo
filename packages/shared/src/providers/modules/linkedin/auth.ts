@@ -14,6 +14,7 @@ const LINKEDIN_DEFAULT_CLIENT_SECRET = "fake-linkedin-client-secret";
 const LINKEDIN_DEFAULT_SCOPES = getProviderDefaultScopes("linkedin");
 const MISSING_EXTERNAL_ACCOUNT_ID_ERROR =
   "OAuth profile lookup did not return a provider account identifier.";
+const PROFILE_LOOKUP_TIMEOUT_MS = 5_000;
 
 type OAuthResponse = {
   access_token?: string;
@@ -31,6 +32,40 @@ const unique = (values: string[]): string[] => {
   return [...new Set(values.map((value) => value.trim()).filter((value) => value.length > 0))];
 };
 
+const isLocalUrl = (value: string): boolean => {
+  try {
+    const url = new URL(value);
+    return /^(localhost|127\.0\.0\.1)$/i.test(url.hostname);
+  } catch {
+    return false;
+  }
+};
+
+const withTimeoutSignal = (timeoutMs: number): { signal: AbortSignal; cleanup: () => void } => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    cleanup: () => clearTimeout(timeout),
+  };
+};
+
+const readOAuthErrorSuffix = (body: string, status: number): string => {
+  let suffix = `status ${status}`;
+  const parsed = parseJsonRecord(body);
+  const error = typeof parsed?.error === "string" ? parsed.error.trim() : "";
+  const description =
+    typeof parsed?.error_description === "string" ? parsed.error_description.trim() : "";
+  if (error && description) {
+    suffix = `${error}: ${description}`;
+  } else if (error) {
+    suffix = error;
+  } else if (description) {
+    suffix = description;
+  }
+  return suffix;
+};
+
 const parseScopeList = (scope: string | undefined): string[] => {
   if (!scope) {
     return [];
@@ -39,24 +74,36 @@ const parseScopeList = (scope: string | undefined): string[] => {
 };
 
 const resolveGrantedScopes = (
-  requestedScopes: string[],
+  _requestedScopes: string[],
   grantedProviderScopes: string[],
 ): string[] => {
   if (grantedProviderScopes.length === 0) {
-    return [...requestedScopes];
+    return [];
   }
-  const grantedScopeSet = new Set(grantedProviderScopes);
-  return requestedScopes.filter((scope) => grantedScopeSet.has(scope));
+  return [...grantedProviderScopes];
 };
 
 const resolveEnv = (runtime: ProviderRuntimeContext) => {
   const oauthAuthUrl = runtime.secrets.LINKEDIN_OAUTH_AUTH_URL ?? LINKEDIN_DEFAULT_AUTH_URL;
+  const oauthTokenUrl = runtime.secrets.LINKEDIN_OAUTH_TOKEN_URL ?? LINKEDIN_DEFAULT_TOKEN_URL;
+  const apiBaseUrl = runtime.secrets.LINKEDIN_API_BASE_URL ?? LINKEDIN_DEFAULT_API_BASE_URL;
+  const clientId = runtime.secrets.LINKEDIN_CLIENT_ID?.trim();
+  const clientSecret = runtime.secrets.LINKEDIN_CLIENT_SECRET?.trim();
+  const allowFakeCredentials =
+    isLocalUrl(oauthAuthUrl) && isLocalUrl(oauthTokenUrl) && isLocalUrl(apiBaseUrl);
+
+  if ((!clientId || !clientSecret) && !allowFakeCredentials) {
+    throw new Error(
+      "provider_misconfigured: LinkedIn OAuth client credentials are required for non-local OAuth endpoints.",
+    );
+  }
+
   return {
     oauthAuthUrl,
-    oauthTokenUrl: runtime.secrets.LINKEDIN_OAUTH_TOKEN_URL ?? LINKEDIN_DEFAULT_TOKEN_URL,
-    apiBaseUrl: runtime.secrets.LINKEDIN_API_BASE_URL ?? LINKEDIN_DEFAULT_API_BASE_URL,
-    clientId: runtime.secrets.LINKEDIN_CLIENT_ID ?? LINKEDIN_DEFAULT_CLIENT_ID,
-    clientSecret: runtime.secrets.LINKEDIN_CLIENT_SECRET ?? LINKEDIN_DEFAULT_CLIENT_SECRET,
+    oauthTokenUrl,
+    apiBaseUrl,
+    clientId: clientId || LINKEDIN_DEFAULT_CLIENT_ID,
+    clientSecret: clientSecret || LINKEDIN_DEFAULT_CLIENT_SECRET,
     isLocalAuthUrl: /^https?:\/\/(?:127\.0\.0\.1|localhost)(?::\d+)?/i.test(oauthAuthUrl),
   };
 };
@@ -79,18 +126,44 @@ const loadExternalAccountId = async (
 ): Promise<string> => {
   const { apiBaseUrl } = resolveEnv(runtime);
   for (const profilePath of ["/v2/userinfo", "/v2/me", "/rest/me"]) {
-    const response = await runtime.httpClient(`${apiBaseUrl}${profilePath}`, {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        Accept: "application/json",
-        "X-RestLi-Protocol-Version": "2.0.0",
-      },
-    });
+    const { signal, cleanup } = withTimeoutSignal(PROFILE_LOOKUP_TIMEOUT_MS);
+    let response: Response;
+    try {
+      response = await runtime.httpClient(`${apiBaseUrl}${profilePath}`, {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          Accept: "application/json",
+          "X-RestLi-Protocol-Version": "2.0.0",
+        },
+        signal,
+      });
+    } catch {
+      cleanup();
+      continue;
+    }
+    cleanup();
+
+    if (response.status === 401) {
+      throw new Error("invalid_token: LinkedIn profile lookup rejected the access token.");
+    }
+    if (response.status === 403 || response.status === 404) {
+      continue;
+    }
     if (!response.ok) {
       continue;
     }
 
-    const profile = (await response.json()) as Record<string, unknown>;
+    const contentType = response.headers.get("content-type") ?? "";
+    if (!contentType.toLowerCase().includes("json")) {
+      continue;
+    }
+
+    let profile: Record<string, unknown>;
+    try {
+      profile = (await response.json()) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
     const externalAccountId = readExternalAccountId(profile);
     if (externalAccountId) {
       return externalAccountId;
@@ -126,7 +199,8 @@ const exchangeCredentials = async (
 
   if (!response.ok) {
     const body = await response.text();
-    throw new Error(body || `OAuth token exchange failed: ${response.status}`);
+    const suffix = readOAuthErrorSuffix(body, response.status);
+    throw new Error(`oauth_token_exchange_failed: LinkedIn token exchange failed (${suffix}).`);
   }
 
   const payload = (await response.json()) as OAuthResponse;
@@ -177,3 +251,12 @@ export const auth: ProviderAuthFacet = {
   },
   exchangeCredentials,
 };
+
+function parseJsonRecord(value: string): Record<string, unknown> | null {
+  try {
+    const parsed = JSON.parse(value);
+    return isRecord(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}

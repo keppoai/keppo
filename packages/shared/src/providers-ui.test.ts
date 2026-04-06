@@ -213,7 +213,6 @@ describe("provider UI contracts", () => {
     expect(getProviderWriteToolDefaultInput("linkedin.writeApi")).toEqual({
       method: "POST",
       path: "/rest/posts",
-      linkedinVersion: "202504",
       body: {
         commentary: "Integration test post from Keppo",
         visibility: "PUBLIC",
