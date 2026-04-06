@@ -2,11 +2,12 @@ import crypto from "node:crypto";
 import fs from "node:fs";
 
 const contextPath = process.env.CONTEXT_PATH;
-const reviewPath = process.env.REVIEW_PATH;
 const findingsPath = process.env.FINDINGS_PATH;
+const reviewPath = process.env.REVIEW_PATH;
 const expectedContextSha = process.env.EXPECTED_CONTEXT_SHA;
 
 if (!contextPath) throw new Error("CONTEXT_PATH is required");
+if (!findingsPath) throw new Error("FINDINGS_PATH is required");
 if (!reviewPath) throw new Error("REVIEW_PATH is required");
 if (!expectedContextSha) throw new Error("EXPECTED_CONTEXT_SHA is required");
 
@@ -21,43 +22,12 @@ if (actualContextSha !== expectedContextSha) {
 }
 
 const summary = fs.readFileSync(reviewPath, "utf8").trim();
-if (!summary) {
-  throw new Error("Review output file is empty");
-}
-
-// Validate that the summary contains a Recommendation line with a valid value.
-// Graceful fallback: if missing (e.g. in-flight review using old prompt format),
-// inject a safe default of human-review rather than failing the workflow.
 const recMatch = summary.match(
   /\*\*Recommendation:\s*(auto-fix|human-review|ready)\s*\*\*/,
 );
-let finalSummary = summary;
-if (!recMatch) {
-  console.warn(
-    "WARNING: Review summary missing **Recommendation:** line — defaulting to human-review",
-  );
-  const verdictIndex = finalSummary.indexOf("**Verdict:");
-  if (verdictIndex !== -1) {
-    const lineEnd = finalSummary.indexOf("\n", verdictIndex);
-    if (lineEnd !== -1) {
-      finalSummary =
-        finalSummary.slice(0, lineEnd + 1) +
-        "**Recommendation: human-review (default)**\n" +
-        finalSummary.slice(lineEnd + 1);
-    } else {
-      finalSummary += "\n**Recommendation: human-review (default)**";
-    }
-  } else {
-    finalSummary = "**Recommendation: human-review**\n\n" + finalSummary;
-  }
+if (!summary) {
+  throw new Error("Review output file is empty");
 }
-
-fs.writeFileSync(reviewPath, finalSummary);
-
-if (!findingsPath) {
-  process.exit(0);
-}
-
 if (!fs.existsSync(findingsPath)) {
   throw new Error("Findings output file is missing");
 }
@@ -69,6 +39,47 @@ const filesByPath = new Map(
 const lineInRanges = (line, ranges) =>
   Array.isArray(ranges) &&
   ranges.some((range) => Number.isInteger(range.start) && Number.isInteger(range.end) && line >= range.start && line <= range.end);
+
+const warning = (message) => {
+  console.warn(`::warning::${message}`);
+};
+
+const parseSummaryIssues = (value) => {
+  const issuesHeader = value.match(/(^|\n)### Issues Summary\s*\n\n([\s\S]*?)(?:\n<details>|\n---|\n:white_check_mark:|$)/);
+  if (!issuesHeader) {
+    return [];
+  }
+
+  const lines = issuesHeader[2]
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const rows = [];
+  for (const line of lines) {
+    if (!line.startsWith("|")) continue;
+    if (line.includes("---")) continue;
+
+    const cells = line
+      .split("|")
+      .slice(1, -1)
+      .map((cell) => cell.trim());
+    if (cells.length !== 3) continue;
+
+    const severity = cells[0].replace(/^:[^:]+:\s*/, "").trim().toUpperCase();
+    const locationMatch = cells[1].match(/^`([^`:]+(?:\/[^`:]+)*):(\d+)`$/);
+    if (!locationMatch) continue;
+
+    rows.push({
+      severity,
+      path: locationMatch[1],
+      line: Number(locationMatch[2]),
+      title: cells[2],
+    });
+  }
+
+  return rows;
+};
 
 const findingsRaw = fs.readFileSync(findingsPath, "utf8").trim();
 if (!findingsRaw) {
@@ -88,29 +99,34 @@ const seenKeys = new Set();
 
 for (const [index, finding] of rawFindings.entries()) {
   if (!finding || typeof finding !== "object") {
-    throw new Error(`Finding ${index} must be an object`);
+    warning(`Skipping finding ${index}: entry must be an object`);
+    continue;
   }
 
   const severity = `${finding.severity ?? ""}`.trim().toUpperCase();
   if (severity !== "HIGH" && severity !== "MEDIUM") {
-    throw new Error(`Finding ${index} has invalid severity: ${finding.severity}`);
+    warning(`Skipping finding ${index}: invalid severity "${finding.severity}"`);
+    continue;
   }
 
   const path = `${finding.path ?? ""}`.trim();
   const file = filesByPath.get(path);
   if (!file) {
-    throw new Error(`Finding ${index} references unknown changed file: ${path}`);
+    warning(`Skipping finding ${index}: unknown changed file "${path}"`);
+    continue;
   }
 
   const lineRaw = `${finding.line ?? ""}`.trim();
   const line = /^\d+$/.test(lineRaw) ? Number(lineRaw) : Number.NaN;
   if (!Number.isInteger(line) || line <= 0) {
-    throw new Error(`Finding ${index} has invalid line: ${finding.line}`);
+    warning(`Skipping finding ${index}: invalid line "${finding.line}"`);
+    continue;
   }
   if (!lineInRanges(line, file.commentableLineRanges)) {
-    throw new Error(
-      `Finding ${index} references non-commentable line ${line} in ${path}`,
+    warning(
+      `Skipping finding ${index}: non-commentable line ${line} in ${path}`,
     );
+    continue;
   }
 
   const title = `${finding.title ?? ""}`.trim();
@@ -119,14 +135,17 @@ for (const [index, finding] of rawFindings.entries()) {
     typeof finding.suggestion === "string" ? finding.suggestion.trim() : "";
 
   if (!title) {
-    throw new Error(`Finding ${index} is missing title`);
+    warning(`Skipping finding ${index}: missing title`);
+    continue;
   }
   if (!body) {
-    throw new Error(`Finding ${index} is missing body`);
+    warning(`Skipping finding ${index}: missing body`);
+    continue;
   }
 
   const dedupeKey = `${severity}:${path}:${line}:${title}`;
   if (seenKeys.has(dedupeKey)) {
+    warning(`Skipping finding ${index}: duplicate ${dedupeKey}`);
     continue;
   }
   seenKeys.add(dedupeKey);
@@ -160,11 +179,50 @@ if (
 }
 if (
   normalizedFindings.length > 0 &&
-  finalSummary.includes(":white_check_mark: No significant issues found.")
+  summary.includes(":white_check_mark: No significant issues found.")
 ) {
   throw new Error(
     "Review summary says no significant issues found but findings were emitted",
   );
+}
+
+const summaryIssues = parseSummaryIssues(summary);
+if (normalizedFindings.length > 0 && summaryIssues.length === 0) {
+  throw new Error(
+    "Review summary emitted actionable findings but is missing an Issues Summary table",
+  );
+}
+
+if (summaryIssues.length > 0) {
+  const summaryKeys = new Set(
+    summaryIssues.map(
+      (issue) => `${issue.severity}:${issue.path}:${issue.line}:${issue.title}`,
+    ),
+  );
+  const findingKeys = new Set(
+    normalizedFindings.map(
+      (finding) =>
+        `${finding.severity}:${finding.path}:${finding.line}:${finding.title}`,
+    ),
+  );
+
+  for (const finding of normalizedFindings) {
+    const key = `${finding.severity}:${finding.path}:${finding.line}:${finding.title}`;
+    if (!summaryKeys.has(key)) {
+      throw new Error(
+        `Review summary is missing Issues Summary row for finding ${key}`,
+      );
+    }
+  }
+
+  for (const issue of summaryIssues) {
+    const key = `${issue.severity}:${issue.path}:${issue.line}:${issue.title}`;
+    if (!findingKeys.has(key)) {
+      throw new Error(
+        `Findings JSON is missing entry for Issues Summary row ${key}`,
+      );
+    }
+  }
 }
 
 fs.writeFileSync(

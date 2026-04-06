@@ -38,6 +38,15 @@ const severityEmoji = {
   MEDIUM: ":yellow_circle:",
 };
 
+const sanitizeDetail = (detail) =>
+  detail
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/gi, "Bearer [REDACTED]")
+    .replace(/gh[spou]_[A-Za-z0-9_]+/g, "[REDACTED_TOKEN]")
+    .replace(/\bgithub_pat_[A-Za-z0-9_]+\b/g, "[REDACTED_TOKEN]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 600);
+
 const comments = findings.map((finding) => {
   const lines = [
     `**${severityEmoji[finding.severity]} ${finding.severity}**`,
@@ -80,8 +89,12 @@ const response = await fetch(
 );
 
 if (!response.ok) {
+  const detail = sanitizeDetail(await response.text());
+  if (detail) {
+    console.warn(`::warning::Codex inline review post failed: ${detail}`);
+  }
   throw new Error(
-    `Failed to create Codex review comments: ${response.status} ${response.statusText}`,
+    `Failed to create Codex review comments: ${response.status} ${response.statusText}${detail ? ` - ${detail}` : ""}`,
   );
 }
 

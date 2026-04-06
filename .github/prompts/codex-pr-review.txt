@@ -33,12 +33,13 @@ If you found HIGH or MEDIUM issues, add an issues table:
 
 | Severity               | File                  | Issue                  |
 | ---------------------- | --------------------- | ---------------------- |
-| :red_circle: HIGH      | `path/to/file.ts:45`  | Brief issue description |
-| :yellow_circle: MEDIUM | `path/to/other.ts:12` | Brief issue description |
+| :red_circle: HIGH      | `path/to/file.ts:45`  | Short issue title |
+| :yellow_circle: MEDIUM | `path/to/other.ts:12` | Short issue title |
 ```
 
 Use severity emojis: `:red_circle: HIGH`, `:yellow_circle: MEDIUM`.
-Cite the exact file path and line number (or line range) from the diff.
+Cite the exact single `path:line` location from the diff.
+For every actionable issue, the table's `Issue` text must exactly match that finding's `title` in `{{OUTPUT_FINDINGS_PATH}}`.
 
 Inline findings JSON requirements:
 - Include only HIGH and MEDIUM findings in `{{OUTPUT_FINDINGS_PATH}}`.
