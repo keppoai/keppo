@@ -37,6 +37,73 @@ const api = async (pathname, accept = headers.Accept) => {
   return response;
 };
 
+const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
+function appendRange(ranges, start, end) {
+  if (end < start) return;
+  const previous = ranges.at(-1);
+  if (previous && start <= previous.end + 1) {
+    previous.end = Math.max(previous.end, end);
+    return;
+  }
+  ranges.push({ start, end });
+}
+
+function getCommentableLineRanges(patch) {
+  if (!patch) return [];
+
+  const ranges = [];
+  let rightLine = null;
+  let activeRangeStart = null;
+  let activeRangeEnd = null;
+
+  const flushActiveRange = () => {
+    if (activeRangeStart !== null && activeRangeEnd !== null) {
+      appendRange(ranges, activeRangeStart, activeRangeEnd);
+    }
+    activeRangeStart = null;
+    activeRangeEnd = null;
+  };
+
+  for (const line of patch.split("\n")) {
+    const hunkHeader = line.match(HUNK_HEADER_RE);
+    if (hunkHeader) {
+      flushActiveRange();
+      rightLine = Number.parseInt(hunkHeader[1], 10);
+      continue;
+    }
+
+    if (rightLine === null || !line) {
+      continue;
+    }
+
+    const prefix = line[0];
+    if (prefix === "+" || prefix === " ") {
+      if (activeRangeStart === null) {
+        activeRangeStart = rightLine;
+      }
+      activeRangeEnd = rightLine;
+      rightLine += 1;
+      continue;
+    }
+
+    if (prefix === "-") {
+      flushActiveRange();
+      continue;
+    }
+
+    if (prefix === "\\") {
+      continue;
+    }
+
+    flushActiveRange();
+    rightLine = null;
+  }
+
+  flushActiveRange();
+  return ranges;
+}
+
 const pullRequestResponse = await api(`repos/${owner}/${repo}/pulls/${prNumber}`);
 const pullRequest = await pullRequestResponse.json();
 
@@ -94,11 +161,15 @@ const payload = {
     author: pullRequest.user?.login ?? "",
     baseRef: pullRequest.base?.ref ?? "",
     headRef: pullRequest.head?.ref ?? "",
+    headSha: pullRequest.head?.sha ?? "",
     changedFiles: pullRequest.changed_files ?? normalizedFiles.length,
     additions: pullRequest.additions ?? 0,
     deletions: pullRequest.deletions ?? 0,
   },
-  files: normalizedFiles,
+  files: normalizedFiles.map((file) => ({
+    ...file,
+    commentableLineRanges: getCommentableLineRanges(file.patch),
+  })),
   diff,
   diffTruncated,
 };

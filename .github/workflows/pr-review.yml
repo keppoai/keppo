@@ -87,6 +87,7 @@ jobs:
       REVIEW_CONTEXT_PATH: tmp/pr-review/codex-context.json
       REVIEW_PROMPT_PATH: tmp/pr-review/codex-prompt.txt
       REVIEW_OUTPUT_PATH: tmp/pr-review/codex-review.md
+      REVIEW_FINDINGS_PATH: tmp/pr-review/codex-findings.json
       CODEX_HOME: tmp/pr-review/codex-home
     steps:
       - name: Create read-only agent token
@@ -97,14 +98,6 @@ jobs:
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
           permission-contents: read
           permission-pull-requests: read
-
-      - name: Create PR write token
-        id: review-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
-          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-pull-requests: write
 
       - name: Checkout trusted workflow repo
         uses: actions/checkout@v5
@@ -144,6 +137,7 @@ jobs:
           OUTPUT_PATH: ${{ env.REVIEW_PROMPT_PATH }}
           CONTEXT_PATH: ${{ env.REVIEW_CONTEXT_PATH }}
           OUTPUT_MD_PATH: ${{ env.REVIEW_OUTPUT_PATH }}
+          OUTPUT_FINDINGS_PATH: ${{ env.REVIEW_FINDINGS_PATH }}
         run: node scripts/issue-agent/render-template.mjs
 
       - name: Run Codex PR review
@@ -164,8 +158,27 @@ jobs:
         env:
           CONTEXT_PATH: ${{ env.REVIEW_CONTEXT_PATH }}
           REVIEW_PATH: ${{ env.REVIEW_OUTPUT_PATH }}
+          FINDINGS_PATH: ${{ env.REVIEW_FINDINGS_PATH }}
           EXPECTED_CONTEXT_SHA: ${{ steps.context.outputs.context_sha }}
         run: node tmp/pr-review/trusted-post-agent/scripts/pr-review/validate-review.mjs
+
+      - name: Create fresh PR write token
+        id: review-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+          permission-pull-requests: write
+
+      - name: Post Codex inline review comments
+        env:
+          GITHUB_TOKEN: ${{ steps.review-token.outputs.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CONTEXT_PATH: ${{ env.REVIEW_CONTEXT_PATH }}
+          FINDINGS_PATH: ${{ env.REVIEW_FINDINGS_PATH }}
+        run: node tmp/pr-review/trusted-post-agent/scripts/pr-review/post-inline-review.mjs
 
       - name: Post Codex review comment
         uses: actions/github-script@v7

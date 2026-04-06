@@ -169,7 +169,7 @@ The watcher skips evaluation when:
 
 | Workflow               | Role                                                                                                                                                      |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pr-review.yml`        | Runs Claude + Codex reviews, posts comments with verdict + recommendation                                                                                 |
+| `pr-review.yml`        | Runs Claude + Codex reviews, posts summary comments with verdict + recommendation, and applies validated inline review comments for actionable findings    |
 | `ci-pr.yml`            | Runs lint, typecheck, build, E2E tests                                                                                                                    |
 | `pr-watcher.yml`       | Reads review comments + CI status, applies terminal labels or `/fix-pr`                                                                                   |
 | `fix-pr.yml`           | Triggered by `/fix-pr` label, runs agent to fix PR-related issues and notes clearly unrelated E2E failures in the summary comment instead of chasing them |
