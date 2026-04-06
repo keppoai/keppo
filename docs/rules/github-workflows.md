@@ -28,6 +28,7 @@ Consult this file before changing GitHub Actions workflow structure, runner sele
 - When reusable issue-agent workflows install Copilot CLI, pin `@github/copilot` to an explicit version and keep the plan and issue-to-PR workflows aligned.
 - `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` is only required when agent-driven PRs are expected to publish reviewer-facing demo videos.
 - For workflow-authored PR or issue comments, prefer a scoped GitHub App token over user PAT secrets. When the workflow writes PR conversation comments through the issues API, mint the token with `issues: write` explicitly instead of assuming `pull-requests: write` is sufficient.
+- When a review workflow adds optional or additive post-agent steps before its load-bearing summary comment, isolate those step failures so the summary comment still posts. Do not let inline-comment or demo-only helpers block the primary automation signal consumed by downstream workflows.
 
 ## Label and agent-selection rules
 

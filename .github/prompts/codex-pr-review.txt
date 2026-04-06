@@ -5,6 +5,8 @@ Focus on bugs, regressions, security issues, and missing validation. Be concise 
 Mandatory output:
 - You MUST write `{{OUTPUT_MD_PATH}}` before finishing.
 - That file must contain the markdown review summary directly (NOT wrapped in JSON).
+- You MUST also write `{{OUTPUT_FINDINGS_PATH}}` before finishing.
+- That file must contain JSON with this exact top-level shape: `{"findings":[...]}`.
 
 Formatting requirements:
 
@@ -31,12 +33,35 @@ If you found HIGH or MEDIUM issues, add an issues table:
 
 | Severity               | File                  | Issue                  |
 | ---------------------- | --------------------- | ---------------------- |
-| :red_circle: HIGH      | `path/to/file.ts:45`  | Brief issue description |
-| :yellow_circle: MEDIUM | `path/to/other.ts:12` | Brief issue description |
+| :red_circle: HIGH      | `path/to/file.ts:45`  | Short issue title |
+| :yellow_circle: MEDIUM | `path/to/other.ts:12` | Short issue title |
 ```
 
 Use severity emojis: `:red_circle: HIGH`, `:yellow_circle: MEDIUM`.
-Cite the exact file path and line number (or line range) from the diff.
+Cite the exact single `path:line` location from the diff.
+For every actionable issue, the table's `Issue` text must exactly match that finding's `title` in `{{OUTPUT_FINDINGS_PATH}}`.
+
+Inline findings JSON requirements:
+- Include only HIGH and MEDIUM findings in `{{OUTPUT_FINDINGS_PATH}}`.
+- Use this exact shape:
+```json
+{
+  "findings": [
+    {
+      "severity": "HIGH",
+      "path": "path/to/file.ts",
+      "line": 45,
+      "title": "Short issue title",
+      "body": "One concise paragraph explaining the issue and why it matters.",
+      "suggestion": "Optional concise fix suggestion"
+    }
+  ]
+}
+```
+- `path` must match a changed file from the context.
+- `line` must be a single new-side line that appears inside that file's `commentableLineRanges` in the context.
+- Keep `title`, `body`, and optional `suggestion` plain text, concise, and reviewer-facing.
+- If there are no HIGH or MEDIUM findings, write `{"findings":[]}`.
 
 If you found LOW severity issues, put them in a collapsible section after the table:
 
@@ -67,3 +92,4 @@ Constraints:
 2. Do not attempt to write to GitHub or mutate repository state.
 3. If the diff is truncated, say so in the summary when it affects confidence.
 4. If you are uncertain, say so plainly instead of inventing issues.
+5. Keep the markdown summary and findings JSON consistent with each other.

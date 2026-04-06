@@ -10,7 +10,9 @@ const githubOutputPath = process.env.GITHUB_OUTPUT;
 
 if (!token) throw new Error("GITHUB_TOKEN is required");
 if (!repository) throw new Error("GITHUB_REPOSITORY is required");
-if (!Number.isFinite(prNumber)) throw new Error("PR_NUMBER is required");
+if (!Number.isInteger(prNumber) || prNumber <= 0) {
+  throw new Error("PR_NUMBER must be a positive integer");
+}
 if (!outputPath) throw new Error("OUTPUT_PATH is required");
 if (!githubOutputPath) throw new Error("GITHUB_OUTPUT is required");
 
@@ -36,6 +38,73 @@ const api = async (pathname, accept = headers.Accept) => {
   }
   return response;
 };
+
+const HUNK_HEADER_RE = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/;
+
+function appendRange(ranges, start, end) {
+  if (end < start) return;
+  const previous = ranges.at(-1);
+  if (previous && start <= previous.end + 1) {
+    previous.end = Math.max(previous.end, end);
+    return;
+  }
+  ranges.push({ start, end });
+}
+
+function getCommentableLineRanges(patch) {
+  if (!patch) return [];
+
+  const ranges = [];
+  let rightLine = null;
+  let activeRangeStart = null;
+  let activeRangeEnd = null;
+
+  const flushActiveRange = () => {
+    if (activeRangeStart !== null && activeRangeEnd !== null) {
+      appendRange(ranges, activeRangeStart, activeRangeEnd);
+    }
+    activeRangeStart = null;
+    activeRangeEnd = null;
+  };
+
+  for (const line of patch.split("\n")) {
+    const hunkHeader = line.match(HUNK_HEADER_RE);
+    if (hunkHeader) {
+      flushActiveRange();
+      rightLine = Number.parseInt(hunkHeader[1], 10);
+      continue;
+    }
+
+    if (rightLine === null || !line) {
+      continue;
+    }
+
+    const prefix = line[0];
+    if (prefix === "+" || prefix === " ") {
+      if (activeRangeStart === null) {
+        activeRangeStart = rightLine;
+      }
+      activeRangeEnd = rightLine;
+      rightLine += 1;
+      continue;
+    }
+
+    if (prefix === "-") {
+      flushActiveRange();
+      continue;
+    }
+
+    if (prefix === "\\") {
+      continue;
+    }
+
+    flushActiveRange();
+    rightLine = null;
+  }
+
+  flushActiveRange();
+  return ranges;
+}
 
 const pullRequestResponse = await api(`repos/${owner}/${repo}/pulls/${prNumber}`);
 const pullRequest = await pullRequestResponse.json();
@@ -71,15 +140,16 @@ try {
 
 const maxPatchChars = 48000;
 const normalizedFiles = files.map((file) => {
-  const patch = typeof file.patch === "string" ? file.patch : "";
+  const fullPatch = typeof file.patch === "string" ? file.patch : "";
   return {
     path: file.filename,
     status: file.status,
     additions: file.additions,
     deletions: file.deletions,
     changes: file.changes,
-    patch: patch.slice(0, maxPatchChars),
-    patchTruncated: patch.length > maxPatchChars,
+    patch: fullPatch.slice(0, maxPatchChars),
+    patchTruncated: fullPatch.length > maxPatchChars,
+    commentableLineRanges: getCommentableLineRanges(fullPatch),
   };
 });
 
@@ -94,6 +164,7 @@ const payload = {
     author: pullRequest.user?.login ?? "",
     baseRef: pullRequest.base?.ref ?? "",
     headRef: pullRequest.head?.ref ?? "",
+    headSha: pullRequest.head?.sha ?? "",
     changedFiles: pullRequest.changed_files ?? normalizedFiles.length,
     additions: pullRequest.additions ?? 0,
     deletions: pullRequest.deletions ?? 0,
