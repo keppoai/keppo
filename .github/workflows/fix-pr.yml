@@ -6,14 +6,24 @@ name: Fix PR
 
 on:
   pull_request_target:
-    types: [labeled]
+    types: [labeled, closed]
 
 # Restrict default permissions; the job below declares only what it needs.
 permissions: {}
 
 jobs:
+  cancel-on-close:
+    if: github.event.action == 'closed'
+    concurrency:
+      group: fix-pr-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    runs-on: ubuntu-latest
+    steps:
+      - name: Stop fix-pr for closed PR
+        run: echo "PR closed; canceling any in-progress fix-pr run."
+
   fix-pr:
-    if: github.event_name == 'pull_request_target' && github.event.label.name == '/fix-pr'
+    if: github.event_name == 'pull_request_target' && github.event.action == 'labeled' && github.event.label.name == '/fix-pr'
     # Concurrency MUST be on the job, not the workflow. Ghost pull_request_target
     # runs (triggered by label changes like fix-pr:pending) have their job `if` evaluate
     # to false and are skipped. Job-level concurrency avoids skipped runs acquiring

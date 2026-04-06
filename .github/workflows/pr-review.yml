@@ -4,7 +4,7 @@ name: PR Review
 
 on:
   pull_request_target:
-    types: [opened, synchronize, ready_for_review, reopened]
+    types: [opened, synchronize, ready_for_review, reopened, closed]
 
 # Restrict default permissions; each job declares only what it needs.
 permissions: {}
@@ -16,13 +16,16 @@ concurrency:
 jobs:
   claude-review:
     environment: ai-bots
-    if: |
-      github.event.pull_request.user.login == 'wwwillchen' ||
-      github.event.pull_request.user.login == 'wwwillchen-bot' ||
-      github.event.pull_request.user.login == 'vercel' ||
-      github.event.pull_request.user.login == 'vercel[bot]' ||
-      github.event.pull_request.user.login == 'keppo-bot' ||
-      github.event.pull_request.user.login == 'keppo-bot[bot]'
+    if: >-
+      github.event.action != 'closed' &&
+      (
+        github.event.pull_request.user.login == 'wwwillchen' ||
+        github.event.pull_request.user.login == 'wwwillchen-bot' ||
+        github.event.pull_request.user.login == 'vercel' ||
+        github.event.pull_request.user.login == 'vercel[bot]' ||
+        github.event.pull_request.user.login == 'keppo-bot' ||
+        github.event.pull_request.user.login == 'keppo-bot[bot]'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
@@ -65,13 +68,16 @@ jobs:
 
   codex-review:
     environment: ai-bots
-    if: |
-      github.event.pull_request.user.login == 'wwwillchen' ||
-      github.event.pull_request.user.login == 'wwwillchen-bot' ||
-      github.event.pull_request.user.login == 'vercel' ||
-      github.event.pull_request.user.login == 'vercel[bot]' ||
-      github.event.pull_request.user.login == 'keppo-bot' ||
-      github.event.pull_request.user.login == 'keppo-bot[bot]'
+    if: >-
+      github.event.action != 'closed' &&
+      (
+        github.event.pull_request.user.login == 'wwwillchen' ||
+        github.event.pull_request.user.login == 'wwwillchen-bot' ||
+        github.event.pull_request.user.login == 'vercel' ||
+        github.event.pull_request.user.login == 'vercel[bot]' ||
+        github.event.pull_request.user.login == 'keppo-bot' ||
+        github.event.pull_request.user.login == 'keppo-bot[bot]'
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 35
     permissions:

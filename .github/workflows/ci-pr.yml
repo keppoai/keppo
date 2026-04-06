@@ -2,8 +2,12 @@ name: CI (PR)
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [opened, synchronize, reopened, closed]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
@@ -13,6 +17,7 @@ permissions:
 jobs:
   check-changes:
     name: Check changes
+    if: github.event_name == 'workflow_dispatch' || github.event.action != 'closed'
     runs-on: ubicloud-standard-2
     outputs:
       run-e2e: ${{ steps.check.outputs.run-e2e }}
@@ -81,7 +86,7 @@ jobs:
 
   e2e:
     needs: check-changes
-    if: needs.check-changes.outputs.run-e2e == 'true'
+    if: (github.event_name == 'workflow_dispatch' || github.event.action != 'closed') && needs.check-changes.outputs.run-e2e == 'true'
     uses: ./.github/workflows/e2e-shared.yml
 
   # Gate job for branch protection — succeeds when E2E passed OR was
@@ -89,7 +94,7 @@ jobs:
   # Set this as the required status check instead of individual E2E jobs.
   ci-result:
     name: CI Result
-    if: always()
+    if: always() && (github.event_name == 'workflow_dispatch' || github.event.action != 'closed')
     needs: [check-changes, e2e]
     runs-on: ubicloud-standard-2
     steps:
