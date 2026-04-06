@@ -48,7 +48,7 @@
 - Existing retention and sensitivity classes remain in force.
 - Audit events continue to record decision and state transition operations.
 - Audit events, provider metrics, queue dead letters, and health endpoints are first-class product behavior.
-- GitHub Actions security-advisory alerting uses repo-scoped `repository_advisories:read` GitHub App access plus environment-scoped Mailgun config to send count-only triage/draft summary emails without embedding vulnerability details in workflow logs.
+- GitHub Actions security-advisory alerting uses repo-scoped `repository_advisories:read` GitHub App access plus environment-scoped Mailgun config to send triage/draft email alerts only for `high` and `critical` repository advisories; alert emails include each advisory summary and `created_at` timestamp, while `medium`, `low`, and unset-severity advisories do not contribute to counts or trigger delivery.
 - Public errors are sanitized; public health stays minimal and side-effect free, while deep subsystem diagnostics and authenticated runtime-version checks stay behind session-gated or internal-only routes.
 - Authenticated operator UI may expose short safe troubleshooting detail, but anonymous/public routes must never render raw backend exception text, signed callback params, bearer secrets, or stack traces.
 - Security-relevant changes should be backed by targeted tests and scripted checks where possible.

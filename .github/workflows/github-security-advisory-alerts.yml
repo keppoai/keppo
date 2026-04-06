@@ -41,7 +41,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Send advisory alert email
+      - name: Send high/critical advisory alert email
         env:
           GITHUB_API_URL: ${{ github.api_url }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
