@@ -152,7 +152,7 @@ Selection rules:
 
 ### GitHub security advisory alerts workflow
 
-The `github-security-advisory-alerts.yml` workflow runs nightly and on manual dispatch in the `ai-bots` GitHub Actions environment. It counts repository security advisories that are still in `triage` or `draft` and sends an email alert only when that combined count is non-zero.
+The `github-security-advisory-alerts.yml` workflow runs nightly and on manual dispatch in the `ai-bots` GitHub Actions environment. It fetches repository security advisories that are still in `triage` or `draft`, filters the alert to `high` and `critical` severities only, and sends an email only when that filtered combined count is non-zero. The email includes each alertable advisory's summary and `created_at` timestamp. `medium`, `low`, and unset-severity advisories are excluded from both the count and the alert trigger.
 
 Required configuration:
 

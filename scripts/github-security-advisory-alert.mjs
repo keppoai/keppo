@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
 const ADVISORY_STATES = ["triage", "draft"];
+const ALERT_SEVERITIES = new Set(["critical", "high"]);
 
 const requireEnv = (name) => {
   const value = process.env[name]?.trim();
@@ -52,12 +53,14 @@ const readResponseBody = async (response) => {
   return text.trim().slice(0, 500);
 };
 
-const fetchAdvisoryCount = async ({ apiBaseUrl, repository, token, state }) => {
+const fetchAdvisories = async ({ apiBaseUrl, repository, token, state }) => {
   let nextUrl = new URL(`${apiBaseUrl}/repos/${repository}/security-advisories`);
   nextUrl.searchParams.set("state", state);
+  nextUrl.searchParams.set("sort", "created");
+  nextUrl.searchParams.set("direction", "desc");
   nextUrl.searchParams.set("per_page", "100");
 
-  let total = 0;
+  const advisories = [];
 
   while (nextUrl) {
     const response = await fetch(nextUrl, {
@@ -75,18 +78,18 @@ const fetchAdvisoryCount = async ({ apiBaseUrl, repository, token, state }) => {
       );
     }
 
-    const advisories = await response.json();
-    if (!Array.isArray(advisories)) {
+    const pageAdvisories = await response.json();
+    if (!Array.isArray(pageAdvisories)) {
       throw new Error(`Unexpected ${state} advisories response shape`);
     }
 
-    total += advisories.length;
+    advisories.push(...pageAdvisories);
 
     const nextPage = getNextPageUrl(response.headers.get("link"));
     nextUrl = nextPage ? new URL(nextPage) : null;
   }
 
-  return total;
+  return advisories;
 };
 
 const escapeHtml = (value) =>
@@ -104,6 +107,23 @@ const appendStepSummary = async (summary) => {
   }
   await fs.appendFile(path, `${summary}\n`, "utf8");
 };
+
+const formatCreatedAt = (value) => {
+  if (!value) {
+    return "unknown";
+  }
+
+  const createdAt = new Date(value);
+  if (Number.isNaN(createdAt.getTime())) {
+    return value;
+  }
+
+  return createdAt.toISOString();
+};
+
+const isAlertSeverity = (severity) => ALERT_SEVERITIES.has(severity ?? "");
+
+const getAdvisoryTitle = (advisory) => advisory.summary?.trim() || advisory.ghsa_id;
 
 const sendMailgunEmail = async ({
   apiKey,
@@ -146,11 +166,11 @@ const main = async () => {
   const githubServerUrl = process.env.GITHUB_SERVER_URL?.trim() || "https://github.com";
   const runId = process.env.GITHUB_RUN_ID?.trim();
 
-  const advisoryCounts = Object.fromEntries(
+  const advisoriesByState = Object.fromEntries(
     await Promise.all(
       ADVISORY_STATES.map(async (state) => [
         state,
-        await fetchAdvisoryCount({
+        await fetchAdvisories({
           repository,
           token,
           state,
@@ -159,29 +179,56 @@ const main = async () => {
       ]),
     ),
   );
-  const totalCount = ADVISORY_STATES.reduce((sum, state) => sum + advisoryCounts[state], 0);
+  const alertAdvisoriesByState = Object.fromEntries(
+    ADVISORY_STATES.map((state) => [
+      state,
+      advisoriesByState[state].filter((advisory) => isAlertSeverity(advisory.severity)),
+    ]),
+  );
+  const alertCounts = Object.fromEntries(
+    ADVISORY_STATES.map((state) => [state, alertAdvisoriesByState[state].length]),
+  );
+  const ignoredCounts = Object.fromEntries(
+    ADVISORY_STATES.map((state) => [state, advisoriesByState[state].length - alertCounts[state]]),
+  );
+  const totalCount = ADVISORY_STATES.reduce((sum, state) => sum + alertCounts[state], 0);
+  const ignoredTotalCount = ADVISORY_STATES.reduce((sum, state) => sum + ignoredCounts[state], 0);
+  const alertAdvisories = ADVISORY_STATES.flatMap((state) =>
+    alertAdvisoriesByState[state].map((advisory) => ({ ...advisory, alertState: state })),
+  );
 
   const triageUrl = `${githubServerUrl}/${repository}/security/advisories?state=triage`;
   const draftUrl = `${githubServerUrl}/${repository}/security/advisories?state=draft`;
   const runUrl = runId ? `${githubServerUrl}/${repository}/actions/runs/${runId}` : null;
 
   await appendStepSummary(`Repository: \`${repository}\``);
-  await appendStepSummary(`Triage advisories: ${advisoryCounts.triage}`);
-  await appendStepSummary(`Draft advisories: ${advisoryCounts.draft}`);
-  await appendStepSummary(`Total open advisories in triage/draft: ${totalCount}`);
+  await appendStepSummary(`Alertable triage advisories (high/critical): ${alertCounts.triage}`);
+  await appendStepSummary(`Alertable draft advisories (high/critical): ${alertCounts.draft}`);
+  await appendStepSummary(`Ignored triage advisories (medium/lower/unset): ${ignoredCounts.triage}`);
+  await appendStepSummary(`Ignored draft advisories (medium/lower/unset): ${ignoredCounts.draft}`);
+  await appendStepSummary(`Total alertable open advisories in triage/draft: ${totalCount}`);
 
   if (totalCount === 0) {
-    console.log(`No open triage or draft security advisories found for ${repository}.`);
+    console.log(
+      `No high or critical triage/draft security advisories found for ${repository}. Ignored ${ignoredTotalCount} medium/lower/unset advisories.`,
+    );
     return;
   }
 
-  const subject = `[ALERT] You have ${totalCount} GitHub security advisories open for ${repository}`;
+  const subject = `[ALERT] You have ${totalCount} high/critical GitHub security advisories open for ${repository}`;
   const textLines = [
     `Repository: ${repository}`,
     "",
-    `Open GitHub security advisories in triage/draft: ${totalCount}`,
-    `Triage: ${advisoryCounts.triage}`,
-    `Draft: ${advisoryCounts.draft}`,
+    `Open high/critical GitHub security advisories in triage/draft: ${totalCount}`,
+    `Triage: ${alertCounts.triage}`,
+    `Draft: ${alertCounts.draft}`,
+    `Ignored (medium/lower/unset): ${ignoredTotalCount}`,
+    "",
+    "High/critical advisories:",
+    ...alertAdvisories.map(
+      (advisory) =>
+        `- [${advisory.alertState}/${advisory.severity ?? "unknown"}] ${getAdvisoryTitle(advisory)} (created: ${formatCreatedAt(advisory.created_at)})`,
+    ),
     "",
     "Review advisories:",
     `Triage: ${triageUrl}`,
@@ -199,11 +246,21 @@ const main = async () => {
     <h2 style="margin-bottom:12px;">GitHub security advisory alert</h2>
     <p style="margin:0 0 12px;"><strong>Repository:</strong> ${escapeHtml(repository)}</p>
     <p style="margin:0 0 12px;">
-      Open GitHub security advisories in <code>triage</code>/<code>draft</code>: <strong>${totalCount}</strong>
+      Open <code>high</code>/<code>critical</code> GitHub security advisories in <code>triage</code>/<code>draft</code>: <strong>${totalCount}</strong>
     </p>
     <ul style="margin:0 0 16px;padding-left:20px;">
-      <li>Triage: ${advisoryCounts.triage}</li>
-      <li>Draft: ${advisoryCounts.draft}</li>
+      <li>Triage: ${alertCounts.triage}</li>
+      <li>Draft: ${alertCounts.draft}</li>
+      <li>Ignored (medium/lower/unset): ${ignoredTotalCount}</li>
+    </ul>
+    <p style="margin:0 0 8px;"><strong>High/critical advisories</strong></p>
+    <ul style="margin:0 0 16px;padding-left:20px;">
+      ${alertAdvisories
+        .map(
+          (advisory) =>
+            `<li><strong>${escapeHtml(getAdvisoryTitle(advisory))}</strong> (${escapeHtml(advisory.alertState)}/${escapeHtml(advisory.severity ?? "unknown")})<br/>Created: ${escapeHtml(formatCreatedAt(advisory.created_at))}</li>`,
+        )
+        .join("\n")}
     </ul>
     <p style="margin:0 0 8px;"><a href="${escapeHtml(triageUrl)}">Review triage advisories</a></p>
     <p style="margin:0 0 8px;"><a href="${escapeHtml(draftUrl)}">Review draft advisories</a></p>
