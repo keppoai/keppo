@@ -41,9 +41,8 @@ const questionPayload = {
   billing: {
     stage: "questions",
     charged_credits: 0,
-    cycle_total_credits: 1,
     summary:
-      "Clarifying questions do not deduct a credit. Keppo charges 1 credit only when it generates the final automation draft.",
+      "Your bundled AI credit balance updated after clarifying questions. No additional credits were used.",
   },
 } as const;
 
@@ -71,8 +70,9 @@ const draftPayload = {
   billing: {
     stage: "draft",
     charged_credits: 1,
-    cycle_total_credits: 1,
-    summary: "Keppo deducted 1 credit to generate the final automation draft.",
+    charged_budget_usd: 0.0667,
+    remaining_credits: 24,
+    summary: "Keppo used 1 bundled AI credit for automation generation.",
   },
 } as const;
 

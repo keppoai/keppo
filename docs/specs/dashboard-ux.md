@@ -171,7 +171,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Billing page surfaces dedicated AI Credits and Automation Runs cards near the top so operators can see remaining prompt credits and current-period run capacity without digging through tool-call metrics.
 - Billing page includes one unified row of plan cards for `Free trial`, `Starter`, and `Pro` that compares monthly price, workspace capacity, included AI credits, and monthly tool-call limits while attaching the correct plan-specific CTA to each card.
 - The unified plan cards follow billing-source-aware actions: `free` orgs can start checkout only on higher paid tiers, the `Free trial` card explains there is no subscription to manage instead of offering cancellation, Stripe-paid orgs manage the current paid tier from its card and can change only to eligible adjacent tiers, and invite promos keep Stripe checkout available without exposing native Stripe manage/change controls.
-- Billing copy explains that hosted bundled credits, including the free-trial one-time grant, can power both prompt generation and automation runtime when bundled runtime is enabled; self-managed deployments continue to require org-managed provider keys when bundled runtime is unavailable.
+- Billing copy explains that hosted bundled credits, including the free-trial one-time grant, can power clarifying questions, prompt generation, Mermaid regeneration, and automation runtime when bundled gateway mode is enabled; self-managed deployments continue to require org-managed provider keys for runtime when bundled gateway mode is unavailable.
 - Upgrade CTAs call API billing checkout endpoint (`/billing/checkout`) for starter/pro Stripe Managed Payments sessions, with Stripe-hosted promotion-code entry enabled during recurring checkout.
 - Billing page includes AI credit-pack CTAs and paid-tier automation run top-up CTAs so one-time purchases live beside recurring subscription management.
 - Automation Runs card shows effective run capacity for the current billing period, including any active purchased top-ups, and breaks out purchased remaining runs when present.
@@ -266,8 +266,8 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
   - It calls `POST /api/automations/generate-questions` first, then `POST /api/automations/generate-prompt` only after the operator finishes the questionnaire.
   - The question stage is one-question-at-a-time, keyboard-first, and limited to `radio`, `checkbox`, and single-line `text` inputs.
   - Question generation may return fewer than 4 questions or none at all when the brief is already specific.
-  - The question-stage payload includes explicit billing metadata stating that clarifying questions do not deduct a credit and the single credit is charged only when the final draft is generated.
-  - The draft-generation payload returns `name`, `trigger_type`, `schedule_cron`, `event_provider`, `event_type`, `provider_recommendations`, `prompt`, `description`, `mermaid_content`, `credit_balance`, and explicit draft billing metadata.
+  - The question-stage payload includes explicit billing metadata. In hosted bundled mode it reflects actual synced gateway spend and may include `charged_budget_usd` plus `remaining_credits`; without bundled gateway mode it stays informational because clarifying questions remain free there.
+  - The draft-generation payload returns `name`, `trigger_type`, `schedule_cron`, `event_provider`, `event_type`, `provider_recommendations`, `prompt`, `description`, `mermaid_content`, `credit_balance`, and explicit draft billing metadata. Hosted bundled mode reports actual synced gateway spend for draft and Mermaid-only generation; direct mode keeps the legacy `1` visible credit semantics for draft and Mermaid regeneration.
   - The draft stage exposes `name`, plain-language `description`, separate `mermaid_content`, the executable prompt, and a compact answer summary so operators can see which clarifications shaped the generated workflow before creation.
   - Provider recommendations are advisory metadata, not hard blockers; each recommendation includes the provider id, reason, and confidence (`required` or `recommended`).
   - The provider stage shows inline `Connect`, `Open`, and `Skip` actions so users can satisfy likely dependencies without leaving the builder context permanently.
@@ -341,15 +341,15 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 #### M. Settings: AI configuration and credits
 
 - Settings page includes org-level AI configuration:
-  - when hosted bundled runtime is enabled, the page hides self-managed API-key entry, explains that Keppo manages runtime credentials automatically, and shows any bundled credential rows as billing-managed records.
-  - when hosted bundled runtime is unavailable, the page falls back to the self-managed AI key manager:
+  - when hosted bundled gateway mode is enabled, the page hides self-managed API-key entry, explains that Keppo manages bundled generation/runtime credentials automatically, and shows any bundled credential rows as billing-managed records.
+  - when hosted bundled gateway mode is unavailable, the page falls back to the self-managed AI key manager:
     - list stored active/inactive keys with provider/mode/hint and update time; user-removed BYOK and `subscription_token` credentials disappear after deletion instead of lingering as inactive rows.
     - add/update key flow (`provider`, secret input) creates BYOK credentials via `org_ai_keys:upsertOrgAiKey`.
     - legacy OpenAI `subscription_token` credentials can remain visible for existing orgs but cannot be created from the dashboard anymore.
     - remove flow via `org_ai_keys:deleteOrgAiKey`; bundled keys remain billing-managed and cannot be removed from the dashboard.
     - inline usage summary of which providers are currently running in bundled or self-managed mode based on present org billing and key state, rather than storing per-automation mode selections.
 - Settings page includes AI credit panel:
-  - allowance usage + purchased balance from `ai_credits:getAiCreditBalance`.
+  - allowance usage + purchased balance from `ai_credits:getAiCreditBalance`, with hosted bundled mode reflecting the last synced gateway spend snapshot rather than only local pre-deducts.
   - Stripe checkout launch for credit packs via `/billing/credits/checkout`.
   - purchase history with remaining credits + expiry from `ai_credits:listAiCreditPurchases`.
 

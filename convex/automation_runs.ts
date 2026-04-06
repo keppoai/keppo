@@ -23,6 +23,7 @@ import {
   automationRunTraceExportStatusValidator,
   automationProviderTriggerMigrationStateValidator,
   automationProviderTriggerValidator,
+  aiKeyModeValidator,
   aiModelProviderValidator,
   configTriggerTypeValidator,
   modelClassValidator,
@@ -116,6 +117,7 @@ const automationRunViewValidator = v.object({
   error_message: v.union(v.string(), v.null()),
   sandbox_id: v.union(v.string(), v.null()),
   mcp_session_id: v.union(v.string(), v.null()),
+  ai_key_mode: v.union(aiKeyModeValidator, v.null()),
   outcome: v.union(automationRunOutcomeViewValidator, v.null()),
   trace: v.union(automationRunTraceViewValidator, v.null()),
   log_storage_id: v.union(v.id("_storage"), v.null()),
@@ -328,6 +330,7 @@ const toAutomationRunView = (
   error_message: string | null;
   sandbox_id: string | null;
   mcp_session_id: string | null;
+  ai_key_mode: "byok" | "bundled" | "subscription_token" | null;
   outcome: {
     success: boolean;
     summary: string;
@@ -359,6 +362,13 @@ const toAutomationRunView = (
     error_message: run.error_message ?? null,
     sandbox_id: run.sandbox_id ?? null,
     mcp_session_id: run.mcp_session_id ?? null,
+    ai_key_mode:
+      typeof run.metadata?.ai_key_mode === "string" &&
+      (run.metadata.ai_key_mode === "byok" ||
+        run.metadata.ai_key_mode === "bundled" ||
+        run.metadata.ai_key_mode === "subscription_token")
+        ? run.metadata.ai_key_mode
+        : null,
     outcome: toAutomationRunOutcomeView(run),
     trace: toAutomationRunTraceView(run),
     log_storage_id: run.log_storage_id,
@@ -1179,6 +1189,7 @@ const updateAutomationRunStatusInternal = async (
     error_message?: string;
     sandbox_id?: string | null;
     mcp_session_id?: string | null;
+    ai_key_mode?: "byok" | "bundled" | "subscription_token" | null;
   },
 ) => {
   const run = await getAutomationRunById(ctx, params.automation_run_id);
@@ -1190,6 +1201,7 @@ const updateAutomationRunStatusInternal = async (
       ? run.metadata
       : clearAutomationRunDispatchTokenMetadata(run.metadata)),
     automation_run_status: params.status,
+    ...(params.ai_key_mode !== undefined ? { ai_key_mode: params.ai_key_mode } : {}),
   };
   const now = nowIso();
   const legacyStatus = toRunStatus(params.status);
@@ -1650,6 +1662,7 @@ export const updateAutomationRunStatus = internalMutation({
     error_message: v.optional(v.string()),
     sandbox_id: v.optional(v.union(v.string(), v.null())),
     mcp_session_id: v.optional(v.union(v.string(), v.null())),
+    ai_key_mode: v.optional(v.union(aiKeyModeValidator, v.null())),
   },
   returns: automationRunViewValidator,
   handler: async (ctx, args) => {

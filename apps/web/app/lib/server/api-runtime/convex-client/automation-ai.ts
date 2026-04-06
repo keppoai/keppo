@@ -87,6 +87,7 @@ export type AutomationRunDispatchContext = {
     error_message: string | null;
     sandbox_id: string | null;
     mcp_session_id: string | null;
+    ai_key_mode: "byok" | "bundled" | "subscription_token" | null;
     outcome: {
       success: boolean;
       summary: string;
@@ -172,6 +173,7 @@ export async function updateAutomationRunStatus(
     errorMessage?: string;
     sandboxId?: string | null;
     mcpSessionId?: string | null;
+    aiKeyMode?: "byok" | "bundled" | "subscription_token" | null;
   },
 ): Promise<void> {
   await client.mutation(refs.updateAutomationRunStatus, {
@@ -180,6 +182,7 @@ export async function updateAutomationRunStatus(
     ...(params.errorMessage !== undefined ? { error_message: params.errorMessage } : {}),
     ...(params.sandboxId !== undefined ? { sandbox_id: params.sandboxId } : {}),
     ...(params.mcpSessionId !== undefined ? { mcp_session_id: params.mcpSessionId } : {}),
+    ...(params.aiKeyMode !== undefined ? { ai_key_mode: params.aiKeyMode } : {}),
   });
 }
 
@@ -331,16 +334,16 @@ export async function upsertBundledOrgAiKey(
     rawKey: string;
     createdBy?: string;
   },
-): Promise<void> {
+): Promise<OrgAiKey> {
   const internalClient = client as unknown as {
     mutation: (reference: unknown, args: unknown) => Promise<unknown>;
   };
-  await internalClient.mutation(refs.upsertBundledOrgAiKey, {
+  return (await internalClient.mutation(refs.upsertBundledOrgAiKey, {
     org_id: params.orgId,
     provider: params.provider,
     raw_key: params.rawKey,
     ...(params.createdBy ? { created_by: params.createdBy } : {}),
-  });
+  })) as OrgAiKey;
 }
 
 export async function deactivateBundledOrgAiKeys(
@@ -360,6 +363,7 @@ export type AiCreditsBalance = {
   period_start: string;
   period_end: string;
   allowance_total: number;
+  allowance_reset_period: "monthly" | "one_time";
   allowance_used: number;
   allowance_remaining: number;
   purchased_remaining: number;
@@ -377,6 +381,35 @@ export async function getAiCreditBalance(
   return (await internalClient.query(refs.getAiCreditBalance as unknown, {
     org_id: params.orgId,
   })) as AiCreditsBalance;
+}
+
+export type AiCreditGatewaySyncResult = {
+  balance: AiCreditsBalance;
+  charged_credits: number;
+  charged_budget_usd: number;
+  previous_spend_usd: number;
+  current_spend_usd: number;
+  max_budget_usd: number;
+  budget_reset_at: string | null;
+};
+
+export async function syncAiCreditsFromGateway(
+  client: ConvexHttpClient,
+  params: {
+    orgId: string;
+    spendUsd: number;
+    maxBudgetUsd: number;
+    budgetResetAt: string | null;
+    usageSource?: AiCreditUsageSource;
+  },
+): Promise<AiCreditGatewaySyncResult> {
+  return (await client.mutation(refs.syncAiCreditsFromGateway, {
+    org_id: params.orgId,
+    spend_usd: params.spendUsd,
+    max_budget_usd: params.maxBudgetUsd,
+    budget_reset_at: params.budgetResetAt,
+    ...(params.usageSource ? { usage_source: params.usageSource } : {}),
+  })) as AiCreditGatewaySyncResult;
 }
 
 export async function deductAiCredit(

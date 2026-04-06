@@ -76,6 +76,18 @@ const createDeps = (): StartOwnedBillingDeps => ({
         },
       },
     }),
+    getAiCreditBalance: vi.fn().mockResolvedValue({
+      org_id: "org_test",
+      period_start: "2026-03-01T00:00:00.000Z",
+      period_end: "2026-04-01T00:00:00.000Z",
+      allowance_total: 100,
+      allowance_reset_period: "monthly",
+      allowance_used: 0,
+      allowance_remaining: 100,
+      purchased_remaining: 0,
+      total_available: 100,
+      bundled_runtime_enabled: true,
+    }),
     getOrgAiKey: vi.fn().mockResolvedValue(null),
     getSubscriptionByStripeCustomer: vi.fn().mockResolvedValue({
       id: "subrow_1",
@@ -110,7 +122,45 @@ const createDeps = (): StartOwnedBillingDeps => ({
     }),
     setSubscriptionStatusByCustomer: vi.fn().mockResolvedValue(undefined),
     setSubscriptionStatusByStripeSubscription: vi.fn().mockResolvedValue(undefined),
-    upsertBundledOrgAiKey: vi.fn().mockResolvedValue(undefined),
+    syncAiCreditsFromGateway: vi.fn().mockResolvedValue({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-01T00:00:00.000Z",
+        period_end: "2026-04-01T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 0,
+        allowance_remaining: 100,
+        purchased_remaining: 0,
+        total_available: 100,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 0,
+      current_spend_usd: 0,
+      max_budget_usd: 6.6667,
+      budget_reset_at: "2026-04-01T00:00:00.000Z",
+    }),
+    upsertBundledOrgAiKey: vi.fn().mockImplementation(async (args) => ({
+      id: `oak_${args.provider}`,
+      org_id: args.orgId,
+      provider: args.provider,
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, args.rawKey),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: args.createdBy ?? "bundled_ai",
+      created_at: "2026-03-14T00:00:00.000Z",
+      updated_at: "2026-03-14T00:00:00.000Z",
+    })),
     upsertSubscriptionForOrg: vi.fn().mockResolvedValue(undefined),
   },
   resolveApiSessionIdentity: vi.fn().mockResolvedValue({
@@ -408,6 +458,116 @@ describe("start-owned billing api", () => {
     expect(deps.convex.addPurchasedCredits).not.toHaveBeenCalled();
   });
 
+  it("refreshes bundled gateway budget immediately after purchased credits are granted", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.example");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "team_test");
+    vi.stubEnv("KEPPO_MASTER_KEY", "master_key_test");
+
+    const deps = createDeps();
+    vi.mocked(deps.convex.getOrgAiKey).mockResolvedValue({
+      id: "oak_existing_openai",
+      org_id: "org_test",
+      provider: "openai",
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, "sk_existing"),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "bundled_ai",
+      created_at: "2026-03-14T00:00:00.000Z",
+      updated_at: "2026-03-14T00:00:00.000Z",
+    });
+    const updateCalls: Array<Record<string, unknown>> = [];
+    const fetchSpy = vi.fn<typeof fetch>(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if ((init?.method ?? "GET") === "GET" && url.includes("/user/info")) {
+        return new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 1,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if ((init?.method ?? "GET") === "POST" && url.endsWith("/user/update")) {
+        updateCalls.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      if ((init?.method ?? "GET") === "POST" && url.endsWith("/key/generate")) {
+        return new Response(JSON.stringify({ key: "sk_gateway_test" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const rawBody = JSON.stringify({
+      id: "evt_credit_checkout_refresh_budget",
+      object: "event",
+      type: "checkout.session.completed",
+      data: {
+        object: {
+          id: "cs_credit_refresh_budget",
+          object: "checkout.session",
+          client_reference_id: "org_test",
+          payment_status: "paid",
+          payment_intent: "pi_credit_refresh_budget",
+          amount_total: 1000,
+          metadata: {
+            org_id: "org_test",
+            credit_package_index: "0",
+            credits: "100",
+            price_cents: "1000",
+          },
+        },
+      },
+    });
+
+    try {
+      const response = await dispatchStartOwnedBillingRequest(
+        new Request("http://127.0.0.1/webhooks/stripe-billing", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "stripe-signature": signStripePayload(rawBody),
+          },
+          body: rawBody,
+        }),
+        deps,
+      );
+
+      expect(response?.status).toBe(200);
+      expect(deps.convex.addPurchasedCredits).toHaveBeenCalledTimes(1);
+      expect(deps.convex.getSubscriptionForOrg).toHaveBeenCalledWith("org_test");
+      expect(deps.convex.syncAiCreditsFromGateway).toHaveBeenCalled();
+      expect(updateCalls).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it("fulfills automation run top-up purchases from valid webhook metadata", async () => {
     vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
     vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
@@ -603,6 +763,141 @@ describe("start-owned billing api", () => {
     expect(response?.status).toBe(200);
     expect(fetchSpy).toHaveBeenCalledTimes(2);
     expect(deps.convex.upsertBundledOrgAiKey).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not sync previous gateway spend into a new billing period before resetting gateway spend", async () => {
+    vi.stubEnv("STRIPE_SECRET_KEY", "sk_test_billing");
+    vi.stubEnv("STRIPE_BILLING_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_WEBHOOK_SECRET", "whsec_billing");
+    vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.example");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "team_test");
+    vi.stubEnv("KEPPO_MASTER_KEY", "master_key_test");
+
+    const deps = createDeps();
+    vi.mocked(deps.convex.getSubscriptionByStripeSubscription).mockResolvedValueOnce({
+      id: "subrow_reset",
+      org_id: "org_test",
+      tier: "starter",
+      status: "active",
+      current_period_start: "2026-03-01T00:00:00.000Z",
+      current_period_end: "2026-04-01T00:00:00.000Z",
+      stripe_subscription_id: "sub_test",
+      stripe_customer_id: "cus_test",
+      created_at: "2026-02-01T00:00:00.000Z",
+      updated_at: "2026-02-01T00:00:00.000Z",
+    });
+    vi.mocked(deps.convex.getOrgAiKey).mockResolvedValue({
+      id: "oak_existing_openai",
+      org_id: "org_test",
+      provider: "openai",
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, "sk_existing"),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: "bundled_ai",
+      created_at: "2026-03-14T00:00:00.000Z",
+      updated_at: "2026-03-14T00:00:00.000Z",
+    });
+    vi.mocked(deps.convex.getAiCreditBalance).mockResolvedValueOnce({
+      org_id: "org_test",
+      period_start: "2026-04-01T00:00:00.000Z",
+      period_end: "2026-05-01T00:00:00.000Z",
+      allowance_total: 100,
+      allowance_reset_period: "monthly",
+      allowance_used: 0,
+      allowance_remaining: 100,
+      purchased_remaining: 25,
+      total_available: 125,
+      bundled_runtime_enabled: true,
+    });
+    const updateCalls: Array<Record<string, unknown>> = [];
+    const fetchSpy = vi.fn<typeof fetch>(async (input, init) => {
+      const url =
+        typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+      if ((init?.method ?? "GET") === "GET" && url.includes("/user/info")) {
+        return new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 5,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          },
+        );
+      }
+      if ((init?.method ?? "GET") === "POST" && url.endsWith("/user/update")) {
+        updateCalls.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+        return new Response("{}", {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      throw new Error(`Unexpected fetch ${init?.method ?? "GET"} ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+    const rawBody = JSON.stringify({
+      id: "evt_subscription_updated_period_reset",
+      object: "event",
+      type: "customer.subscription.updated",
+      data: {
+        object: {
+          id: "sub_test",
+          object: "subscription",
+          status: "active",
+          customer: "cus_test",
+          current_period_start: 1775001600,
+          current_period_end: 1777680000,
+          items: {
+            data: [
+              {
+                price: {
+                  id: "price_starter_test",
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+
+    try {
+      const response = await dispatchStartOwnedBillingRequest(
+        new Request("http://127.0.0.1/webhooks/stripe-billing", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "stripe-signature": signStripePayload(rawBody),
+          },
+          body: rawBody,
+        }),
+        deps,
+      );
+
+      expect(response?.status).toBe(200);
+      expect(deps.convex.syncAiCreditsFromGateway).not.toHaveBeenCalled();
+      expect(deps.convex.getAiCreditBalance).toHaveBeenCalledWith({
+        orgId: "org_test",
+      });
+      expect(updateCalls[0]).toMatchObject({
+        spend: 0.01,
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it("reads billing periods from subscription items when Stripe omits deprecated subscription period fields", async () => {

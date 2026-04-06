@@ -4,6 +4,8 @@
 
 - Tier limits and recurring plan prices live in `packages/shared/src/subscriptions.ts`.
 - Automation limits, AI-credit allowances, and automation run top-up packages live in `packages/shared/src/automations.ts`.
+- In hosted bundled mode, Dyad gateway spend is the source of truth for bundled AI usage across clarifying questions, prompt generation, Mermaid regeneration, and bundled automation runtime. Convex `ai_credits` is the synced entitlement/read-model layer, not the canonical spend ledger.
+- Included allowances and purchased AI-credit packs remain Keppo-owned entitlements with expiry rules; gateway `max_budget` must be derived from the org's current remaining entitlement, not from raw plan allowance alone.
 - Paid expansion beyond bundled allowances happens through one-time AI credit packs and paid-tier automation run top-ups, not metered overage billing.
 - Do not duplicate those constants in Convex, API, or dashboard code.
 
@@ -15,6 +17,7 @@
 - Stripe subscription webhooks must fail closed when the recurring subscription price ID is missing or does not map to a configured paid tier; never substitute `free` for an unknown Stripe plan.
 - Stripe subscription period persistence and Stripe-driven plan-change mutations must read still-supported Stripe period fields. For managed-payments subscriptions, use subscription-level periods only when both timestamps are present; otherwise prefer a complete subscription-item period and fail closed instead of substituting `Date.now()` when timestamps are missing.
 - Operators should monitor the `billing.webhook.subscription_period_missing` log key. Repeated occurrences mean Stripe retries will stay stuck until the payload contract or webhook handling is corrected.
+- On Stripe billing-period rollover, reset gateway spend before reconciling the fresh-period entitlement; never sync prior-period gateway spend into the new `ai_credits` period row.
 - Reject malformed Stripe metadata before mutating AI credit or automation run top-up state; never write `NaN`, zero, or invalid tier values into billing records.
 - Existing paid orgs may change plans in-app via `POST /api/billing/subscription/change` (upgrades use `subscriptions.update` with prorations; paid-to-paid downgrades use Subscription Schedules from the current period end; cancel-to-free uses `cancel_at_period_end`). First-time free→paid remains Stripe Checkout.
 - Invite promo billing is a separate non-Stripe source of temporary paid access: treat it as `billing_source="invite_promo"`, keep Stripe portal/native plan-change flows disabled, and leave recurring checkout available so the org can convert to Stripe explicitly.
@@ -24,18 +27,22 @@
 ## Usage enforcement
 
 - Quota and suspension checks must happen before provider execution.
+- Hosted bundled AI flows may sync current gateway spend before execution to fail closed on exhausted balance, but they must not permanently decrement Convex credits before provider work starts. Balance changes must come from syncing observed gateway spend.
+- Post-completion bundled credit sync must only run for runs that actually used bundled credentials, and sync failures after a run reaches a terminal state must not turn a successful callback into a `500`.
 - Tool usage finalization must record runtime even on failures and timeouts.
 - Automation sandbox dispatch must derive its runtime timeout from the org tier's `automation_limits.max_run_duration_ms` when a subscription tier is available; `KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS` is a fallback for contexts that do not resolve a tier and must not silently undercut paid-tier entitlements.
 - Usage-threshold notifications should be emitted from canonical usage-meter state, not guessed in the UI.
+- Hosted bundled prompt generation, Mermaid generation, and automation runtime must use the same gateway-metered spend model. Do not mix gateway-metered runtime with direct-provider prompt generation inside the hosted bundled entitlement path.
 - Automation run top-ups extend the effective run, tool-call, and total tool-time limits for paid tiers only. Run and tool-call deductions consume the oldest active purchased package first; purchased tool time is additive for the active package lifetime and disappears on expiry.
 - Normal top-up reads should use the cached org-level ledger; reserve per-purchase scans for write-side recomputation or missing-ledger fallback paths.
 
 ## Credits and seats
 
-- Included AI credits use one org-level ledger for prompt generation and bundled automation runtime.
-- Free-trial included credits are a one-time org-level grant that can fund both prompt generation and bundled automation runtime when hosted bundled runtime is enabled; self-managed deployments still require provider credentials for runtime.
-- Deduct included credits first, then the oldest active purchased credits.
+- Included AI credits use one org-level entitlement ledger for clarifying questions, prompt generation, Mermaid regeneration, and bundled automation runtime. In hosted bundled mode, the visible remaining balance is derived from synced gateway spend plus current purchased-credit state.
+- Free-trial included credits are a one-time org-level grant that can fund clarifying questions, prompt generation, Mermaid regeneration, and bundled automation runtime when hosted bundled gateway mode is enabled; self-managed deployments still require provider credentials for runtime.
+- Consume included credits first, then the oldest active purchased credits.
 - Purchased credit fulfillment must map a completed Stripe event to exactly one credit grant.
+- Purchased credit fulfillment that changes bundled entitlement must refresh gateway `max_budget` in the same webhook pass so newly granted credits are usable immediately.
 - Automation run top-ups use a separate org-level ledger plus per-purchase records with a 90-day expiry.
 - Expiry and expiring-notification jobs must bound their expiry-window scans and deduplicate delivery per org/window.
 - Starter automation run packages are `1,500 runs / 75,000 tool calls / 7,200,000 ms` for `$15` and `3,000 runs / 150,000 tool calls / 14,400,000 ms` for `$25`.

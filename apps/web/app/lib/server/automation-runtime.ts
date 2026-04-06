@@ -1,4 +1,3 @@
-import { AI_CREDIT_ERROR_CODE, parseAiCreditErrorCode } from "@keppo/shared/ai-credit-errors";
 import { CLIENT_TYPE, type SubscriptionTier } from "@keppo/shared/domain";
 import {
   AI_KEY_MODE,
@@ -25,6 +24,11 @@ import {
 } from "@keppo/shared/automations";
 import { getTierConfig } from "@keppo/shared/subscriptions";
 import { parseJsonPayload } from "./api-runtime/app-helpers.ts";
+import {
+  ensureBundledGatewayKeyForOrg,
+  resolveBundledGatewayUrl,
+  syncBundledAiCreditsFromGateway,
+} from "./api-runtime/bundled-ai.ts";
 import { ConvexInternalClient } from "./api-runtime/convex.ts";
 import { getEnv } from "./api-runtime/env.ts";
 import { isInternalBearerAuthorized } from "./api-runtime/internal-auth.ts";
@@ -76,15 +80,16 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   | "appendAutomationRunLogBatch"
   | "claimAutomationRunDispatchContext"
   | "createRun"
-  | "deductAiCredit"
   | "getAiCreditBalance"
   | "getAutomationRunDispatchContext"
   | "getOrgAiKey"
   | "getSubscriptionForOrg"
   | "issueAutomationWorkspaceCredential"
   | "recordAutomationRunTrace"
+  | "syncAiCreditsFromGateway"
   | "storeAutomationRunSessionTrace"
   | "updateAutomationRunStatus"
+  | "upsertBundledOrgAiKey"
   | "upsertOpenAiOauthKey"
 >;
 
@@ -119,10 +124,19 @@ const AUTOMATION_LOG_APPEND_RETRY_BASE_DELAY_MS = 250;
 const AUTOMATION_LOG_BATCH_SIZE = 50;
 const AUTOMATION_LOG_MAX_LINES = 200;
 const MIN_AUTOMATION_TIMEOUT_MS = 60_000;
+const AI_CREDIT_EXHAUSTED_EPSILON = 0.0001;
 const AUTOMATION_SANDBOX_MODEL_ERROR =
   "Sandbox automations require an OpenAI model. Configure an OpenAI automation model instead of a Claude model.";
 
 const automationRouteErrorCodeSet = new Set<AutomationRouteErrorCode>(AUTOMATION_ROUTE_ERROR_CODES);
+const isAiCreditBalanceExhausted = (
+  balance: { total_available: number } | null | undefined,
+): boolean => {
+  if (!balance) {
+    return false;
+  }
+  return balance.total_available <= AI_CREDIT_EXHAUSTED_EPSILON;
+};
 const payloadErrorCodeSet = new Set<AutomationRouteErrorCode>([
   "invalid_payload",
   "invalid_automation_run_terminal_status",
@@ -548,14 +562,28 @@ export const handleInternalAutomationDispatchRequest = async (
       );
     }
 
+    const gatewayBaseUrl =
+      authKeyMode === AI_KEY_MODE.bundled
+        ? resolveBundledGatewayUrl(env.KEPPO_LLM_GATEWAY_URL)
+        : null;
     const key =
       !gatewayEnabled && resolvedKeyMode === AI_KEY_MODE.byok
         ? activeNonBundledKey
-        : await deps.convex.getOrgAiKey({
-            orgId: context.automation.org_id,
-            provider: resolvedModel.aiModelProvider,
-            keyMode: AI_KEY_MODE.bundled,
-          });
+        : authKeyMode === AI_KEY_MODE.bundled
+          ? {
+              ...(await ensureBundledGatewayKeyForOrg({
+                convex: deps.convex,
+                orgId: context.automation.org_id,
+                provider: resolvedModel.aiModelProvider,
+                gatewayBaseUrl,
+              })),
+              is_active: true as const,
+            }
+          : await deps.convex.getOrgAiKey({
+              orgId: context.automation.org_id,
+              provider: resolvedModel.aiModelProvider,
+              keyMode: AI_KEY_MODE.bundled,
+            });
 
     if (!key || !key.is_active) {
       const providerLabel = getAiModelProviderLabel(resolvedModel.aiModelProvider);
@@ -623,61 +651,47 @@ export const handleInternalAutomationDispatchRequest = async (
     });
     await preflightMcpServer(mcpServerUrl, mcpBearerToken);
 
-    let gatewayBaseUrl: string | null = null;
-    if (resolvedKeyMode === AI_KEY_MODE.bundled) {
-      gatewayBaseUrl = env.KEPPO_LLM_GATEWAY_URL?.trim() ?? null;
+    if (authKeyMode === AI_KEY_MODE.bundled) {
       if (!gatewayBaseUrl) {
         throw createAutomationRouteError(
           "missing_env",
           `Missing KEPPO_LLM_GATEWAY_URL for bundled ${resolvedModel.aiModelProvider === "openai" ? "OpenAI" : "Anthropic"} runtime.`,
         );
       }
-
-      try {
-        await deps.convex.deductAiCredit({
-          orgId: context.automation.org_id,
-          usageSource: "runtime",
-        });
-      } catch (error) {
-        if (parseAiCreditErrorCode(error) === AI_CREDIT_ERROR_CODE.limitReached) {
-          await deps.convex
-            .updateAutomationRunStatus({
-              automationRunId: context.run.id,
-              status: AUTOMATION_RUN_STATUS.cancelled,
-              errorMessage:
-                "Bundled AI credits are exhausted. Purchase more credits in Billing or upgrade to a higher plan and retry.",
-            })
-            .catch(() => undefined);
-          return jsonResponse(
-            request,
-            {
-              ok: false,
-              status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
-            },
-            402,
-          );
-        }
-        if (parseAiCreditErrorCode(error) !== AI_CREDIT_ERROR_CODE.limitReached) {
-          await deps.convex
-            .updateAutomationRunStatus({
-              automationRunId: context.run.id,
-              status: AUTOMATION_RUN_STATUS.cancelled,
-              errorMessage: "Bundled AI credit deduction failed before dispatch.",
-            })
-            .catch(() => undefined);
-          return jsonResponse(
-            request,
-            {
-              ok: false,
-              status: AUTOMATION_ROUTE_STATUS.creditDeductionFailed,
-            },
-            500,
-          );
-        }
+      const bundledBalance = await syncBundledAiCreditsFromGateway({
+        convex: deps.convex,
+        orgId: context.automation.org_id,
+        gatewayBaseUrl,
+      });
+      if (!bundledBalance) {
+        throw createAutomationRouteError(
+          "automation_route_failed",
+          "Bundled AI gateway user is unavailable.",
+        );
+      }
+      if (isAiCreditBalanceExhausted(bundledBalance.synced.balance)) {
+        await deps.convex
+          .updateAutomationRunStatus({
+            automationRunId: context.run.id,
+            status: AUTOMATION_RUN_STATUS.cancelled,
+            errorMessage:
+              "Bundled AI credits are exhausted. Purchase more credits in Billing or upgrade to a higher plan and retry.",
+          })
+          .catch(() => undefined);
+        return jsonResponse(
+          request,
+          {
+            ok: false,
+            status: AUTOMATION_ROUTE_STATUS.aiCreditLimitReached,
+          },
+          402,
+        );
       }
     }
 
-    const decryptedKey = await decryptStoredKey(key.encrypted_key);
+    const encryptedKey = "encrypted_key" in key ? key.encrypted_key : key.encryptedKey;
+    const credentialKind = "credential_kind" in key ? key.credential_kind : key.credentialKind;
+    const decryptedKey = await decryptStoredKey(encryptedKey);
     const runnerInstructions = buildAutomationRunnerPrompt(
       context.config.prompt,
       context.automation.memory,
@@ -697,7 +711,7 @@ export const handleInternalAutomationDispatchRequest = async (
       providerMode,
       aiModelProvider: resolvedModel.aiModelProvider,
       aiKeyMode: authKeyMode,
-      credentialKind: key.credential_kind,
+      credentialKind,
     });
     const sandbox = (deps.createSandboxProvider ?? createAutomationSandboxProvider)(providerMode);
     const traceId = buildAutomationRunTraceId(context.run.id);
@@ -728,7 +742,12 @@ export const handleInternalAutomationDispatchRequest = async (
       runtimeEnv.VERCEL_AUTOMATION_BYPASS_SECRET = vercelAutomationBypassSecret;
     }
     if (resolvedModel.aiModelProvider === "openai") {
-      if (authKeyMode === AI_KEY_MODE.subscriptionToken && key.credential_kind === "openai_oauth") {
+      if (
+        authKeyMode === AI_KEY_MODE.subscriptionToken &&
+        credentialKind === "openai_oauth" &&
+        "org_id" in key &&
+        "created_by" in key
+      ) {
         const credentials = await maybeRefreshOpenAiOauthCredentials({
           key,
           decryptedKey,
@@ -804,6 +823,7 @@ export const handleInternalAutomationDispatchRequest = async (
       status: AUTOMATION_RUN_STATUS.running,
       sandboxId: dispatch.sandbox_id,
       mcpSessionId,
+      aiKeyMode: authKeyMode,
     });
     await deps.convex.appendAutomationRunLog({
       automationRunId: context.run.id,
@@ -1095,6 +1115,49 @@ export const handleInternalAutomationCompleteRequest = async (
       },
       500,
     );
+  }
+
+  const gatewayBaseUrl = resolveBundledGatewayUrl(deps.getEnv().KEPPO_LLM_GATEWAY_URL);
+  let runContext: Awaited<ReturnType<typeof deps.convex.getAutomationRunDispatchContext>> | null =
+    null;
+  try {
+    runContext = await deps.convex.getAutomationRunDispatchContext({
+      automationRunId: payload.automation_run_id,
+    });
+  } catch (error) {
+    deps.logger.error("automation.complete.dispatch_context_failed", {
+      automation_run_id: payload.automation_run_id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+  if (runContext?.run.ai_key_mode === AI_KEY_MODE.bundled) {
+    if (!gatewayBaseUrl) {
+      deps.logger.error("automation.complete.credit_sync_failed", {
+        automation_run_id: payload.automation_run_id,
+        error: "Missing KEPPO_LLM_GATEWAY_URL for bundled completion sync.",
+        error_code: "missing_env",
+      });
+    } else {
+      const syncError = await syncBundledAiCreditsFromGateway({
+        convex: deps.convex,
+        orgId: runContext.automation.org_id,
+        gatewayBaseUrl,
+        usageSource: "runtime",
+      }).catch((error) => error);
+      if (syncError instanceof Error) {
+        const { code, message } = extractAutomationRouteError(syncError);
+        deps.logger.error("automation.complete.credit_sync_failed", {
+          automation_run_id: payload.automation_run_id,
+          error: message,
+          ...(code ? { error_code: code } : {}),
+        });
+      } else if (syncError === null) {
+        deps.logger.error("automation.complete.credit_sync_skipped", {
+          automation_run_id: payload.automation_run_id,
+          reason: "bundled_gateway_user_missing",
+        });
+      }
+    }
   }
 
   return jsonResponse(request, {

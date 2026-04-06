@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useMutation } from "convex/react";
+import { useMutation, useQuery } from "convex/react";
 import { makeFunctionReference } from "convex/server";
 import { useNavigate } from "@tanstack/react-router";
 import {
@@ -29,6 +29,7 @@ import { ApiError } from "@/lib/api-errors";
 import { normalizeMermaidContent, validateMermaidContent } from "@/lib/automation-mermaid";
 import { MermaidDiagram } from "@/components/automations/automation-description-content";
 import { AutomationBuilderQuestionsStep } from "@/components/automations/automation-builder-questions-step";
+import { useAuth } from "@/hooks/use-auth";
 import { useIntegrations } from "@/hooks/use-integrations";
 import { useRouteParams } from "@/hooks/use-route-params";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
@@ -41,9 +42,12 @@ import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-error
 import { cn } from "@/lib/utils";
 import { humanizeCron } from "@/lib/cron-humanizer";
 import {
+  type AiCreditBalance,
+  formatAiCreditAmount,
   getAutomationPathSegment,
   getAutomationModelClassMeta,
   getNetworkAccessMeta,
+  parseAiCreditBalance,
 } from "@/lib/automations-view-model";
 import { getProviderMeta } from "@/components/integrations/provider-icons";
 import { Badge } from "@/components/ui/badge";
@@ -62,6 +66,7 @@ type AutomationPromptBoxProps = {
   onCreated?: (automation: { id: string; slug: string } | null) => void;
   variant?: "hero" | "compact";
   collapseByDefault?: boolean;
+  aiCreditBalance?: AiCreditBalance | null;
 };
 
 type TriggerType = "schedule" | "event" | "manual";
@@ -82,7 +87,8 @@ type ProviderRecommendation = {
 type GenerationBilling = {
   stage: "questions" | "draft";
   charged_credits: number;
-  cycle_total_credits: number;
+  charged_budget_usd?: number;
+  remaining_credits?: number;
   summary: string;
 };
 
@@ -104,6 +110,15 @@ type GeneratedConfig = {
   };
   billing: GenerationBilling | null;
 };
+
+const resolveUsesBundledQuestionBilling = (params: {
+  questionBilling: GenerationBilling | null | undefined;
+  config: GeneratedConfig | null | undefined;
+  aiCreditBalance: AiCreditBalance | null | undefined;
+}): boolean =>
+  params.questionBilling?.remaining_credits !== undefined ||
+  params.config?.credit_balance.bundled_runtime_enabled === true ||
+  params.aiCreditBalance?.bundled_runtime_enabled === true;
 
 type BuilderSettings = {
   model_class: "auto" | "frontier" | "balanced" | "value";
@@ -207,16 +222,19 @@ const parseGenerationBilling = (value: unknown): GenerationBilling | null => {
   const stage =
     record.stage === "draft" ? "draft" : record.stage === "questions" ? "questions" : null;
   const chargedCredits = typeof record.charged_credits === "number" ? record.charged_credits : null;
-  const cycleTotalCredits =
-    typeof record.cycle_total_credits === "number" ? record.cycle_total_credits : null;
   const summary = typeof record.summary === "string" ? record.summary.trim() : "";
-  if (!stage || chargedCredits === null || cycleTotalCredits === null || summary.length === 0) {
+  if (!stage || chargedCredits === null || summary.length === 0) {
     return null;
   }
   return {
     stage,
     charged_credits: chargedCredits,
-    cycle_total_credits: cycleTotalCredits,
+    ...(typeof record.charged_budget_usd === "number"
+      ? { charged_budget_usd: record.charged_budget_usd }
+      : {}),
+    ...(typeof record.remaining_credits === "number"
+      ? { remaining_credits: record.remaining_credits }
+      : {}),
     summary,
   };
 };
@@ -673,14 +691,25 @@ export function AutomationPromptBox({
   onCreated,
   variant = "compact",
   collapseByDefault = false,
+  aiCreditBalance: providedAiCreditBalance,
 }: AutomationPromptBoxProps) {
   const runtime = useDashboardRuntime();
   const navigate = useNavigate();
+  const { getOrgId } = useAuth();
   const { buildOrgPath, buildWorkspacePath } = useRouteParams();
   const reduceMotion = useReducedMotion();
   const { integrations, providerCatalog, connectProvider } = useIntegrations();
   const createAutomationMutation = useMutation(
     makeFunctionReference<"mutation">("automations:createAutomation"),
+  );
+  const orgId = getOrgId();
+  const aiCreditBalanceRaw = useQuery(
+    makeFunctionReference<"query">("ai_credits:getAiCreditBalance"),
+    providedAiCreditBalance === undefined && orgId ? { org_id: orgId } : "skip",
+  );
+  const aiCreditBalance = useMemo(
+    () => providedAiCreditBalance ?? parseAiCreditBalance(aiCreditBalanceRaw),
+    [aiCreditBalanceRaw, providedAiCreditBalance],
   );
   const initialDraft = useMemo(() => loadPersistedDraft(workspaceId), [workspaceId]);
   const [inputValue, setInputValue] = useState(initialDraft?.inputValue ?? "");
@@ -698,6 +727,17 @@ export function AutomationPromptBox({
   );
   const [questionBilling, setQuestionBilling] = useState<GenerationBilling | null>(
     initialDraft?.questionBilling ?? null,
+  );
+  const [latchedUsesBundledQuestionBilling, setLatchedUsesBundledQuestionBilling] = useState<
+    boolean | null
+  >(
+    initialDraft
+      ? resolveUsesBundledQuestionBilling({
+          questionBilling: initialDraft.questionBilling,
+          config: initialDraft.config,
+          aiCreditBalance: null,
+        })
+      : null,
   );
   const [config, setConfig] = useState<GeneratedConfig | null>(initialDraft?.config ?? null);
   const [settings, setSettings] = useState<BuilderSettings>(
@@ -729,6 +769,13 @@ export function AutomationPromptBox({
     () => summarizeAutomationClarifications(questions, answerEntries),
     [answerEntries, questions],
   );
+  const liveUsesBundledQuestionBilling = resolveUsesBundledQuestionBilling({
+    questionBilling,
+    config,
+    aiCreditBalance,
+  });
+  const usesBundledQuestionBilling =
+    latchedUsesBundledQuestionBilling ?? liveUsesBundledQuestionBilling;
   const currentQuestion = questions[currentQuestionIndex] ?? null;
   const questionStates = useMemo(
     () =>
@@ -872,6 +919,7 @@ export function AutomationPromptBox({
     setAnswers({});
     setCurrentQuestionIndex(0);
     setQuestionBilling(null);
+    setLatchedUsesBundledQuestionBilling(null);
     setConfig(null);
     setSkippedProviders([]);
     setGenerationPhase(null);
@@ -907,6 +955,9 @@ export function AutomationPromptBox({
         if (generationRequestIdRef.current !== requestId) {
           return;
         }
+        setLatchedUsesBundledQuestionBilling(
+          (current) => (current ?? false) || parsed.credit_balance.bundled_runtime_enabled === true,
+        );
         setConfig(parsed);
         setStep("draft");
         setError(null);
@@ -945,6 +996,7 @@ export function AutomationPromptBox({
     setAnswers({});
     setCurrentQuestionIndex(0);
     setQuestionBilling(null);
+    setLatchedUsesBundledQuestionBilling(liveUsesBundledQuestionBilling);
     setSkippedProviders([]);
     setGenerationPhase("questions");
     const requestId = ++generationRequestIdRef.current;
@@ -965,6 +1017,9 @@ export function AutomationPromptBox({
       setAnswers({});
       setCurrentQuestionIndex(0);
       setQuestionBilling(parsed.billing);
+      setLatchedUsesBundledQuestionBilling(
+        parsed.billing?.remaining_credits !== undefined || liveUsesBundledQuestionBilling,
+      );
       setError(null);
       if (parsed.questions.length === 0) {
         setStatusMessage("No clarifying questions were needed. Drafting the automation now.");
@@ -979,9 +1034,16 @@ export function AutomationPromptBox({
         return;
       }
       setGenerationPhase(null);
+      setLatchedUsesBundledQuestionBilling(null);
       setError(toBuilderGenerationError(caught));
     }
-  }, [inputValue, runDraftGeneration, runtime.authClient, workspaceId]);
+  }, [
+    inputValue,
+    liveUsesBundledQuestionBilling,
+    runDraftGeneration,
+    runtime.authClient,
+    workspaceId,
+  ]);
 
   const handleQuestionContinue = useCallback(() => {
     if (!currentQuestion) {
@@ -1297,10 +1359,15 @@ export function AutomationPromptBox({
                 </div>
               </div>
               <div className="rounded-2xl border bg-background/60 p-5">
-                <p className="text-sm font-medium">This stage is free</p>
+                <p className="text-sm font-medium">
+                  {usesBundledQuestionBilling
+                    ? "Credits update automatically"
+                    : "This stage is free"}
+                </p>
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Keppo does not deduct a credit for the clarification questions. The single credit
-                  is charged only if you continue to the final automation draft.
+                  {usesBundledQuestionBilling
+                    ? "In hosted mode, Keppo updates your remaining bundled credits automatically based on the AI work used for questions and drafts."
+                    : "Clarifying questions do not deduct a credit. Keppo charges only when it generates the final automation draft."}
                 </p>
                 <Button
                   type="button"
@@ -1557,7 +1624,9 @@ export function AutomationPromptBox({
                   <p className="text-sm font-medium">Credit policy</p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     {questionBilling?.summary ??
-                      "Keppo charges only when it generates the final draft, not while it asks follow-up questions."}
+                      (usesBundledQuestionBilling
+                        ? "Keppo updates your bundled AI credit balance automatically while it generates questions and drafts."
+                        : "Clarifying questions are free. Keppo charges only when it generates the final automation draft.")}
                   </p>
                 </div>
 
@@ -1660,7 +1729,9 @@ export function AutomationPromptBox({
                           </p>
                           <p className="mt-1 text-sm font-medium">
                             {config.billing?.summary ??
-                              "Keppo used a single credit for the final draft."}
+                              (usesBundledQuestionBilling
+                                ? "Keppo updated your bundled AI credit balance after the draft completed."
+                                : "This draft used 1 AI credit after it completed.")}
                           </p>
                         </div>
                       </div>
@@ -1959,8 +2030,10 @@ export function AutomationPromptBox({
                   <p className="text-sm font-medium">Builder summary</p>
                   <dl className="mt-4 space-y-3 text-sm">
                     <div>
-                      <dt className="text-muted-foreground">Prompt credits left</dt>
-                      <dd className="font-medium">{config.credit_balance.total_available}</dd>
+                      <dt className="text-muted-foreground">Credits remaining</dt>
+                      <dd className="font-medium">
+                        {formatAiCreditAmount(config.credit_balance.total_available)}
+                      </dd>
                     </div>
                     <div>
                       <dt className="text-muted-foreground">Automation slug preview</dt>
@@ -1981,7 +2054,9 @@ export function AutomationPromptBox({
                       <dd className="text-muted-foreground">
                         {config.billing?.summary ??
                           questionBilling?.summary ??
-                          "Keppo charges a single credit only for the final draft."}
+                          (usesBundledQuestionBilling
+                            ? "Keppo updates your bundled AI credit balance automatically while drafting."
+                            : "Clarifying questions are free. Keppo charges only when it generates the final automation draft.")}
                       </dd>
                     </div>
                   </dl>

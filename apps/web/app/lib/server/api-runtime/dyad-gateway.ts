@@ -1,6 +1,8 @@
 import {
   convertAiCreditsToDyadGatewayBudgetUsd,
   isGatewayRuntimeEnabled,
+  normalizeAiCreditAmount,
+  normalizeDyadGatewayBudgetUsd,
 } from "@keppo/shared/automations";
 import { getEnv, type ApiEnv } from "./env.js";
 
@@ -197,3 +199,13 @@ export const deleteDyadGatewayUser = async (orgId: string): Promise<void> => {
 
 export const resolveDyadGatewayBudgetUsdForTier = (credits: number): number =>
   convertAiCreditsToDyadGatewayBudgetUsd(credits);
+
+export const resolveDyadGatewayMaxBudgetUsd = (params: {
+  remainingCredits: number;
+  currentSpendUsd: number;
+}): number => {
+  return normalizeDyadGatewayBudgetUsd(
+    normalizeDyadGatewayBudgetUsd(params.currentSpendUsd) +
+      convertAiCreditsToDyadGatewayBudgetUsd(normalizeAiCreditAmount(params.remainingCredits)),
+  );
+};

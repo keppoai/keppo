@@ -836,6 +836,27 @@ export const parseAiCreditBalance = (value: unknown): AiCreditBalance | null => 
   };
 };
 
+const AI_CREDIT_EXHAUSTED_EPSILON = 0.0001;
+
+export const isAiCreditBalanceExhausted = (
+  balance: Pick<AiCreditBalance, "total_available"> | null | undefined,
+): boolean => {
+  if (!balance) {
+    return false;
+  }
+  return balance.total_available <= AI_CREDIT_EXHAUSTED_EPSILON;
+};
+
+export const formatAiCreditAmount = (value: number | null | undefined): string => {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return "-";
+  }
+  if (Number.isInteger(value)) {
+    return String(value);
+  }
+  return value.toFixed(value >= 10 ? 1 : 2).replace(/\.?0+$/u, "");
+};
+
 export const runStatusBadgeVariant = (
   status: AutomationRunStatus,
 ): "default" | "secondary" | "destructive" | "outline" => {

@@ -10,7 +10,11 @@ import { Button } from "@/components/ui/button";
 import { AutomationList } from "@/components/automations/automation-list";
 import { AutomationPromptBox } from "@/components/automations/automation-prompt-box";
 import { useRouteParams } from "@/hooks/use-route-params";
-import { parseAiCreditBalance } from "@/lib/automations-view-model";
+import {
+  formatAiCreditAmount,
+  isAiCreditBalanceExhausted,
+  parseAiCreditBalance,
+} from "@/lib/automations-view-model";
 
 export const automationsRouteLazy = createLazyRoute(automationsRoute.id)({
   component: AutomationsPage,
@@ -66,9 +70,11 @@ function AutomationsPage() {
           ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="px-3 py-1 text-sm">
-              {aiCreditBalance ? `${aiCreditBalance.total_available} credits` : "Credits loading"}
+              {aiCreditBalance
+                ? `${formatAiCreditAmount(aiCreditBalance.total_available)} credits`
+                : "Credits loading"}
             </Badge>
-            {aiCreditBalance?.total_available === 0 ? (
+            {isAiCreditBalanceExhausted(aiCreditBalance) ? (
               <Button
                 variant="outline"
                 size="sm"
@@ -97,6 +103,7 @@ function AutomationsPage() {
           workspaceId={selectedWorkspaceId}
           variant="compact"
           collapseByDefault
+          aiCreditBalance={aiCreditBalance}
         />
       ) : null}
     </div>

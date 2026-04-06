@@ -5,6 +5,22 @@ import {
   handleGenerateAutomationPromptRequest,
 } from "../../app/lib/server/automation-api";
 
+const encryptStoredKeyForTest = async (secret: string, rawValue: string): Promise<string> => {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const encrypted = await crypto.subtle.encrypt(
+    { name: "AES-GCM", iv },
+    key,
+    new TextEncoder().encode(rawValue),
+  );
+  const toHex = (bytes: Uint8Array): string =>
+    Array.from(bytes)
+      .map((byte) => byte.toString(16).padStart(2, "0"))
+      .join("");
+  return `keppo-v1.${toHex(iv)}.${toHex(new Uint8Array(encrypted))}`;
+};
+
 const createDeps = () => {
   const convex = {
     checkRateLimit: vi.fn().mockResolvedValue({
@@ -41,6 +57,7 @@ const createDeps = () => {
       total_available: 124,
       bundled_runtime_enabled: false,
     }),
+    getOrgAiKey: vi.fn().mockResolvedValue(null),
     getApiDedupeKey: vi.fn().mockResolvedValue(null),
     getWorkspaceCodeModeContext: vi.fn().mockResolvedValue({
       workspace: {
@@ -68,6 +85,45 @@ const createDeps = () => {
     }),
     releaseApiDedupeKey: vi.fn().mockResolvedValue(true),
     setApiDedupePayload: vi.fn().mockResolvedValue(true),
+    syncAiCreditsFromGateway: vi.fn().mockResolvedValue({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-14T00:00:00.000Z",
+        period_end: "2026-04-14T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 1,
+        allowance_remaining: 99,
+        purchased_remaining: 25,
+        total_available: 124,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 0,
+      current_spend_usd: 0,
+      max_budget_usd: 8.2667,
+      budget_reset_at: "2026-04-14T00:00:00.000Z",
+    }),
+    upsertBundledOrgAiKey: vi.fn().mockImplementation(async (args) => ({
+      id: `oak_${args.provider}`,
+      org_id: args.orgId,
+      provider: args.provider,
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, args.rawKey),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: args.createdBy ?? "bundled_ai",
+      created_at: "2026-03-14T00:00:00.000Z",
+      updated_at: "2026-03-14T00:00:00.000Z",
+    })),
   };
 
   return {
@@ -170,7 +226,6 @@ describe("start-owned automation api handlers", () => {
       billing: {
         stage: "questions",
         charged_credits: 0,
-        cycle_total_credits: 1,
       },
     });
     expect(deps.generateAutomationQuestions).toHaveBeenCalledWith({
@@ -304,6 +359,40 @@ describe("start-owned automation api handlers", () => {
     }
   });
 
+  it("returns a typed setup error when question generation falls back to direct OpenAI without a configured key", async () => {
+    const deps = createDeps();
+    deps.generateAutomationQuestions = undefined as never;
+    deps.getEnv.mockImplementation(
+      () =>
+        ({
+          KEPPO_DASHBOARD_ORIGIN: "http://127.0.0.1:3000",
+          KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE: 10,
+          KEPPO_LLM_GATEWAY_URL: "https://gateway.example",
+        }) as never,
+    );
+
+    const response = await handleGenerateAutomationQuestionsRequest(
+      withJson(
+        "/api/automations/generate-questions",
+        {
+          workspace_id: "ws_test",
+          user_description: "Find regressions",
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "generation_failed",
+      error_code: "missing_openai_api_key",
+    });
+  });
+
   it("generates automation prompts in-process with Start-owned auth context", async () => {
     const deps = createDeps();
 
@@ -354,7 +443,6 @@ describe("start-owned automation api handlers", () => {
       billing: {
         stage: "draft",
         charged_credits: 1,
-        cycle_total_credits: 1,
       },
     });
     expect(deps.generateAutomationPrompt).toHaveBeenCalledWith({
@@ -565,6 +653,53 @@ describe("start-owned automation api handlers", () => {
         ],
       }),
     );
+  });
+
+  it("returns a typed setup error instead of crashing when only the prompt generator is overridden", async () => {
+    const deps = createDeps();
+    deps.generateAutomationMermaid = undefined as never;
+    deps.getEnv.mockImplementation(
+      () =>
+        ({
+          KEPPO_DASHBOARD_ORIGIN: "http://127.0.0.1:3000",
+          KEPPO_RATE_LIMIT_AUTOMATION_QUESTIONS_PER_ORG_PER_MINUTE: 10,
+        }) as never,
+    );
+
+    const response = await handleGenerateAutomationPromptRequest(
+      withJson(
+        "/api/automations/generate-prompt",
+        {
+          workspace_id: "ws_test",
+          user_description: "Summarize the latest issues.",
+          generation_mode: "mermaid_only",
+          automation_context: {
+            name: "Issue summary",
+            description: "desc",
+            mermaid_content: "flowchart TD\nA-->B",
+            trigger_type: "manual",
+            schedule_cron: null,
+            event_provider: null,
+            event_type: null,
+            ai_model_provider: "openai",
+            ai_model_name: "gpt-5.4",
+            network_access: "mcp_only",
+            prompt: "Summarize the latest issues.",
+          },
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: false,
+      status: "generation_failed",
+      error_code: "missing_openai_api_key",
+    });
   });
 
   it("dispatches the migrated automation family in-process", async () => {

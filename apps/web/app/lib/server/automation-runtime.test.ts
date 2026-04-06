@@ -1,6 +1,5 @@
 import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AI_CREDIT_ERROR_CODE } from "@keppo/shared/ai-credit-errors";
 import { AUTOMATION_RUN_LOG_LEVEL } from "@keppo/shared/automations";
 import {
   dispatchStartOwnedAutomationRuntimeRequest,
@@ -32,6 +31,8 @@ const defaultTestEnv = {
   BETTER_AUTH_SECRET: "keppo-better-auth-fallback-secret",
   KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS: 60_000,
   KEPPO_LLM_GATEWAY_URL: undefined,
+  KEPPO_LLM_GATEWAY_MASTER_KEY: "gateway_master_test",
+  KEPPO_LLM_GATEWAY_TEAM_ID: "gateway_team_test",
   KEPPO_AUTOMATION_MCP_SERVER_URL: undefined,
   KEPPO_CALLBACK_HMAC_SECRET: "keppo-callback-secret-for-start-runtime-tests",
   VERCEL_AUTOMATION_BYPASS_SECRET: "bypass_secret_test",
@@ -59,6 +60,7 @@ const createDeps = () => {
       period_start: "2026-03-01T00:00:00.000Z",
       period_end: "2026-04-01T00:00:00.000Z",
       allowance_total: 100,
+      allowance_reset_period: "monthly",
       allowance_used: 100,
       allowance_remaining: 0,
       purchased_remaining: 0,
@@ -70,8 +72,47 @@ const createDeps = () => {
     getSubscriptionForOrg: vi.fn().mockResolvedValue(null),
     issueAutomationWorkspaceCredential: vi.fn().mockResolvedValue("keppo_secret_test"),
     recordAutomationRunTrace: vi.fn().mockResolvedValue({ recorded: true }),
+    syncAiCreditsFromGateway: vi.fn().mockResolvedValue({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-01T00:00:00.000Z",
+        period_end: "2026-04-01T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 0,
+        allowance_remaining: 100,
+        purchased_remaining: 0,
+        total_available: 100,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 0,
+      current_spend_usd: 0,
+      max_budget_usd: 6.6667,
+      budget_reset_at: "2026-04-01T00:00:00.000Z",
+    }),
     storeAutomationRunSessionTrace: vi.fn().mockResolvedValue({ stored: true }),
     updateAutomationRunStatus: vi.fn().mockResolvedValue(undefined),
+    upsertBundledOrgAiKey: vi.fn().mockImplementation(async (args) => ({
+      id: `oak_${args.provider}`,
+      org_id: args.orgId,
+      provider: args.provider,
+      key_mode: "bundled",
+      encrypted_key: await encryptStoredKeyForTest(process.env.KEPPO_MASTER_KEY!, args.rawKey),
+      credential_kind: "secret",
+      key_hint: "bundled",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: null,
+      created_by: args.createdBy ?? "bundled_ai",
+      created_at: "2026-03-01T00:00:00.000Z",
+      updated_at: "2026-03-01T00:00:00.000Z",
+    })),
     upsertOpenAiOauthKey: vi.fn().mockResolvedValue(undefined),
   };
   const sandboxProvider = {
@@ -117,6 +158,9 @@ describe("start-owned automation runtime handlers", () => {
     KEPPO_API_INTERNAL_BASE_URL: process.env.KEPPO_API_INTERNAL_BASE_URL,
     KEPPO_CALLBACK_HMAC_SECRET: process.env.KEPPO_CALLBACK_HMAC_SECRET,
     KEPPO_ENVIRONMENT: process.env.KEPPO_ENVIRONMENT,
+    KEPPO_LLM_GATEWAY_MASTER_KEY: process.env.KEPPO_LLM_GATEWAY_MASTER_KEY,
+    KEPPO_LLM_GATEWAY_TEAM_ID: process.env.KEPPO_LLM_GATEWAY_TEAM_ID,
+    KEPPO_LLM_GATEWAY_URL: process.env.KEPPO_LLM_GATEWAY_URL,
     KEPPO_MASTER_KEY: process.env.KEPPO_MASTER_KEY,
     NODE_ENV: process.env.NODE_ENV,
     KEPPO_SANDBOX_PROVIDER: process.env.KEPPO_SANDBOX_PROVIDER,
@@ -130,6 +174,9 @@ describe("start-owned automation runtime handlers", () => {
     process.env.NODE_ENV = "test";
     process.env.KEPPO_SANDBOX_PROVIDER = "docker";
     process.env.VERCEL_AUTOMATION_BYPASS_SECRET = "bypass_secret_test";
+    delete process.env.KEPPO_LLM_GATEWAY_MASTER_KEY;
+    delete process.env.KEPPO_LLM_GATEWAY_TEAM_ID;
+    delete process.env.KEPPO_LLM_GATEWAY_URL;
     delete process.env.KEPPO_API_INTERNAL_BASE_URL;
     delete process.env.KEPPO_ENVIRONMENT;
   });
@@ -200,6 +247,24 @@ describe("start-owned automation runtime handlers", () => {
   it("dispatches sandbox runs from the Start-owned internal route", async () => {
     const deps = createDeps();
     vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 6.6667,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
       .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
@@ -342,6 +407,7 @@ describe("start-owned automation runtime handlers", () => {
         automationRunId: "arun_dispatch_test",
         status: "running",
         sandboxId: "sandbox_test",
+        aiKeyMode: "byok",
       }),
     );
   });
@@ -353,6 +419,24 @@ describe("start-owned automation runtime handlers", () => {
     });
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
           headers: {
@@ -361,7 +445,25 @@ describe("start-owned automation runtime handlers", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_tier_timeout_test",
@@ -438,7 +540,25 @@ describe("start-owned automation runtime handlers", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 6.6667,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_anthropic_dispatch_test",
@@ -577,7 +697,45 @@ describe("start-owned automation runtime handlers", () => {
 
   it("dispatches OpenAI runs with an active legacy subscription token when no BYOK key exists", async () => {
     const deps = createDeps();
-    vi.spyOn(globalThis, "fetch")
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
       .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
@@ -677,7 +835,25 @@ describe("start-owned automation runtime handlers", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_dispatch_prod_test",
@@ -747,7 +923,25 @@ describe("start-owned automation runtime handlers", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_web_access_test",
@@ -814,6 +1008,9 @@ describe("start-owned automation runtime handlers", () => {
 
   it("dispatches bundled runs through the gateway and deducts runtime credits", async () => {
     const deps = createDeps();
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "gateway_team_test");
     deps.getEnv.mockReturnValue({
       ...defaultTestEnv,
       KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
@@ -829,7 +1026,26 @@ describe("start-owned automation runtime handlers", () => {
       total_available: 100,
       bundled_runtime_enabled: true,
     });
-    vi.spyOn(globalThis, "fetch")
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
       .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
@@ -839,7 +1055,25 @@ describe("start-owned automation runtime handlers", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_test",
@@ -898,9 +1132,12 @@ describe("start-owned automation runtime handlers", () => {
       provider: "openai",
       keyMode: "bundled",
     });
-    expect(deps.convex.deductAiCredit).toHaveBeenCalledWith({
+    expect(deps.convex.deductAiCredit).not.toHaveBeenCalled();
+    expect(deps.convex.syncAiCreditsFromGateway).toHaveBeenCalledWith({
       orgId: "org_test",
-      usageSource: "runtime",
+      spendUsd: 0,
+      maxBudgetUsd: 6.6667,
+      budgetResetAt: "2026-04-01T00:00:00.000Z",
     });
     const dispatchArg = deps.sandboxProvider.dispatch.mock.calls[0]?.[0];
     expect(dispatchArg.runtime.env).toMatchObject({
@@ -915,8 +1152,11 @@ describe("start-owned automation runtime handlers", () => {
     );
   });
 
-  it("returns a bundled-specific missing-key response before any BYO fallback lookup", async () => {
+  it("provisions a bundled gateway key on demand when hosted dispatch has no stored key", async () => {
     const deps = createDeps();
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "gateway_team_test");
     deps.getEnv.mockReturnValue({
       ...defaultTestEnv,
       KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
@@ -957,7 +1197,63 @@ describe("start-owned automation runtime handlers", () => {
         network_access: "mcp_only",
       },
     });
-    deps.convex.getOrgAiKey.mockResolvedValue(null);
+    deps.convex.getOrgAiKey.mockResolvedValueOnce(null);
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ key: "bundled-gateway-secret" }), {
+          status: 200,
+          headers: {
+            "content-type": "application/json",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response("event: message\ndata: {}\n\n", {
+          status: 200,
+          headers: {
+            "content-type": "text/event-stream",
+            "mcp-session-id": "mcp_test_session",
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
 
     const response = await handleInternalAutomationDispatchRequest(
       withJson(
@@ -971,27 +1267,28 @@ describe("start-owned automation runtime handlers", () => {
       deps,
     );
 
-    expect(response.status).toBe(400);
-    await expect(response.json()).resolves.toMatchObject({
-      ok: false,
-      status: "missing_ai_key",
-      provider: "openai",
-      key_mode: "bundled",
-    });
+    expect(response.status).toBe(200);
     expect(deps.convex.getOrgAiKey).toHaveBeenCalledTimes(1);
     expect(deps.convex.getOrgAiKey).toHaveBeenCalledWith({
       orgId: "org_test",
       provider: "openai",
       keyMode: "bundled",
     });
+    expect(deps.convex.upsertBundledOrgAiKey).toHaveBeenCalledTimes(2);
+    expect(deps.convex.upsertBundledOrgAiKey).toHaveBeenCalledWith(
+      expect.objectContaining({
+        orgId: "org_test",
+        provider: "openai",
+        rawKey: "bundled-gateway-secret",
+      }),
+    );
+    expect(deps.sandboxProvider.dispatch).toHaveBeenCalledTimes(1);
     expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledWith(
       expect.objectContaining({
         automationRunId: "arun_bundled_missing_key",
-        status: "cancelled",
-        errorMessage: "Bundled OpenAI access is unavailable for this org. Please contact support.",
+        aiKeyMode: "bundled",
       }),
     );
-    expect(deps.sandboxProvider.dispatch).not.toHaveBeenCalled();
   });
 
   it("requires a self-managed key when the org has no bundled runtime available", async () => {
@@ -1060,6 +1357,9 @@ describe("start-owned automation runtime handlers", () => {
 
   it("cancels bundled runs when credits are exhausted before dispatch", async () => {
     const deps = createDeps();
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "gateway_team_test");
     deps.getEnv.mockReturnValue({
       ...defaultTestEnv,
       KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
@@ -1077,6 +1377,25 @@ describe("start-owned automation runtime handlers", () => {
     });
     vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 6.6667,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
         new Response("event: message\ndata: {}\n\n", {
           status: 200,
           headers: {
@@ -1085,8 +1404,65 @@ describe("start-owned automation runtime handlers", () => {
           },
         }),
       )
-      .mockResolvedValueOnce(new Response(null, { status: 200 }));
-    deps.convex.deductAiCredit.mockRejectedValueOnce(new Error(AI_CREDIT_ERROR_CODE.limitReached));
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 6.6667,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      );
+    deps.convex.syncAiCreditsFromGateway.mockResolvedValueOnce({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-01T00:00:00.000Z",
+        period_end: "2026-04-01T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 0,
+        allowance_remaining: 100,
+        purchased_remaining: 0,
+        total_available: 100,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 6.6667,
+      current_spend_usd: 6.6667,
+      max_budget_usd: 6.6667,
+      budget_reset_at: "2026-04-01T00:00:00.000Z",
+    });
+    deps.convex.syncAiCreditsFromGateway.mockResolvedValueOnce({
+      balance: {
+        org_id: "org_test",
+        period_start: "2026-03-01T00:00:00.000Z",
+        period_end: "2026-04-01T00:00:00.000Z",
+        allowance_total: 100,
+        allowance_reset_period: "monthly",
+        allowance_used: 100,
+        allowance_remaining: 0,
+        purchased_remaining: 0,
+        total_available: 0,
+        bundled_runtime_enabled: true,
+      },
+      charged_credits: 0,
+      charged_budget_usd: 0,
+      previous_spend_usd: 6.6667,
+      current_spend_usd: 6.6667,
+      max_budget_usd: 6.6667,
+      budget_reset_at: "2026-04-01T00:00:00.000Z",
+    });
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_fallback",
@@ -1149,6 +1525,9 @@ describe("start-owned automation runtime handlers", () => {
 
   it("does not deduct bundled credits before MCP preflight succeeds", async () => {
     const deps = createDeps();
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "gateway_team_test");
     deps.getEnv.mockReturnValue({
       ...defaultTestEnv,
       KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
@@ -1164,7 +1543,26 @@ describe("start-owned automation runtime handlers", () => {
       total_available: 100,
       bundled_runtime_enabled: true,
     });
-    vi.spyOn(globalThis, "fetch").mockRejectedValueOnce(new Error("MCP preflight failed"));
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            user_info: {
+              user_id: "keppo:org_test",
+              spend: 0,
+              max_budget: 6.6667,
+              budget_reset_at: "2026-04-01T00:00:00.000Z",
+            },
+          }),
+          {
+            status: 200,
+            headers: {
+              "content-type": "application/json",
+            },
+          },
+        ),
+      )
+      .mockRejectedValueOnce(new Error("MCP preflight failed"));
     deps.convex.claimAutomationRunDispatchContext.mockResolvedValueOnce({
       run: {
         id: "arun_bundled_preflight_failure",
@@ -1568,6 +1966,172 @@ describe("start-owned automation runtime handlers", () => {
     });
     expect(deps.convex.updateAutomationRunStatus).toHaveBeenCalledTimes(3);
     expect(deps.logger.error).not.toHaveBeenCalled();
+  });
+
+  it("keeps successful completion callbacks green when bundled credit sync cannot find a gateway user", async () => {
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_MASTER_KEY", "gateway_master_test");
+    vi.stubEnv("KEPPO_LLM_GATEWAY_TEAM_ID", "gateway_team_test");
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
+    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_complete_bundled",
+        automation_id: "automation_complete_bundled",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "running",
+        sandbox_id: "sandbox_test",
+        ai_key_mode: "bundled",
+      },
+      automation: {
+        id: "automation_complete_bundled",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "Bundled completion",
+        memory: "",
+        status: "active",
+      },
+      config: {
+        id: "cfg_test",
+        automation_id: "automation_complete_bundled",
+        trigger_type: "manual",
+        schedule_cron: null,
+        provider_trigger: null,
+        provider_trigger_migration_state: null,
+        event_provider: null,
+        event_type: null,
+        event_predicate: null,
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Do work",
+        network_access: "mcp_only",
+      },
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(null, { status: 404 }));
+
+    const completionRequest = withJson(
+      "/internal/automations/complete?automation_run_id=arun_complete_bundled&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_complete_bundled",
+        status: "succeeded",
+      },
+    );
+    const completeUrl = new URL(completionRequest.url);
+    completeUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(
+          `${completeUrl.pathname}:arun_complete_bundled:${completeUrl.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
+
+    const response = await handleInternalAutomationCompleteRequest(
+      new Request(completeUrl, {
+        method: "POST",
+        headers: completionRequest.headers,
+        body: await completionRequest.text(),
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: "succeeded",
+    });
+    expect(deps.logger.error).toHaveBeenCalledWith(
+      "automation.complete.credit_sync_skipped",
+      expect.objectContaining({
+        automation_run_id: "arun_complete_bundled",
+        reason: "bundled_gateway_user_missing",
+      }),
+    );
+  });
+
+  it("skips hosted completion credit sync for non-bundled runs", async () => {
+    vi.stubEnv("KEPPO_LLM_GATEWAY_URL", "https://gateway.keppo.test");
+    const deps = createDeps();
+    deps.getEnv.mockReturnValue({
+      ...defaultTestEnv,
+      KEPPO_LLM_GATEWAY_URL: "https://gateway.keppo.test",
+    } as never);
+    deps.convex.getAutomationRunDispatchContext.mockResolvedValueOnce({
+      run: {
+        id: "arun_complete_byok",
+        automation_id: "automation_complete_byok",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        status: "running",
+        sandbox_id: "sandbox_test",
+        ai_key_mode: "byok",
+      },
+      automation: {
+        id: "automation_complete_byok",
+        org_id: "org_test",
+        workspace_id: "ws_test",
+        name: "BYOK completion",
+        memory: "",
+        status: "active",
+      },
+      config: {
+        id: "cfg_test",
+        automation_id: "automation_complete_byok",
+        trigger_type: "manual",
+        schedule_cron: null,
+        provider_trigger: null,
+        provider_trigger_migration_state: null,
+        event_provider: null,
+        event_type: null,
+        event_predicate: null,
+        model_class: "value",
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5.2",
+        prompt: "Do work",
+        network_access: "mcp_only",
+      },
+    });
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+
+    const completionRequest = withJson(
+      "/internal/automations/complete?automation_run_id=arun_complete_byok&expires=9999999999999&signature=placeholder",
+      {
+        automation_run_id: "arun_complete_byok",
+        status: "succeeded",
+      },
+    );
+    const completeUrl = new URL(completionRequest.url);
+    completeUrl.searchParams.set(
+      "signature",
+      createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+        .update(
+          `${completeUrl.pathname}:arun_complete_byok:${completeUrl.searchParams.get("expires")}`,
+        )
+        .digest("hex"),
+    );
+
+    const response = await handleInternalAutomationCompleteRequest(
+      new Request(completeUrl, {
+        method: "POST",
+        headers: completionRequest.headers,
+        body: await completionRequest.text(),
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      status: "succeeded",
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("returns a typed error when completion status updates keep failing", async () => {

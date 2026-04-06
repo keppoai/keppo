@@ -12,10 +12,14 @@ import {
   type SubscriptionTier,
   type UserRole,
 } from "@keppo/shared/domain";
-import { AI_KEY_MODE, getAutomationRunPackagesForTier } from "@keppo/shared/automations";
+import {
+  AI_KEY_MODE,
+  getAutomationRunPackagesForTier,
+  supportsBundledAiRuntime,
+} from "@keppo/shared/automations";
+import { getAiCreditAllowanceForTier } from "@keppo/shared/subscriptions";
 import { NOTIFICATION_EVENT_ID } from "@keppo/shared/notifications";
 import { parseJsonRecord } from "@keppo/shared/providers/boundaries/json";
-import { getAiCreditAllowanceForTier } from "@keppo/shared/subscriptions";
 import { isActiveStripeSubscriptionStatus } from "@keppo/shared/billing-contracts";
 import type { ConvexInternalClient } from "../../apps/web/app/lib/server/api-runtime/convex.js";
 import {
@@ -25,7 +29,7 @@ import {
   generateDyadGatewayKey,
   getDyadGatewayUserInfo,
   hasDyadGatewayConfig,
-  resolveDyadGatewayBudgetUsdForTier,
+  resolveDyadGatewayMaxBudgetUsd,
   updateDyadGatewayUser,
 } from "../../apps/web/app/lib/server/api-runtime/dyad-gateway.js";
 import { getEnv } from "../../apps/web/app/lib/server/api-runtime/env.js";
@@ -41,7 +45,9 @@ export type BillingConvexClient = Pick<
   | "createAuditEvent"
   | "emitNotificationForOrg"
   | "getBillingUsageForOrg"
+  | "getAiCreditBalance"
   | "getOrgAiKey"
+  | "syncAiCreditsFromGateway"
   | "releaseApiDedupeKey"
   | "getSubscriptionByStripeCustomer"
   | "getSubscriptionByStripeSubscription"
@@ -182,7 +188,7 @@ const getActiveStripeBilling = (
 
 const shouldKeepBundledAccess = (tier: SubscriptionTier, status: SubscriptionStatus): boolean => {
   return (
-    isBundledTier(tier) &&
+    supportsBundledAiRuntime(tier) &&
     (status === SUBSCRIPTION_STATUS.active ||
       status === SUBSCRIPTION_STATUS.trialing ||
       status === SUBSCRIPTION_STATUS.pastDue)
@@ -238,21 +244,37 @@ const syncBundledGatewayForOrg = async (params: {
     );
   }
 
-  const includedCredits = getAiCreditAllowanceForTier(params.tier);
-  const maxBudgetUsd = resolveDyadGatewayBudgetUsdForTier(includedCredits);
   const existingUser = await getDyadGatewayUserInfo(params.orgId);
+  const syncedBalance =
+    existingUser && !params.resetGatewaySpend
+      ? await params.convex.syncAiCreditsFromGateway({
+          orgId: params.orgId,
+          spendUsd: existingUser.spend,
+          maxBudgetUsd: existingUser.max_budget,
+          budgetResetAt: existingUser.budget_reset_at,
+        })
+      : null;
+  const balance =
+    syncedBalance?.balance ?? (await params.convex.getAiCreditBalance({ orgId: params.orgId }));
+  const remainingCredits = params.resetGatewaySpend
+    ? balance.total_available
+    : balance.total_available;
+  const nextMaxBudgetUsd = resolveDyadGatewayMaxBudgetUsd({
+    remainingCredits,
+    currentSpendUsd: params.resetGatewaySpend ? 0 : (existingUser?.spend ?? 0),
+  });
   const existingStoredKey = await readStoredBundledGatewayKey(params.convex, params.orgId);
   let nextKey = existingStoredKey;
 
   if (!existingUser) {
     nextKey = await createDyadGatewayUser({
       orgId: params.orgId,
-      maxBudgetUsd,
+      maxBudgetUsd: nextMaxBudgetUsd,
     });
   } else {
     await updateDyadGatewayUser({
       orgId: params.orgId,
-      maxBudgetUsd,
+      maxBudgetUsd: nextMaxBudgetUsd,
       resetSpend: params.resetGatewaySpend,
     });
     if (!nextKey) {
@@ -264,14 +286,16 @@ const syncBundledGatewayForOrg = async (params: {
     throw new Error("Failed to provision bundled Dyad Gateway key.");
   }
 
-  for (const provider of BUNDLED_GATEWAY_PROVIDERS) {
-    await params.convex.upsertBundledOrgAiKey({
-      orgId: params.orgId,
-      provider,
-      rawKey: nextKey,
-      createdBy: "billing",
-    });
-  }
+  await Promise.all(
+    BUNDLED_GATEWAY_PROVIDERS.map((provider) =>
+      params.convex.upsertBundledOrgAiKey({
+        orgId: params.orgId,
+        provider,
+        rawKey: nextKey,
+        createdBy: "billing",
+      }),
+    ),
+  );
 };
 
 const toStripeStatus = (status: string | null | undefined): SubscriptionStatus => {
@@ -2201,6 +2225,20 @@ export const handleStripeBillingWebhookRequest = async (
               priceCents,
               stripePaymentIntentId: readCheckoutPaymentIntentId(session),
             });
+            const subscription = await deps.convex.getSubscriptionForOrg(orgId);
+            if (
+              subscription &&
+              (subscription.tier === SUBSCRIPTION_TIER.starter ||
+                subscription.tier === SUBSCRIPTION_TIER.pro)
+            ) {
+              await syncBundledGatewayForOrg({
+                convex: deps.convex,
+                orgId,
+                tier: subscription.tier,
+                status: subscription.status,
+                resetGatewaySpend: false,
+              });
+            }
             await deps.convex.createAuditEvent({
               orgId,
               actorType: AUDIT_ACTOR_TYPE.system,

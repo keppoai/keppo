@@ -69,11 +69,13 @@ import {
   matchAndQueueAutomationTriggers as matchAndQueueAutomationTriggersImpl,
   recordAutomationRunTrace as recordAutomationRunTraceImpl,
   storeAutomationRunSessionTrace as storeAutomationRunSessionTraceImpl,
+  syncAiCreditsFromGateway as syncAiCreditsFromGatewayImpl,
   upsertBundledOrgAiKey as upsertBundledOrgAiKeyImpl,
   upsertOpenAiOauthKey as upsertOpenAiOauthKeyImpl,
   updateAutomationRunStatus as updateAutomationRunStatusImpl,
   type AutomationRunDispatchContext,
   type AutomationRunStatus,
+  type AiCreditGatewaySyncResult,
   type AiCreditsBalance,
   type OrgAiKey,
   type PurchasedAutomationRunTopup,
@@ -1059,6 +1061,7 @@ export class ConvexInternalClient {
     errorMessage?: string;
     sandboxId?: string | null;
     mcpSessionId?: string | null;
+    aiKeyMode?: "byok" | "bundled" | "subscription_token" | null;
   }): Promise<void> {
     return updateAutomationRunStatusImpl(this.resilientClient, params);
   }
@@ -1136,8 +1139,8 @@ export class ConvexInternalClient {
     provider: AiModelProvider;
     rawKey: string;
     createdBy?: string;
-  }): Promise<void> {
-    await upsertBundledOrgAiKeyImpl(this.resilientClient, params);
+  }): Promise<OrgAiKey> {
+    return await upsertBundledOrgAiKeyImpl(this.resilientClient, params);
   }
 
   async deactivateBundledOrgAiKeys(params: { orgId: string }): Promise<void> {
@@ -1153,6 +1156,16 @@ export class ConvexInternalClient {
 
   async getAiCreditBalance(params: { orgId: string }): Promise<AiCreditsBalance> {
     return getAiCreditBalanceImpl(this.resilientClient, params);
+  }
+
+  async syncAiCreditsFromGateway(params: {
+    orgId: string;
+    spendUsd: number;
+    maxBudgetUsd: number;
+    budgetResetAt: string | null;
+    usageSource?: "generation" | "runtime";
+  }): Promise<AiCreditGatewaySyncResult> {
+    return syncAiCreditsFromGatewayImpl(this.resilientClient, params);
   }
 
   async addPurchasedCredits(params: {

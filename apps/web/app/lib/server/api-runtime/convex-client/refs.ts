@@ -99,6 +99,7 @@ export const refs = {
   upsertBundledOrgAiKey: adminRef(internal.org_ai_keys.upsertBundledOrgAiKey),
   deactivateBundledOrgAiKeys: adminRef(internal.org_ai_keys.deactivateBundledOrgAiKeys),
   getAiCreditBalance: adminRef(internal.ai_credits.getAiCreditBalanceForOrgInternal),
+  syncAiCreditsFromGateway: adminRef(internal.ai_credits.syncAiCreditsFromGateway),
   deductAiCredit: adminRef(internal.ai_credits.deductAiCredit),
   addPurchasedCredits: adminRef(internal.ai_credits.addPurchasedCredits),
   addPurchasedAutomationRuns: adminRef(internal.automation_run_topups.addPurchasedAutomationRuns),

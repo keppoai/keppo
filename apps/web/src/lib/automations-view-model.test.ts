@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  formatAiCreditAmount,
   getAiKeyModeMeta,
   getAutomationPathSegment,
   getAutomationTriggerLabel,
@@ -19,6 +20,12 @@ import {
 } from "./automations-view-model";
 
 describe("automation runner/provider mapping", () => {
+  it("strips redundant trailing zeros from formatted AI credit amounts", () => {
+    expect(formatAiCreditAmount(9.001)).toBe("9");
+    expect(formatAiCreditAmount(9.1)).toBe("9.1");
+    expect(formatAiCreditAmount(12.04)).toBe("12");
+  });
+
   it("maps runners to their required model providers", () => {
     expect(getModelProviderForRunner("chatgpt_codex")).toBe("openai");
     expect(getModelProviderForRunner("claude_code")).toBe("anthropic");
