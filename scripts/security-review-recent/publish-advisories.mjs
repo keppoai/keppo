@@ -3,6 +3,10 @@ import { pathToFileURL } from "node:url";
 
 const GITHUB_API_VERSION = "2022-11-28";
 const MAILGUN_API_BASE_URL = "https://api.mailgun.net/v3";
+const SEVERITY_RANK = {
+  high: 1,
+  critical: 2,
+};
 
 const readResponseBody = async (response) => {
   const text = await response.text();
@@ -56,6 +60,25 @@ const parseRecipients = (value) => {
   }
 
   return recipients;
+};
+
+export const normalizeSeverityFilter = (value) => value?.trim().toLowerCase() || "";
+
+export const partitionFindingsBySeverity = (findings, reportSeverity) => {
+  const normalizedSeverity = normalizeSeverityFilter(reportSeverity);
+  if (!normalizedSeverity) {
+    return { filtered: [], findingsToPublish: findings };
+  }
+  const minimumRank = SEVERITY_RANK[normalizedSeverity];
+  if (!minimumRank) {
+    return { filtered: [], findingsToPublish: findings };
+  }
+  return {
+    filtered: findings.filter((finding) => (SEVERITY_RANK[finding.severity] || 0) < minimumRank),
+    findingsToPublish: findings.filter(
+      (finding) => (SEVERITY_RANK[finding.severity] || 0) >= minimumRank,
+    ),
+  };
 };
 
 const appendStepSummary = async (line) => {
@@ -275,12 +298,17 @@ const escapeHtml = (value) =>
 export const main = async () => {
   const findingsDir = process.env.FINDINGS_DIR?.trim() || "out-security-review/findings";
   const { findings, malformed } = await loadFindings(findingsDir);
+  const { filtered, findingsToPublish } = partitionFindingsBySeverity(
+    findings,
+    process.env.REPORT_SEVERITY,
+  );
 
   await appendStepSummary(`Findings reviewed: ${findings.length}`);
+  await appendStepSummary(`Filtered by severity: ${filtered.length}`);
   await appendStepSummary(`Malformed finding files: ${malformed.length}`);
 
-  if (findings.length === 0) {
-    console.log("No confirmed critical/high vulnerabilities to file.");
+  if (findingsToPublish.length === 0) {
+    console.log("No confirmed vulnerabilities matched the configured reporting severity.");
     await appendStepSummary("Created advisories: 0");
     if (malformed.length > 0) {
       throw new Error(malformed.join("\n"));
@@ -315,7 +343,7 @@ export const main = async () => {
   const created = [];
   const skipped = [];
 
-  for (const finding of findings) {
+  for (const finding of findingsToPublish) {
     const key = normalizeSummary(finding.title);
     const duplicate = existingBySummary.get(key);
     if (duplicate) {
@@ -355,12 +383,14 @@ export const main = async () => {
   }
 
   const runUrl = runId ? `${serverUrl}/${repo}/actions/runs/${runId}` : null;
-  const subject = `[ALERT] security-review:recent (${agentLabel}) found ${findings.length} vulnerability finding(s) for ${repo}`;
+  const subject = `[ALERT] security-review:recent (${agentLabel}) found ${findingsToPublish.length} vulnerability finding(s) for ${repo}`;
 
   const textSections = [
     `Repository: ${repo}`,
     `Agent: ${agentLabel}`,
     `Confirmed findings: ${findings.length}`,
+    `Filtered by severity: ${filtered.length}`,
+    `Reported findings: ${findingsToPublish.length}`,
     `Created advisories: ${created.length}`,
     `Skipped as duplicates: ${skipped.length}`,
     "",
@@ -474,7 +504,7 @@ export const main = async () => {
   });
 
   console.log(
-    `Processed ${findings.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s).`,
+    `Processed ${findingsToPublish.length} finding(s): ${created.length} created, ${skipped.length} duplicate(s), ${filtered.length} filtered by severity.`,
   );
 
   if (malformed.length > 0) {
