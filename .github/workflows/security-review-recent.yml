@@ -14,6 +14,14 @@ on:
         options:
           - codex
           - claude
+      report_severity:
+        description: Lowest severity to report
+        required: true
+        default: critical
+        type: choice
+        options:
+          - critical
+          - high
 
 permissions: {}
 
@@ -50,6 +58,7 @@ jobs:
       FINDINGS_DIR: out-security-review/findings
       SKILL_PATH: .agents/skills/security-review-recent/SKILL.md
       WORKFLOW_BASE_PATH: .workflow-base
+      REPORT_SEVERITY: ${{ inputs.report_severity || 'critical' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -173,4 +182,5 @@ jobs:
           MAILGUN_API_KEY: ${{ secrets.MAILGUN_API_KEY }}
           MAILGUN_DOMAIN: ${{ vars.MAILGUN_DOMAIN }}
           MAILGUN_FROM_EMAIL: ${{ vars.MAILGUN_FROM_EMAIL }}
+          REPORT_SEVERITY: ${{ env.REPORT_SEVERITY }}
         run: node "${WORKFLOW_BASE_PATH}/scripts/security-review-recent/publish-advisories.mjs"

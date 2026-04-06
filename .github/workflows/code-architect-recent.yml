@@ -1,10 +1,6 @@
 name: Nightly Code Architect Recent
 
 on:
-  schedule:
-    # GitHub Actions scheduled workflows run in UTC. 11:00 UTC lands at
-    # 4am PT during daylight saving time and 3am PT during standard time.
-    - cron: "0 11 * * *"
   workflow_dispatch:
     inputs:
       agent:
