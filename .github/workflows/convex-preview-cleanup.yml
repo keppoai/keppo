@@ -58,6 +58,7 @@ jobs:
           deleted=0
           old_count=0
           closed_count=0
+          missing_identifier_count=0
 
           fetch_pull_requests() {
             local page=1
@@ -94,21 +95,30 @@ jobs:
 
           should_delete_for_closed_pr() {
             local branch="$1"
+            branch_debug_reason=""
 
             if [[ "${pr_lookup_ok}" != "true" || "${base_branch_lookup_ok}" != "true" ]]; then
-              echo "Warning: unable to verify GitHub PR or branch state for ${branch}; keeping preview."
+              branch_debug_reason="unable to verify GitHub PR or base-branch state"
               return 1
             fi
 
             if branch_in_list "${branch}" "${open_pr_branches}"; then
+              branch_debug_reason="branch still has an open PR"
               return 1
             fi
 
             if branch_in_list "${branch}" "${base_repo_branches}"; then
+              branch_debug_reason="branch still exists in the base repository"
               return 1
             fi
 
-            branch_in_list "${branch}" "${closed_pr_branches}"
+            if branch_in_list "${branch}" "${closed_pr_branches}"; then
+              branch_debug_reason="branch maps to a closed PR and no longer exists in the base repo"
+              return 0
+            fi
+
+            branch_debug_reason="branch did not match any open or closed PR head ref"
+            return 1
           }
 
           pr_lookup_ok=false
@@ -130,7 +140,22 @@ jobs:
               | unique
               | .[]
             ' <<<"${pr_response}")
+            open_pr_count=$(jq -rs '
+              map(.[])
+              | map(select(.state == "open") | .head.ref)
+              | map(select(type == "string" and length > 0))
+              | unique
+              | length
+            ' <<<"${pr_response}")
+            closed_pr_count=$(jq -rs '
+              map(.[])
+              | map(select(.state != "open") | .head.ref)
+              | map(select(type == "string" and length > 0))
+              | unique
+              | length
+            ' <<<"${pr_response}")
             echo "Loaded GitHub PR state for preview cleanup."
+            echo "GitHub PR branch inventory: ${open_pr_count} open, ${closed_pr_count} closed."
           else
             echo "Warning: failed to load GitHub PR state; keeping recent previews unless they exceed the age cutoff."
           fi
@@ -141,7 +166,9 @@ jobs:
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
             | sed 's#.*refs/heads/##'); then
             base_branch_lookup_ok=true
+            base_branch_count=$(wc -l <<<"${base_repo_branches}" | tr -d '[:space:]')
             echo "Loaded base repository branch state for preview cleanup."
+            echo "Base repository branch inventory: ${base_branch_count} branches."
           else
             echo "Warning: failed to load base repository branch state; keeping recent previews unless they exceed the age cutoff."
           fi
@@ -151,17 +178,25 @@ jobs:
             create_time=$(echo "$deployment" | jq -r '.createTime')
             preview_identifier=$(echo "$deployment" | jq -r '.previewIdentifier // empty')
             delete_reason=""
+            created_at=$(date -u -d "@$((create_time / 1000))" 2>/dev/null || date -u -r "$((create_time / 1000))")
+
+            echo "Inspecting preview deployment: name=${name}, previewIdentifier=${preview_identifier:-none}, created=${created_at}"
 
             if [[ "$create_time" -lt "$cutoff_ms" ]]; then
               delete_reason="older than ${MAX_AGE_DAYS} days"
               old_count=$((old_count + 1))
-            elif [[ -n "$preview_identifier" ]] && should_delete_for_closed_pr "$preview_identifier"; then
-              delete_reason="GitHub branch has no open PR and is no longer present in the base repo"
-              closed_count=$((closed_count + 1))
+            elif [[ -n "$preview_identifier" ]]; then
+              if should_delete_for_closed_pr "$preview_identifier"; then
+                delete_reason="GitHub branch has no open PR and is no longer present in the base repo"
+                closed_count=$((closed_count + 1))
+              fi
+              echo "Branch-state decision for ${name}: ${branch_debug_reason}"
+            else
+              missing_identifier_count=$((missing_identifier_count + 1))
+              echo "Branch-state decision for ${name}: previewIdentifier missing; cannot evaluate PR/branch lifecycle."
             fi
 
             if [[ -n "$delete_reason" ]]; then
-              created_at=$(date -u -d "@$((create_time / 1000))" 2>/dev/null || date -u -r "$((create_time / 1000))")
               if [[ "$DRY_RUN" == "true" ]]; then
                 echo "[dry-run] Would delete: ${name} (${delete_reason}; created ${created_at}; previewIdentifier=${preview_identifier:-none})"
               else
@@ -186,3 +221,4 @@ jobs:
           echo "Total previews: ${total}"
           echo "${action} ${deleted} preview deployment(s): ${old_count} old, ${closed_count} without an open PR and absent from the base repo."
           echo "Kept ${kept} preview deployment(s) with recent activity or an open PR."
+          echo "Previews missing previewIdentifier: ${missing_identifier_count}"
