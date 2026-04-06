@@ -1,10 +1,5 @@
 import { cronJobs, makeFunctionReference } from "convex/server";
-
-const normalizeEnvironment = (value: string | undefined): string =>
-  value?.trim().toLowerCase() ?? "";
-
-const isHostedPreviewEnvironment = (): boolean =>
-  normalizeEnvironment(process.env.KEPPO_ENVIRONMENT) === "preview";
+import { isHostedPreviewEnvironment } from "./environment";
 
 const crons = cronJobs();
 const checkScheduledAutomationsRef = makeFunctionReference<"mutation">(

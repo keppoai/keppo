@@ -3,9 +3,10 @@ import { v } from "convex/values";
 import { internalAction, internalMutation, query, type ActionCtx } from "./_generated/server";
 import { nowIso, randomIdFor } from "./_auth";
 import { CRON_HEALTH_STATUS, type CronHealthStatus } from "./domain_constants";
+import { isHostedPreviewEnvironment } from "./environment";
 import { cronHealthStatusValidator } from "./validators";
 
-const CRON_EXPECTATIONS = [
+const BASE_CRON_EXPECTATIONS = [
   { jobName: "automation-scheduler-check", intervalMs: 60_000 },
   { jobName: "automation-provider-trigger-reconcile", intervalMs: 60_000 },
   { jobName: "automation-trigger-event-processor", intervalMs: 60_000 },
@@ -20,6 +21,43 @@ const CRON_EXPECTATIONS = [
   { jobName: "dlq-auto-retry", intervalMs: 5 * 60_000 },
   { jobName: "synthetic-canary", intervalMs: 5 * 60_000 },
 ] as const;
+
+const PREVIEW_DISABLED_CRON_JOB_NAMES = new Set([
+  "automation-provider-trigger-reconcile",
+  "maintenance-sweep",
+]);
+
+const getCronExpectations = () =>
+  BASE_CRON_EXPECTATIONS.filter(
+    (expectation) =>
+      !isHostedPreviewEnvironment() || !PREVIEW_DISABLED_CRON_JOB_NAMES.has(expectation.jobName),
+  );
+
+const parseIsoTimestamp = (value: string | null | undefined): number | null => {
+  if (!value) {
+    return null;
+  }
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+
+const getDeploymentActivityStartMs = (
+  rows: Array<{
+    last_success_at: string | null;
+    last_failure_at: string | null;
+    updated_at: string;
+  }>,
+): number | null => {
+  const timestamps = rows.flatMap((row) =>
+    [row.last_success_at, row.last_failure_at, row.updated_at]
+      .map((value) => parseIsoTimestamp(value))
+      .filter((value): value is number => value !== null),
+  );
+  if (timestamps.length === 0) {
+    return null;
+  }
+  return Math.min(...timestamps);
+};
 
 const refs = {
   recordSuccessInternal: makeFunctionReference<"mutation">("cron_heartbeats:recordSuccessInternal"),
@@ -418,16 +456,20 @@ export const checkCronHealth = query({
     const now = Date.now();
     const rows = await ctx.db.query("cron_heartbeats").collect();
     const rowByJob = new Map(rows.map((row) => [row.job_name, row]));
+    const deploymentActivityStartMs = getDeploymentActivityStartMs(rows);
+    const expectations = getCronExpectations();
 
-    return CRON_EXPECTATIONS.map((expectation) => {
+    return expectations.map((expectation) => {
       const row = rowByJob.get(expectation.jobName) ?? null;
       const lastSuccessAt = row?.last_success_at ?? null;
-      const lastSuccessMs = lastSuccessAt ? Date.parse(lastSuccessAt) : NaN;
+      const lastSuccessMs = parseIsoTimestamp(lastSuccessAt);
       const staleThresholdMs = expectation.intervalMs * 2;
       const staleByMs =
-        Number.isFinite(lastSuccessMs) && lastSuccessMs > 0
+        lastSuccessMs !== null
           ? Math.max(0, now - lastSuccessMs - staleThresholdMs)
-          : null;
+          : row === null && deploymentActivityStartMs !== null
+            ? Math.max(0, now - deploymentActivityStartMs - staleThresholdMs)
+            : null;
 
       let status: CronHealthStatus = CRON_HEALTH_STATUS.healthy;
       if ((row?.consecutive_failures ?? 0) >= 3) {

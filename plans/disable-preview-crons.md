@@ -23,11 +23,12 @@ Preview deployments currently register and run the same background cron jobs tha
 
 **Files changed:**
 
+- `convex/environment.ts`
 - `convex/crons.ts`
 
 **Steps:**
 
-- [x] Add a small shared helper in `convex/crons.ts` that normalizes `process.env.KEPPO_ENVIRONMENT` and returns `true` only for hosted preview environments.
+- [x] Add a small shared helper in `convex/environment.ts` that normalizes `process.env.KEPPO_ENVIRONMENT` and returns `true` only for hosted preview environments.
 - [x] Use that helper to skip registering only `maintenance-sweep` and `automation-provider-trigger-reconcile` when the Convex deployment is running as preview.
 - [x] Leave all other cron registrations unchanged unless discovery during implementation shows one of them transitively depends on the removed jobs in a way that must also be documented.
 - [x] Keep the preview gate scoped to cron registration only; do not change `scheduledMaintenanceSweepManual`, direct `runMaintenanceTick`, direct `automation_scheduler_node:reconcileProviderTriggerSubscriptions`, or the heartbeat wrapper implementations beyond any cleanup needed after moving the gate upward.
@@ -42,13 +43,16 @@ Preview deployments currently register and run the same background cron jobs tha
 - `tests/convex/crons.test.ts`
 - `tests/convex/maintenance.test.ts`
 - `tests/local-convex/automations.test.ts`
+- `tests/scripts/hosted-convex-sync-keys.test.ts`
 
 **Steps:**
 
 - [x] Add a focused test around `convex/crons.ts` that stubs `KEPPO_ENVIRONMENT=preview` and asserts `maintenance-sweep` and `automation-provider-trigger-reconcile` are absent from the registered cron set while the other jobs remain registered.
 - [x] Add the non-preview counterpart assertion so `staging` or `production` still register both jobs exactly as before.
 - [x] Add or update a maintenance test that confirms the manual path remains active in preview by exercising `scheduledMaintenanceSweepManual` or the equivalent maintenance action path, since the scheduled job will no longer exist there.
+- [x] Add or update cron-health coverage so preview omits the disabled jobs from health expectations and non-preview deployments mark missing expected heartbeat rows stale once the deployment has clearly been live long enough.
 - [x] Add a provider-trigger-focused regression in `tests/local-convex/automations.test.ts` or the closest existing automation-trigger suite that verifies direct `automation_scheduler_node:reconcileProviderTriggerSubscriptions` behavior remains unchanged for intentional/manual execution in preview-like envs.
+- [x] Add or update a hosted Convex env-manifest test that proves `KEPPO_ENVIRONMENT` is synced into hosted Convex runtimes before `convex/crons.ts` evaluates the preview gate.
 - [x] Keep the assertions explicit about the intended split: preview removes cron registration, but direct/manual actions still execute real work.
 
 **Verification:** Run only the targeted cron-registration, maintenance, and local-Convex provider-trigger test files, and confirm they pass under both preview-stubbed and non-preview env conditions.
@@ -57,11 +61,12 @@ Preview deployments currently register and run the same background cron jobs tha
 
 **Files changed:**
 
-- `convex/crons.ts`
+- `convex/cron_heartbeats.ts`
 - `docs/specs/control-plane-api.md`
 - `docs/specs/execution-workers-connectors.md`
 - `docs/rules/env_runtime.md`
 - `docs/self-hosting-setup.md`
+- `scripts/convex-managed-env.mjs`
 
 **Steps:**
 
@@ -75,10 +80,14 @@ Preview deployments currently register and run the same background cron jobs tha
 ## Files Changed
 
 - `plans/disable-preview-crons.md`
+- `convex/environment.ts`
 - `convex/crons.ts`
+- `convex/cron_heartbeats.ts`
+- `scripts/convex-managed-env.mjs`
 - `tests/convex/crons.test.ts` or equivalent new focused test file
 - `tests/convex/maintenance.test.ts`
 - `tests/local-convex/automations.test.ts`
+- `tests/scripts/hosted-convex-sync-keys.test.ts`
 - `docs/specs/control-plane-api.md`
 - `docs/specs/execution-workers-connectors.md`
 - `docs/rules/env_runtime.md`
@@ -89,8 +98,8 @@ Preview deployments currently register and run the same background cron jobs tha
 | Risk                                                                                                                                       | Likelihood | Impact | Mitigation                                                                                                                                                                                                                                                        |
 | ------------------------------------------------------------------------------------------------------------------------------------------ | ---------- | ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Preview registration guard accidentally disables manual/operator maintenance too.                                                          | Medium     | High   | Keep the guard only in `convex/crons.ts` and add explicit regression coverage for manual/direct calls in preview.                                                                                                                                                 |
-| Preview health surfaces may show these jobs as stale because they are no longer registered and therefore no longer produce heartbeat rows. | Medium     | Medium | Review the existing `checkCronHealth` and deep-health expectations during implementation; if preview health would become noisy, either document the expected preview behavior or scope a follow-up adjustment explicitly rather than silently changing semantics. |
-| Future refactors move the preview guard down into worker functions and unintentionally affect staging/production or manual flows.          | Low        | High   | Centralize the helper in `convex/crons.ts`, document its scope with a code comment, and call out the boundary clearly in specs/docs.                                                                                                                              |
+| Preview health surfaces may show these jobs as stale because they are no longer registered and therefore no longer produce heartbeat rows. | Medium     | Medium | Scope `checkCronHealth` expectations by environment, omit preview-disabled jobs there, and mark missing non-preview heartbeat rows stale once the deployment has clearly produced other cron activity. |
+| Future refactors move the preview guard down into worker functions and unintentionally affect staging/production or manual flows.          | Low        | High   | Centralize the helper in `convex/environment.ts`, document its scope with a code comment, and call out the boundary clearly in specs/docs.                                                                                                                         |
 | Provider-trigger preview behavior becomes surprising for engineers who expect preview to ingest real provider events automatically.        | High       | Medium | Document the behavior explicitly in specs and self-hosting/runtime docs, and keep direct/manual reconcile entrypoints intact for intentional testing.                                                                                                             |
 
 ## Definition of Done
