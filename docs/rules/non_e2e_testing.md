@@ -6,6 +6,7 @@
 - Pure data shaping, parsing, and domain helpers belong in small Vitest unit tests.
 - Web-app rendering, route context, and hook behavior that is visible through rendered output belongs in `apps/web` `jsdom` tests with the shared DOM harness.
 - API contract behavior belongs in in-process server-route tests in the owning runtime (`apps/web` for live Start-owned routes and `apps/web/app/lib/server/api-runtime` for the remaining shared boundary helpers), not Playwright.
+- Bounded ingestion or batch-accepting API routes must have server-route tests that cover overflow behavior explicitly; accepted payloads may be capped, but tests must verify the caller receives truncation/rejection metadata so the route never drops accepted items silently.
 - API tests that exercise `execute_code` should stub the sandbox provider and drive `toolCallHandler` directly unless the test is explicitly about sandbox infrastructure behavior.
 - MCP API/Vitest tests that send multiple requests in one Streamable HTTP session must use a fresh JSON-RPC `id` for each POST; duplicate ids can cause the transport layer to reuse or misroute responses.
 - Convex module/schema behavior belongs in `tests/convex/*`.

@@ -88,7 +88,7 @@ type StartOwnedAutomationRuntimeConvex = Pick<
   | "upsertOpenAiOauthKey"
 >;
 
-type RouteLogger = Pick<typeof logger, "error" | "info">;
+type RouteLogger = Pick<typeof logger, "error" | "info" | "warn">;
 
 type SandboxProvider = ReturnType<typeof createAutomationSandboxProvider>;
 
@@ -884,7 +884,20 @@ export const handleInternalAutomationLogRequest = async (
     );
   }
 
+  const totalLineCount = payload.lines.length;
   const limited = payload.lines.slice(0, AUTOMATION_LOG_MAX_LINES);
+  const droppedLineCount = totalLineCount - limited.length;
+
+  if (droppedLineCount > 0) {
+    deps.logger.warn("automation.log.truncated", {
+      automation_run_id: payload.automation_run_id,
+      total_line_count: totalLineCount,
+      ingested_line_count: limited.length,
+      dropped_line_count: droppedLineCount,
+      max_line_count: AUTOMATION_LOG_MAX_LINES,
+    });
+  }
+
   for (let i = 0; i < limited.length; i += AUTOMATION_LOG_BATCH_SIZE) {
     const chunk = limited.slice(i, i + AUTOMATION_LOG_BATCH_SIZE);
     const appendError = await appendAutomationRunLogBatchWithRetry(deps, {
@@ -923,6 +936,8 @@ export const handleInternalAutomationLogRequest = async (
   return jsonResponse(request, {
     ok: true,
     ingested: limited.length,
+    truncated: droppedLineCount > 0,
+    total_line_count: totalLineCount,
   });
 };
 

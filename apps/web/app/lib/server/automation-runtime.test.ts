@@ -94,6 +94,7 @@ const createDeps = () => {
     logger: {
       error: vi.fn(),
       info: vi.fn(),
+      warn: vi.fn(),
     },
     parseJsonPayload: (raw: string) => JSON.parse(raw),
     sandboxProvider,
@@ -1670,6 +1671,45 @@ describe("start-owned automation runtime handlers", () => {
         batch_size: 1,
         ingested_before_failure: 0,
         error: "convex write unavailable",
+      }),
+    );
+  });
+
+  it("reports truncation metadata when log batches exceed the max line count", async () => {
+    const deps = createDeps();
+    const lines = Array.from({ length: 250 }, (_, index) => ({
+      level: AUTOMATION_RUN_LOG_LEVEL.stdout,
+      content: `line ${index + 1}`,
+    }));
+    const request = withJson(
+      "/internal/automations/log?automation_run_id=arun_log_truncated&expires=4102444800000&signature=" +
+        createHmac("sha256", process.env.KEPPO_CALLBACK_HMAC_SECRET!)
+          .update("/internal/automations/log:arun_log_truncated:4102444800000")
+          .digest("hex"),
+      {
+        automation_run_id: "arun_log_truncated",
+        lines,
+      },
+    );
+
+    const response = await handleInternalAutomationLogRequest(request, deps);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      ingested: 200,
+      truncated: true,
+      total_line_count: 250,
+    });
+    expect(deps.convex.appendAutomationRunLogBatch).toHaveBeenCalledTimes(4);
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      "automation.log.truncated",
+      expect.objectContaining({
+        automation_run_id: "arun_log_truncated",
+        total_line_count: 250,
+        ingested_line_count: 200,
+        dropped_line_count: 50,
+        max_line_count: 200,
       }),
     );
   });
