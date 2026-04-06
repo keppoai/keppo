@@ -44,8 +44,8 @@ jobs:
           permission-actions: read
           permission-checks: read
           permission-contents: read
-          permission-issues: read
-          permission-pull-requests: read
+          permission-issues: write
+          permission-pull-requests: write
 
       - name: Get PR info and check labels
         id: pr-info
