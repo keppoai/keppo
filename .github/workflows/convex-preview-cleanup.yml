@@ -2,8 +2,8 @@ name: Convex Preview Cleanup
 
 on:
   schedule:
-    # Every night at 03:00 UTC
-    - cron: "0 3 * * *"
+    # Every 4 hours
+    - cron: "0 */4 * * *"
   workflow_dispatch:
     inputs:
       max_age_days:
@@ -17,9 +17,13 @@ on:
         default: false
         type: boolean
 
+permissions:
+  contents: read
+  pull-requests: read
+
 jobs:
   cleanup:
-    name: Delete stale preview deployments
+    name: Delete stale or merged preview deployments
     runs-on: ubuntu-latest
     environment: convex-preview-cleanup
     timeout-minutes: 10
@@ -29,6 +33,8 @@ jobs:
         env:
           CONVEX_TEAM_ACCESS_TOKEN: ${{ secrets.CONVEX_TEAM_ACCESS_TOKEN }}
           CONVEX_PROJECT_ID: ${{ vars.CONVEX_PROJECT_ID }}
+          GITHUB_TOKEN: ${{ github.token }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
           MAX_AGE_DAYS: ${{ inputs.max_age_days || '3' }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         shell: bash
@@ -37,6 +43,7 @@ jobs:
 
           api_base="https://api.convex.dev/v1"
           cutoff_ms=$(( ($(date +%s) - MAX_AGE_DAYS * 86400) * 1000 ))
+          repo_owner="${GITHUB_REPOSITORY%%/*}"
 
           echo "Max age: ${MAX_AGE_DAYS} days"
           echo "Cutoff timestamp (ms): ${cutoff_ms}"
@@ -47,23 +54,57 @@ jobs:
             -H "Authorization: Bearer ${CONVEX_TEAM_ACCESS_TOKEN}" \
             "${api_base}/projects/${CONVEX_PROJECT_ID}/list_deployments?deploymentType=preview")
 
-          stale=$(echo "$response" | jq -r '.[] | select(.createTime < '"$cutoff_ms"') | .name')
-          skipped=$(echo "$response" | jq '[.[] | select(.createTime >= '"$cutoff_ms"')] | length')
+          total=$(echo "$response" | jq 'length')
+          kept=0
           deleted=0
+          old_count=0
+          closed_count=0
 
-          for name in $stale; do
-            if [[ "$DRY_RUN" == "true" ]]; then
-              create_time=$(echo "$response" | jq -r --arg n "$name" '.[] | select(.name == $n) | .createTime')
-              echo "[dry-run] Would delete: ${name} (created $(date -u -d @$((create_time / 1000)) 2>/dev/null || date -u -r $((create_time / 1000))) )"
-            else
-              echo "Deleting: ${name}"
-              curl -sf -X POST \
-                -H "Authorization: Bearer ${CONVEX_TEAM_ACCESS_TOKEN}" \
-                "${api_base}/deployments/${name}/delete"
-              echo " -> deleted"
+          is_branch_open() {
+            local branch="$1"
+            local encoded_branch
+            local pr_count
+
+            encoded_branch=$(jq -rn --arg value "${repo_owner}:${branch}" '$value | @uri')
+            pr_count=$(curl -sf \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              -H "Accept: application/vnd.github+json" \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/pulls?state=open&head=${encoded_branch}&per_page=1" \
+              | jq 'length')
+
+            [[ "${pr_count}" -gt 0 ]]
+          }
+
+          while IFS= read -r deployment; do
+            name=$(echo "$deployment" | jq -r '.name')
+            create_time=$(echo "$deployment" | jq -r '.createTime')
+            preview_identifier=$(echo "$deployment" | jq -r '.previewIdentifier // empty')
+            delete_reason=""
+
+            if [[ "$create_time" -lt "$cutoff_ms" ]]; then
+              delete_reason="older than ${MAX_AGE_DAYS} days"
+              old_count=$((old_count + 1))
+            elif [[ -n "$preview_identifier" ]] && ! is_branch_open "$preview_identifier"; then
+              delete_reason="GitHub branch has no open PR"
+              closed_count=$((closed_count + 1))
             fi
-            deleted=$((deleted + 1))
-          done
+
+            if [[ -n "$delete_reason" ]]; then
+              created_at=$(date -u -d "@$((create_time / 1000))" 2>/dev/null || date -u -r "$((create_time / 1000))")
+              if [[ "$DRY_RUN" == "true" ]]; then
+                echo "[dry-run] Would delete: ${name} (${delete_reason}; created ${created_at}; previewIdentifier=${preview_identifier:-none})"
+              else
+                echo "Deleting: ${name} (${delete_reason})"
+                curl -sf -X POST \
+                  -H "Authorization: Bearer ${CONVEX_TEAM_ACCESS_TOKEN}" \
+                  "${api_base}/deployments/${name}/delete"
+                echo " -> deleted"
+              fi
+              deleted=$((deleted + 1))
+            else
+              kept=$((kept + 1))
+            fi
+          done < <(echo "$response" | jq -c '.[]')
 
           action="Deleted"
           if [[ "$DRY_RUN" == "true" ]]; then
@@ -71,4 +112,6 @@ jobs:
           fi
 
           echo "---"
-          echo "${action} ${deleted} stale preview deployment(s), skipped ${skipped} recent one(s)."
+          echo "Total previews: ${total}"
+          echo "${action} ${deleted} preview deployment(s): ${old_count} old, ${closed_count} without an open PR."
+          echo "Kept ${kept} preview deployment(s) with recent activity or an open PR."
