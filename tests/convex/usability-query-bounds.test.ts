@@ -26,6 +26,9 @@ const refs = {
   listActionsByWorkspace: makeFunctionReference<"query">("actions:listByWorkspace"),
   listPendingActionsByWorkspace: makeFunctionReference<"query">("actions:listPendingByWorkspace"),
   countPendingActionsByWorkspace: makeFunctionReference<"query">("actions:countPendingByWorkspace"),
+  listAutomationTriggerEvents: makeFunctionReference<"query">(
+    "automation_triggers:listAutomationTriggerEvents",
+  ),
   listPendingMcpActionsByWorkspace: makeFunctionReference<"query">(
     "mcp:listPendingActionsForWorkspace",
   ),
@@ -637,6 +640,128 @@ describe("usability query bounds", () => {
     expect(pendingMcpRows[0]?.id).toBe("act_list_219");
     expect(pendingMcpRows.every((row) => row.status === ACTION_STATUS.pending)).toBe(true);
     expect(pendingMcpRows.map((row) => row.id)).not.toContain("act_legacy_pending");
+  });
+
+  it("lists trigger events with run statuses from a batched automation run lookup", async () => {
+    const { t, orgId, authT } = await createAuthenticatedHarness();
+    const workspaceId = "workspace_trigger_bounds";
+    const automationId = "automation_trigger_bounds";
+    const configVersionId = "acv_trigger_bounds";
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("workspaces", {
+        id: workspaceId,
+        org_id: orgId,
+        slug: "trigger-bounds",
+        name: "Trigger Bounds",
+        status: WORKSPACE_STATUS.active,
+        policy_mode: "manual_only",
+        default_action_behavior: "require_approval",
+        code_mode_enabled: true,
+        automation_count: 1,
+        created_at: "2026-03-02T00:00:00.000Z",
+      });
+
+      await ctx.db.insert("automation_config_versions", {
+        id: configVersionId,
+        automation_id: automationId,
+        version_number: 1,
+        trigger_type: "event",
+        schedule_cron: null,
+        provider_trigger: null,
+        provider_trigger_migration_state: null,
+        event_provider: "github",
+        event_type: "github.issue_comment.created",
+        event_predicate: null,
+        runner_type: "chatgpt_codex",
+        ai_model_provider: "openai",
+        ai_model_name: "gpt-5",
+        prompt: "Prompt",
+        network_access: "mcp_only",
+        created_by: "usr_focus_operator",
+        created_at: "2026-03-02T00:00:00.000Z",
+        change_summary: null,
+      });
+
+      await ctx.db.insert("automations", {
+        id: automationId,
+        org_id: orgId,
+        workspace_id: workspaceId,
+        slug: "trigger-bounds-automation",
+        name: "Trigger Bounds Automation",
+        description: "Tests automation trigger event list batching",
+        status: AUTOMATION_STATUS.active,
+        current_config_version_id: configVersionId,
+        created_by: "usr_focus_operator",
+        created_at: "2026-03-02T00:00:00.000Z",
+        updated_at: "2026-03-02T00:00:00.000Z",
+        next_config_version_number: 2,
+      });
+
+      for (let index = 0; index < 40; index += 1) {
+        const runId = `arun_trigger_bounds_${index}`;
+        const minute = String(index).padStart(2, "0");
+        await ctx.db.insert("automation_runs", {
+          id: runId,
+          automation_id: automationId,
+          workspace_id: workspaceId,
+          org_id: orgId,
+          config_version_id: configVersionId,
+          error_message: null,
+          sandbox_id: null,
+          log_storage_id: null,
+          mcp_session_id: null,
+          client_type: "other",
+          metadata: {
+            automation_run_status: index % 2 === 0 ? "succeeded" : "failed",
+            log_bytes: 0,
+            log_eviction_noted: false,
+          },
+          status: RUN_STATUS.ended,
+          trigger_type: "event",
+          started_at: `2026-03-03T00:${minute}:00.000Z`,
+          ended_at: `2026-03-03T00:${minute}:30.000Z`,
+          created_at: `2026-03-03T00:${minute}:00.000Z`,
+        });
+      }
+
+      for (let index = 0; index < 30; index += 1) {
+        const minute = String(index).padStart(2, "0");
+        const runId = `arun_trigger_bounds_${(index + 10) % 40}`;
+        await ctx.db.insert("automation_trigger_events", {
+          id: `atrg_event_bounds_${index}`,
+          automation_id: automationId,
+          org_id: orgId,
+          config_version_id: configVersionId,
+          trigger_id: `trigger:${index}`,
+          trigger_key: "issue_comment",
+          delivery_mode: "webhook",
+          match_status: "matched",
+          failure_reason: null,
+          event_provider: "github",
+          event_type: "github.issue_comment.created",
+          event_id: `evt_bounds_${index}`,
+          event_payload_ref: null,
+          status: "dispatched",
+          automation_run_id: runId,
+          created_at: `2026-03-04T00:${minute}:00.000Z`,
+        });
+      }
+    });
+
+    const events = await authT.query(refs.listAutomationTriggerEvents, {
+      automation_id: automationId,
+      limit: 25,
+    });
+
+    expect(events).toHaveLength(25);
+    expect(events[0]?.event_id).toBe("evt_bounds_29");
+    expect(events[0]?.automation_run_id).toBe("arun_trigger_bounds_39");
+    expect(events[0]?.automation_run_status).toBe("failed");
+    expect(events[1]?.event_id).toBe("evt_bounds_28");
+    expect(events[1]?.automation_run_status).toBe("succeeded");
+    expect(events.at(-1)?.event_id).toBe("evt_bounds_5");
+    expect(events.every((event) => event.automation_run_status !== null)).toBe(true);
   });
 
   it("lists custom MCP workspace tools from one org-scoped tool read", async () => {

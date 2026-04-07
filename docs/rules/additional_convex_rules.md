@@ -41,6 +41,7 @@
 
 - Multi-tenant maintenance and admin paths must use indexes plus explicit scan budgets.
 - Avoid unbounded `.collect()` on hot or background paths when `.take(limit)` or pagination is possible.
+- Do not issue per-row secondary lookups inside list queries when the rows share a parent key. Prefer one parent-scoped indexed read plus in-memory mapping (or denormalize the field) over N+1 `by_custom_id` queries.
 - Never call `.paginate()` more than once in a single Convex query or mutation. Convex allows only one paginated query per invocation; bounded scans should use indexed `.take(limit)`, and full-table walks should carry cursors across separate function calls.
 - If a query needs to filter by a field often enough to page or scan for it, denormalize that field into a first-class indexed column instead of filtering inside JSON payloads.
 - Maintenance sweeps must process a bounded batch per invocation and requeue continuation work with `ctx.scheduler.runAfter(...)`; do not serialize multiple large backlogs into one cron/action tick and expect it to drain them inside a single 1s query/mutation budget.

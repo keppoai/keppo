@@ -128,34 +128,42 @@ export const listAutomationTriggerEvents = query({
       .order("desc")
       .take(limit);
 
-    return await Promise.all(
-      rows.map(async (row) => {
-        const runId = row.automation_run_id ?? null;
-        const run =
-          runId === null
-            ? null
-            : await ctx.db
-                .query("automation_runs")
-                .withIndex("by_custom_id", (q) => q.eq("id", runId))
-                .unique();
-        return {
-          id: row.id,
-          automation_id: row.automation_id,
-          config_version_id: row.config_version_id ?? null,
-          trigger_key: row.trigger_key ?? null,
-          event_provider: row.event_provider,
-          event_type: row.event_type,
-          event_id: row.event_id,
-          delivery_mode: row.delivery_mode ?? null,
-          match_status: row.match_status ?? null,
-          failure_reason: row.failure_reason ?? null,
-          status: row.status,
-          automation_run_id: runId,
-          automation_run_status: run ? normalizeAutomationRunStatus(run) : null,
-          created_at: row.created_at,
-        };
-      }),
-    );
+    const runIds = [
+      ...new Set(rows.flatMap((row) => (row.automation_run_id ? [row.automation_run_id] : []))),
+    ];
+    const runs =
+      runIds.length === 0
+        ? []
+        : await ctx.db
+            .query("automation_runs")
+            .withIndex("by_automation", (q) => q.eq("automation_id", args.automation_id))
+            .filter((q) => {
+              const matches = runIds.map((runId) => q.eq(q.field("id"), runId));
+              return matches.length === 1 ? matches[0]! : q.or(...matches);
+            })
+            .collect();
+    const runById = new Map(runs.map((run) => [run.id, run] as const));
+
+    return rows.map((row) => {
+      const runId = row.automation_run_id ?? null;
+      const run = runId === null ? null : (runById.get(runId) ?? null);
+      return {
+        id: row.id,
+        automation_id: row.automation_id,
+        config_version_id: row.config_version_id ?? null,
+        trigger_key: row.trigger_key ?? null,
+        event_provider: row.event_provider,
+        event_type: row.event_type,
+        event_id: row.event_id,
+        delivery_mode: row.delivery_mode ?? null,
+        match_status: row.match_status ?? null,
+        failure_reason: row.failure_reason ?? null,
+        status: row.status,
+        automation_run_id: runId,
+        automation_run_status: run ? normalizeAutomationRunStatus(run) : null,
+        created_at: row.created_at,
+      };
+    });
   },
 });
 
