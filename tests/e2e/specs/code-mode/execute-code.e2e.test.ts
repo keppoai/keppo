@@ -27,6 +27,12 @@ const TRANSIENT_SANDBOX_FAILURE_CODES = new Set([
   "sandbox_unavailable",
   "sandbox_startup_failed",
   "sandbox_runtime_failed",
+  // The blocked-provider path is supposed to short-circuit before any tool
+  // call runs, but under CI resource contention the sandbox itself can hit
+  // KEPPO_CODE_MODE_TIMEOUT_MS before returning. Treat that as a transient
+  // sandbox failure for tests that retry on it (callers that legitimately
+  // assert on `timeout` payloads use `expectedFailedCodes` instead).
+  "timeout",
 ]);
 
 const isTransientSandboxFailurePayload = (
