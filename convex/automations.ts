@@ -217,6 +217,32 @@ const loadConfigVersion = async (
     .unique();
 };
 
+const cancelActiveRunsForAutomation = async (
+  ctx: MutationCtx,
+  automationId: string,
+  cancelledAt: string,
+): Promise<void> => {
+  while (true) {
+    const activeRuns = await ctx.db
+      .query("automation_runs")
+      .withIndex("by_automation_status", (q) =>
+        q.eq("automation_id", automationId).eq("status", RUN_STATUS.active),
+      )
+      .take(AUTOMATION_SCAN_BUDGET);
+    if (activeRuns.length === 0) {
+      return;
+    }
+
+    for (const run of activeRuns) {
+      await ctx.db.patch(run._id, {
+        status: RUN_STATUS.ended,
+        ended_at: run.ended_at ?? cancelledAt,
+        error_message: run.error_message ?? "Run cancelled because automation was paused",
+      });
+    }
+  }
+};
+
 const normalizeConfig = (
   input: {
     trigger_type: ConfigTriggerType;
@@ -1043,18 +1069,7 @@ export const updateAutomationStatus = mutation({
     });
 
     if (args.status === AUTOMATION_STATUS.paused) {
-      const runs = await ctx.db
-        .query("automation_runs")
-        .withIndex("by_automation", (q) => q.eq("automation_id", args.automation_id))
-        .take(AUTOMATION_SCAN_BUDGET);
-      const activeRuns = runs.filter((run) => run.status === RUN_STATUS.active);
-      for (const run of activeRuns) {
-        await ctx.db.patch(run._id, {
-          status: RUN_STATUS.ended,
-          ended_at: run.ended_at ?? updatedAt,
-          error_message: run.error_message ?? "Run cancelled because automation was paused",
-        });
-      }
+      await cancelActiveRunsForAutomation(ctx, args.automation_id, updatedAt);
     }
 
     await insertAudit(

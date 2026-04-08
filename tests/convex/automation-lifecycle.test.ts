@@ -1,10 +1,14 @@
 import { makeFunctionReference } from "convex/server";
 import { describe, expect, it, vi } from "vitest";
+import { components } from "../../convex/_generated/api";
 import {
   AUTOMATION_RUN_STATUS,
+  DEFAULT_ACTION_BEHAVIOR,
+  POLICY_MODE,
   RUN_STATUS,
   SUBSCRIPTION_STATUS,
   SUBSCRIPTION_TIER,
+  WORKSPACE_STATUS,
 } from "../../convex/domain_constants";
 import { getTierConfig, getDefaultBillingPeriod } from "../../packages/shared/src/subscriptions.js";
 import { MCP_CREDENTIAL_AUTH_STATUS } from "../../packages/shared/src/mcp-auth.js";
@@ -16,6 +20,7 @@ const refs = {
     "automation_run_topups:addPurchasedAutomationRuns",
   ),
   authenticateCredential: makeFunctionReference<"mutation">("mcp:authenticateCredential"),
+  createAutomation: makeFunctionReference<"mutation">("automations:createAutomation"),
   createAutomationRun: makeFunctionReference<"mutation">("automation_runs:createAutomationRun"),
   issueAutomationWorkspaceCredential: makeFunctionReference<"mutation">(
     "workspaces:issueAutomationWorkspaceCredential",
@@ -26,13 +31,111 @@ const refs = {
   recordAutomationRunTrace: makeFunctionReference<"mutation">(
     "automation_runs:recordAutomationRunTrace",
   ),
+  seedUserOrg: makeFunctionReference<"mutation">("mcp:seedUserOrg"),
   upsertSubscriptionForOrg: makeFunctionReference<"mutation">(
     "billing/subscriptions:upsertSubscriptionForOrg",
   ),
   updateAutomationRunStatus: makeFunctionReference<"mutation">(
     "automation_runs:updateAutomationRunStatus",
   ),
+  updateAutomationStatus: makeFunctionReference<"mutation">("automations:updateAutomationStatus"),
   reapStaleRuns: makeFunctionReference<"mutation">("automation_scheduler:reapStaleRuns"),
+};
+
+const createAuthenticatedAutomationHarness = async (label: string) => {
+  const t = createConvexTestHarness();
+  const userId = `usr_${label}`;
+  const email = `${label}@example.com`;
+  const orgId = await t.mutation(refs.seedUserOrg, {
+    userId,
+    email,
+    name: `Test ${label}`,
+  });
+  const authUserId = await t.run(async (ctx) => {
+    const user = (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: "user",
+      where: [{ field: "email", value: email }],
+    })) as { _id?: string } | null;
+    return user?._id ?? null;
+  });
+  expect(authUserId).toBeTruthy();
+
+  const authT = t.withIdentity({
+    subject: authUserId!,
+    email,
+    name: `Test ${label}`,
+    activeOrganizationId: orgId,
+  });
+  const workspaceId = `workspace_${label}`;
+  const now = new Date().toISOString();
+
+  await t.run(async (ctx) => {
+    await ctx.db.insert("subscriptions", {
+      id: `sub_${label}`,
+      org_id: orgId,
+      tier: SUBSCRIPTION_TIER.free,
+      status: SUBSCRIPTION_STATUS.active,
+      stripe_customer_id: null,
+      stripe_subscription_id: null,
+      workspace_count: 0,
+      current_period_start: now,
+      current_period_end: new Date(Date.now() + 60_000).toISOString(),
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("workspaces", {
+      id: workspaceId,
+      org_id: orgId,
+      slug: `workspace-${label}`,
+      name: `Workspace ${label}`,
+      status: WORKSPACE_STATUS.active,
+      policy_mode: POLICY_MODE.manualOnly,
+      default_action_behavior: DEFAULT_ACTION_BEHAVIOR.requireApproval,
+      code_mode_enabled: true,
+      created_at: now,
+      automation_count: 0,
+    });
+
+    await ctx.db.insert("org_ai_keys", {
+      id: `oaik_${label}`,
+      org_id: orgId,
+      provider: "openai",
+      key_mode: "byok",
+      encrypted_key: "keppo-v1.fakeiv.fakecipher",
+      credential_kind: "secret",
+      key_hint: "...test",
+      key_version: 1,
+      is_active: true,
+      subject_email: null,
+      account_id: null,
+      token_expires_at: null,
+      last_refreshed_at: null,
+      last_validated_at: now,
+      created_by: userId,
+      created_at: now,
+      updated_at: now,
+    });
+  });
+
+  const created = await authT.mutation(refs.createAutomation, {
+    workspace_id: workspaceId,
+    name: `Automation ${label}`,
+    description: "Regression fixture",
+    trigger_type: "manual",
+    runner_type: "chatgpt_codex",
+    ai_model_provider: "openai",
+    ai_model_name: "gpt-5",
+    prompt: "Regression fixture prompt",
+    network_access: "mcp_only",
+  });
+
+  return {
+    t,
+    authT,
+    automationId: created.automation.id,
+    configVersionId: created.automation.current_config_version_id,
+  };
 };
 
 describe("convex automation lifecycle functions", () => {
@@ -93,6 +196,85 @@ describe("convex automation lifecycle functions", () => {
         summary: "Second attempt",
       }),
     ).rejects.toThrow("AutomationRunOutcomeAlreadyRecorded");
+  });
+
+  it("pauses an automation by cancelling every active run beyond the first scan batch", async () => {
+    const { t, authT, automationId, configVersionId } = await createAuthenticatedAutomationHarness(
+      "automation_pause_cancels_all_active_runs",
+    );
+    const activeRunCount = 250;
+    const seededAt = new Date("2026-04-08T00:00:00.000Z");
+
+    await t.run(async (ctx) => {
+      const automation = await ctx.db
+        .query("automations")
+        .withIndex("by_custom_id", (q) => q.eq("id", automationId))
+        .unique();
+      if (!automation) {
+        throw new Error("AutomationNotFound");
+      }
+
+      for (let index = 0; index < activeRunCount; index += 1) {
+        const createdAt = new Date(seededAt.getTime() + index * 1_000).toISOString();
+        await ctx.db.insert("automation_runs", {
+          id: `arun_pause_${String(index).padStart(4, "0")}`,
+          automation_id: automationId,
+          org_id: automation.org_id,
+          workspace_id: automation.workspace_id,
+          config_version_id: configVersionId,
+          trigger_type: "manual",
+          error_message: null,
+          sandbox_id: null,
+          outcome_success: null,
+          outcome_summary: null,
+          outcome_source: null,
+          outcome_recorded_at: null,
+          log_storage_id: null,
+          session_trace_storage_id: null,
+          session_trace_relative_path: null,
+          trace_id: null,
+          trace_group_id: null,
+          trace_workflow_name: null,
+          trace_last_response_id: null,
+          trace_export_status: null,
+          trace_error_message: null,
+          trace_recorded_at: null,
+          created_at: createdAt,
+          mcp_session_id: null,
+          client_type: "other",
+          metadata: {
+            automation_run_status: AUTOMATION_RUN_STATUS.running,
+            automation_name: automation.name,
+            log_bytes: 0,
+            log_eviction_noted: false,
+          },
+          started_at: createdAt,
+          ended_at: null,
+          status: RUN_STATUS.active,
+        });
+      }
+    });
+
+    const paused = await authT.mutation(refs.updateAutomationStatus, {
+      automation_id: automationId,
+      status: "paused",
+    });
+
+    expect(paused.status).toBe("paused");
+
+    const runs = await t.run(async (ctx) => {
+      return await ctx.db
+        .query("automation_runs")
+        .withIndex("by_automation", (q) => q.eq("automation_id", automationId))
+        .collect();
+    });
+
+    expect(runs).toHaveLength(activeRunCount);
+    expect(runs.every((run) => run.status === RUN_STATUS.ended)).toBe(true);
+    expect(runs.every((run) => run.ended_at !== null)).toBe(true);
+    expect(
+      runs.every((run) => run.error_message === "Run cancelled because automation was paused"),
+    ).toBe(true);
   });
 
   it("records an OpenAI trace reference once and logs the trace status", async () => {
