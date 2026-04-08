@@ -64,6 +64,7 @@ Consult this file before changing GitHub Actions workflows that run Claude, Code
 - Never upload security findings, responsible-disclosure material, agent session logs, prompt/context files, private analysis outputs, or any other sensitive workflow byproducts with `actions/upload-artifact`.
 - For security-sensitive or otherwise non-public workflow outputs, use the dedicated trusted upload path (for example `upload-session-logs.sh`) or keep the data within the same job and process it locally without a GitHub artifact hop.
 - When a trusted upload helper scans an agent home directory for session logs, scope discovery to the known session-log subtree or filename pattern. Never treat "all newly written JSON files under agent home" as session logs; agent homes also contain auth, plugin, config, and other unrelated machine files.
+- When a post-agent workflow only needs small agent-authored text that is meant to become a GitHub comment, prefer passing that text through job outputs into a separate trusted comment-posting job instead of keeping write-scoped comment steps on the agent runner. Do not use job outputs for prompt/context files, session logs, or other sensitive byproducts.
 - If a workflow cannot complete without persisting sensitive intermediate data across jobs, redesign the workflow instead of falling back to `actions/upload-artifact`.
 
 ## Permissions rules
