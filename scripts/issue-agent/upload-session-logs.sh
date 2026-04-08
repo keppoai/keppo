@@ -26,6 +26,7 @@ MAX_LOG_FILES="${MAX_LOG_FILES:-50}"
 MAX_LOG_BYTES="${MAX_LOG_BYTES:-104857600}"
 MAX_MANIFEST_BYTES="${MAX_MANIFEST_BYTES:-262144}"
 UPLOAD_TIMEOUT_SECONDS="${UPLOAD_TIMEOUT_SECONDS:-120}"
+SESSION_LOG_COMMENT_MAX_BYTES="${SESSION_LOG_COMMENT_MAX_BYTES:-24576}"
 
 append_step_summary() {
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
@@ -670,6 +671,19 @@ if [[ -n "${session_log_comment_path}" ]]; then
       printf '%s\n' "${comment_links}"
       printf '\nWorkflow run: %s/%s/actions/runs/%s\n' "${github_server_url}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
     } > "${session_log_comment_path}"
+
+    comment_bytes="$(wc -c < "${session_log_comment_path}" | tr -d '[:space:]')"
+    if (( comment_bytes > SESSION_LOG_COMMENT_MAX_BYTES )); then
+      truncation_notice=$'\n\n...(truncated to fit GitHub Actions job output limits)\n'
+      max_prefix_bytes=$((SESSION_LOG_COMMENT_MAX_BYTES - ${#truncation_notice}))
+      if (( max_prefix_bytes < 1 )); then
+        max_prefix_bytes=1
+      fi
+      truncated_path="${session_log_comment_path}.truncated"
+      head -c "${max_prefix_bytes}" "${session_log_comment_path}" > "${truncated_path}"
+      printf '%s' "${truncation_notice}" >> "${truncated_path}"
+      mv "${truncated_path}" "${session_log_comment_path}"
+    fi
   fi
 fi
 

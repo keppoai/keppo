@@ -34,6 +34,7 @@ Extend the session-log upload service so `issue-agent` can move agent-produced a
 - [x] Extend the API doc with an authenticated raw-download flow for uploaded artifacts, including the exact endpoint shape, auth model, cache behavior, and error codes.
 - [x] Define which non-log artifacts `issue-agent-issue-to-pr.yml` is allowed to upload through explicit extra roots: a git bundle, PR metadata JSON, handoff JSON, and an optional demo video. Comment bodies stay in trusted job outputs instead of the upload channel.
 - [x] Document the integrity contract for downloads so the trusted job must verify `artifact_id`, `relative_path`, `size_bytes`, and `sha256_hex` against the uploaded manifest before using any downloaded file.
+- [x] Document that `artifact_id` and `sha256_hex` come from the authenticated upload-record lookup itself rather than mutable workspace files or regular GitHub job outputs.
 - [x] Decide whether the download path returns raw bytes directly, a short-lived signed blob URL, or a manifest of signed URLs, and record that choice explicitly so the workflow code does not guess.
 
 **Verification:** Review the updated contract and confirm it is sufficient for a trusted job to reconstruct agent outputs without reading mutable workspace state from the agent runner.

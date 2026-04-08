@@ -1,5 +1,6 @@
 import fs from "node:fs";
-import path from "node:path";
+
+import { normalizeDemoVideoPath } from "./demo-video-path.mjs";
 
 const metadataPath = process.env.METADATA_PATH;
 
@@ -9,19 +10,6 @@ if (!metadataPath) {
 
 const raw = fs.readFileSync(metadataPath, "utf8").trim();
 const parsed = JSON.parse(raw);
-const validateDemoVideoPath = (value) => {
-  if (typeof value !== "string") {
-    throw new Error("demo.videoPath must be a string");
-  }
-  if (path.isAbsolute(value) || value.includes("\\") || value.includes("..")) {
-    throw new Error("demo.videoPath must be a safe relative path under ux-artifacts/video-demos/");
-  }
-  const normalized = path.posix.normalize(value);
-  if (!normalized.startsWith("ux-artifacts/video-demos/")) {
-    throw new Error("demo.videoPath must be under ux-artifacts/video-demos/");
-  }
-};
-
 if (
   typeof parsed.title !== "string" ||
   typeof parsed.summary !== "string" ||
@@ -40,5 +28,5 @@ if (parsed.demo != null) {
       "PR metadata demo field must be an object with string summary and videoPath fields",
     );
   }
-  validateDemoVideoPath(parsed.demo.videoPath);
+  normalizeDemoVideoPath(parsed.demo.videoPath);
 }

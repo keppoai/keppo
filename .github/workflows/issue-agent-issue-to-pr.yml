@@ -221,6 +221,11 @@ jobs:
             exit 1
           fi
 
+      - name: Validate PR metadata for handoff upload
+        env:
+          METADATA_PATH: ${{ env.PR_METADATA_PATH }}
+        run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/validate-pr-metadata.mjs"
+
       - name: Build trusted handoff artifacts
         env:
           START_SHA: ${{ steps.start-sha.outputs.sha }}
@@ -235,13 +240,8 @@ jobs:
           cp "${PR_METADATA_PATH}" "${UPLOAD_ARTIFACT_ROOT}/pr-metadata.json"
 
           demo_video_path="$(
-            node <<'EOF'
-            const fs = require("node:fs");
-            const metadata = JSON.parse(fs.readFileSync(process.env.PR_METADATA_PATH, "utf8"));
-            if (metadata.demo && typeof metadata.demo.videoPath === "string") {
-              process.stdout.write(metadata.demo.videoPath);
-            }
-            EOF
+            METADATA_PATH="${PR_METADATA_PATH}" \
+              node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/demo-video-path.mjs"
           )"
           if [ -n "${demo_video_path}" ]; then
             if [ ! -f "${demo_video_path}" ]; then
@@ -394,12 +394,18 @@ jobs:
           KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/download-uploaded-artifacts.sh"
 
+      - name: Record trusted base SHA
+        if: needs.agent.result == 'success'
+        id: trusted-base
+        run: echo "sha=$(git rev-parse HEAD)" >> "${GITHUB_OUTPUT}"
+
       - name: Read handoff metadata
         if: needs.agent.result == 'success'
         id: handoff
         env:
           HANDOFF_PATH: ${{ env.DOWNLOADED_HANDOFF_PATH }}
           EXPECTED_ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
+          EXPECTED_START_SHA: ${{ steps.trusted-base.outputs.sha }}
         run: |
           node <<'EOF'
           const crypto = require("node:crypto");
@@ -407,9 +413,10 @@ jobs:
 
           const handoffPath = process.env.HANDOFF_PATH;
           const expectedIssueBranch = process.env.EXPECTED_ISSUE_BRANCH;
+          const expectedStartSha = process.env.EXPECTED_START_SHA;
           const outputPath = process.env.GITHUB_OUTPUT;
-          if (!handoffPath || !outputPath) {
-            throw new Error("HANDOFF_PATH and GITHUB_OUTPUT are required");
+          if (!handoffPath || !outputPath || !expectedStartSha) {
+            throw new Error("HANDOFF_PATH, EXPECTED_START_SHA, and GITHUB_OUTPUT are required");
           }
 
           const parsed = JSON.parse(fs.readFileSync(handoffPath, "utf8"));
@@ -426,6 +433,11 @@ jobs:
           if (typeof parsed.start_sha !== "string" || !shaPattern.test(parsed.start_sha)) {
             throw new Error("handoff start_sha must be a full git sha");
           }
+          if (parsed.start_sha !== expectedStartSha) {
+            throw new Error(
+              `handoff start_sha mismatch: ${parsed.start_sha} != ${expectedStartSha}`,
+            );
+          }
           if (typeof parsed.head_sha !== "string" || !shaPattern.test(parsed.head_sha)) {
             throw new Error("handoff head_sha must be a full git sha");
           }
@@ -436,7 +448,6 @@ jobs:
           };
 
           writeMultiline("bundle_ref", parsed.bundle_ref);
-          fs.appendFileSync(outputPath, `start_sha=${parsed.start_sha}\n`);
           fs.appendFileSync(outputPath, `head_sha=${parsed.head_sha}\n`);
           EOF
 
@@ -458,7 +469,7 @@ jobs:
       - name: Validate restored branch state
         if: needs.agent.result == 'success'
         env:
-          START_SHA: ${{ steps.handoff.outputs.start_sha }}
+          START_SHA: ${{ steps.trusted-base.outputs.sha }}
           EXPECTED_HEAD_SHA: ${{ steps.handoff.outputs.head_sha }}
         run: |
           set -euo pipefail
@@ -579,13 +590,27 @@ jobs:
           DEMO_VIDEO_PATH: ${{ steps.pr.outputs.demo_video_path }}
         run: |
           set -euo pipefail
-          source_path="${DOWNLOADED_UPLOAD_ROOT}/${DEMO_VIDEO_PATH}"
+          safe_demo_video_path="$(
+            DEMO_VIDEO_PATH="${DEMO_VIDEO_PATH}" \
+              node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/demo-video-path.mjs"
+          )"
+          workspace_root="$(pwd -P)"
+          expected_demo_root="${workspace_root}/ux-artifacts/video-demos"
+          source_path="${DOWNLOADED_UPLOAD_ROOT}/${safe_demo_video_path}"
           if [ ! -f "${source_path}" ]; then
             echo "::error::Downloaded demo video file not found: ${source_path}"
             exit 1
           fi
-          mkdir -p "$(dirname "${DEMO_VIDEO_PATH}")"
-          cp "${source_path}" "${DEMO_VIDEO_PATH}"
+          mkdir -p "$(dirname "${safe_demo_video_path}")"
+          resolved_demo_path="$(realpath -m "${safe_demo_video_path}")"
+          case "${resolved_demo_path}" in
+            "${expected_demo_root}"/*) ;;
+            *)
+              echo "::error::Demo video path resolves outside ${expected_demo_root}: ${safe_demo_video_path}"
+              exit 1
+              ;;
+          esac
+          cp "${source_path}" "${safe_demo_video_path}"
 
       - name: Publish PR demo video
         if: needs.agent.result == 'success' && steps.pr.outputs.demo_present == 'true'

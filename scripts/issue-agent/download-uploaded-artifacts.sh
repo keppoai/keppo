@@ -7,6 +7,7 @@ test -n "${KEPPO_SESSION_LOG_UPLOAD_TOKEN:-}"
 test -n "${DOWNLOAD_DESTINATION_ROOT:-}"
 
 UPLOAD_TIMEOUT_SECONDS="${UPLOAD_TIMEOUT_SECONDS:-120}"
+UPLOAD_RETRY_COUNT="${UPLOAD_RETRY_COUNT:-5}"
 upload_record_output_path="${UPLOAD_RECORD_PATH:-}"
 root_labels_json="[]"
 
@@ -44,22 +45,29 @@ redact_output() {
 }
 
 set +e
-curl \
-  --silent \
-  --show-error \
-  --fail-with-body \
-  --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
-  --request GET \
-  --url "${upload_record_url}" \
-  --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
-  > "${upload_record_path}" 2> "${headers_path}"
+fetch_http_code="$(
+  curl \
+    --silent \
+    --show-error \
+    --fail-with-body \
+    --retry "${UPLOAD_RETRY_COUNT}" \
+    --retry-all-errors \
+    --retry-connrefused \
+    --retry-delay 2 \
+    --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
+    --request GET \
+    --url "${upload_record_url}" \
+    --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
+    --write-out '%{http_code}' \
+    > "${upload_record_path}" 2> "${headers_path}"
+)"
 fetch_status=$?
 set -e
 
 if [[ ${fetch_status} -ne 0 ]]; then
   cat "${headers_path}" | redact_output >&2
   cat "${upload_record_path}" 2>/dev/null | redact_output >&2 || true
-  echo "Failed to fetch upload record ${UPLOAD_ID}." >&2
+  echo "Failed to fetch upload record ${UPLOAD_ID} (HTTP ${fetch_http_code:-000}) from ${upload_record_url}." >&2
   exit 1
 fi
 
@@ -85,12 +93,24 @@ validation_error="$(
         $record.manifest.files
         | map(
             .part_name as $part_name
+            | .root_label as $root_label
             | .relative_path as $relative_path
             | (
                 $relative_path | startswith("/") or startswith("\\") or contains("..")
               ) as $unsafe
+            | (
+                ($root_label | type) != "string"
+                or ($root_label | length) == 0
+                or ($root_label | startswith("."))
+                or ($root_label | contains("/"))
+                or ($root_label | contains("\\"))
+                or ($root_label | contains(".."))
+                or ($root_label | test("^[A-Za-z0-9_-]+$") | not)
+              ) as $unsafe_root_label
             | if $unsafe then
                 "unsafe relative_path for " + $part_name
+              elif $unsafe_root_label then
+                "unsafe root_label for " + $part_name
               elif (($record.response.files | map(select(.part_name == $part_name)) | length) == 0) then
                 "missing response entry for " + $part_name
               else
@@ -129,30 +149,56 @@ while IFS=$'\t' read -r root_label relative_path size_bytes sha256_hex content_t
     echo "Refusing unsafe relative path: ${relative_path}" >&2
     exit 1
   fi
+  if [[ -z "${root_label}" ]] || [[ "${root_label}" == .* ]] || [[ "${root_label}" == *"/"* ]] || [[ "${root_label}" == *"\\"* ]] || [[ "${root_label}" == *".."* ]] || [[ ! "${root_label}" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    echo "Refusing unsafe root label: ${root_label}" >&2
+    exit 1
+  fi
+
+  expected_download_url="${service_base_url}/artifacts/${artifact_id}/download"
+  if [[ "${download_url}" != "${expected_download_url}" ]]; then
+    echo "Upload record entry for ${relative_path} had unexpected download_url: ${download_url}" >&2
+    exit 1
+  fi
 
   destination_path="${DOWNLOAD_DESTINATION_ROOT}/${root_label}/${relative_path}"
+  resolved_destination_path="$(realpath -m "${destination_path}")"
+  resolved_destination_root="$(realpath -m "${DOWNLOAD_DESTINATION_ROOT}")"
+  case "${resolved_destination_path}" in
+    "${resolved_destination_root}"/*) ;;
+    *)
+      echo "Refusing destination path outside ${DOWNLOAD_DESTINATION_ROOT}: ${destination_path}" >&2
+      exit 1
+      ;;
+  esac
   mkdir -p "$(dirname "${destination_path}")"
   : > "${headers_path}"
   rm -f "${download_path}"
 
   set +e
-  curl \
-    --silent \
-    --show-error \
-    --fail-with-body \
-    --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
-    --request GET \
-    --url "${download_url}" \
-    --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
-    --dump-header "${headers_path}" \
-    --output "${download_path}" \
-    2>> "${headers_path}"
+  download_http_code="$(
+    curl \
+      --silent \
+      --show-error \
+      --fail-with-body \
+      --retry "${UPLOAD_RETRY_COUNT}" \
+      --retry-all-errors \
+      --retry-connrefused \
+      --retry-delay 2 \
+      --max-time "${UPLOAD_TIMEOUT_SECONDS}" \
+      --request GET \
+      --url "${expected_download_url}" \
+      --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
+      --dump-header "${headers_path}" \
+      --output "${download_path}" \
+      --write-out '%{http_code}' \
+      2>> "${headers_path}"
+  )"
   download_status=$?
   set -e
 
   if [[ ${download_status} -ne 0 ]]; then
     cat "${headers_path}" | redact_output >&2
-    echo "Failed to download artifact ${artifact_id}." >&2
+    echo "Failed to download artifact ${artifact_id} (HTTP ${download_http_code:-000}) from ${expected_download_url}." >&2
     exit 1
   fi
 
@@ -163,8 +209,25 @@ while IFS=$'\t' read -r root_label relative_path size_bytes sha256_hex content_t
     echo "Download response for ${artifact_id} did not include Content-Type." >&2
     exit 1
   fi
-  if [[ "${response_content_type}" != "${content_type}" ]]; then
+  response_content_type_media="${response_content_type%%;*}"
+  if [[ "${response_content_type_media}" != "${content_type}" ]]; then
     echo "Downloaded artifact ${artifact_id} content type mismatch: ${response_content_type} != ${content_type}" >&2
+    exit 1
+  fi
+
+  x_content_type_options="$(
+    awk -F': ' 'tolower($1) == "x-content-type-options" { sub(/\r$/, "", $2); print $2; exit }' "${headers_path}"
+  )"
+  if [[ "${x_content_type_options}" != "nosniff" ]]; then
+    echo "Download response for ${artifact_id} must include X-Content-Type-Options: nosniff." >&2
+    exit 1
+  fi
+
+  x_frame_options="$(
+    awk -F': ' 'tolower($1) == "x-frame-options" { sub(/\r$/, "", $2); print $2; exit }' "${headers_path}"
+  )"
+  if [[ "${x_frame_options}" != "DENY" ]]; then
+    echo "Download response for ${artifact_id} must include X-Frame-Options: DENY." >&2
     exit 1
   fi
 

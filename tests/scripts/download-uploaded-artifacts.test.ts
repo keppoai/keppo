@@ -94,9 +94,21 @@ function makeUploadRecord(bundleSha: string, bundleSize: number) {
   };
 }
 
-function makeFakeCurlBin(uploadRecordBody: string, bundleContents: string) {
+function makeFakeCurlBin(
+  uploadRecordBody: string,
+  bundleContents: string,
+  options?: {
+    downloadContentType?: string;
+    includeHardeningHeaders?: boolean;
+  },
+) {
   const dir = mkdtempSync(join(tmpdir(), "download-uploaded-artifacts-bin-"));
   const fakeCurlPath = join(dir, "curl");
+  const downloadContentType = options?.downloadContentType ?? "application/octet-stream";
+  const includeHardeningHeaders = options?.includeHardeningHeaders ?? true;
+  const hardeningHeaders = includeHardeningHeaders
+    ? "    printf 'X-Content-Type-Options: nosniff\\r\\n'\n    printf 'X-Frame-Options: DENY\\r\\n'\n"
+    : "";
   writeFileSync(
     fakeCurlPath,
     `#!/usr/bin/env bash
@@ -150,9 +162,10 @@ fi
 if [[ "$method" == "GET" && "$url" == "https://agent-logs.keppo.ai/artifacts/asl_bundle/download" ]]; then
   {
     printf 'HTTP/1.1 200 OK\\r\\n'
-    printf 'Content-Type: application/octet-stream\\r\\n'
+    printf 'Content-Type: ${downloadContentType}\\r\\n'
     printf 'X-Keppo-Artifact-Id: asl_bundle\\r\\n'
     printf 'X-Keppo-Artifact-Sha256: ${sha256Hex(bundleContents)}\\r\\n'
+${hardeningHeaders}\
     printf '\\r\\n'
   } > "$dump_header_path"
   printf '%s' '${bundleContents}' > "$output_path"
@@ -276,5 +289,86 @@ describe("scripts/issue-agent/download-uploaded-artifacts.sh", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("sha256");
+  });
+
+  it("accepts a matching content type with a charset suffix", () => {
+    const workDir = mkdtempSync(join(tmpdir(), "download-uploaded-artifacts-charset-"));
+    cleanupPaths.push(workDir);
+
+    const bundleContents = "bundle-bytes";
+    const fakeCurlBin = makeFakeCurlBin(
+      JSON.stringify(makeUploadRecord(sha256Hex(bundleContents), bundleContents.length)),
+      bundleContents,
+      { downloadContentType: "application/octet-stream; charset=utf-8" },
+    );
+
+    const result = spawnSync("bash", [scriptPath], {
+      cwd: workDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${fakeCurlBin}:${process.env.PATH ?? ""}`,
+        UPLOAD_ID: "upload-123",
+        DOWNLOAD_DESTINATION_ROOT: join(workDir, "downloaded"),
+        DOWNLOAD_ROOT_LABELS: "issue-agent-handoff",
+        KEPPO_SESSION_LOG_UPLOAD_URL: "https://agent-logs.keppo.ai/upload",
+        KEPPO_SESSION_LOG_UPLOAD_TOKEN: "test-token",
+      },
+    });
+
+    expect(result.status).toBe(0);
+  });
+
+  it("fails closed when the upload record contains an unsafe root label", () => {
+    const workDir = mkdtempSync(join(tmpdir(), "download-uploaded-artifacts-bad-root-label-"));
+    cleanupPaths.push(workDir);
+
+    const bundleContents = "bundle-bytes";
+    const uploadRecord = makeUploadRecord(sha256Hex(bundleContents), bundleContents.length);
+    uploadRecord.manifest.files[0]!.root_label = "../evil";
+    const fakeCurlBin = makeFakeCurlBin(JSON.stringify(uploadRecord), bundleContents);
+
+    const result = spawnSync("bash", [scriptPath], {
+      cwd: workDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${fakeCurlBin}:${process.env.PATH ?? ""}`,
+        UPLOAD_ID: "upload-123",
+        DOWNLOAD_DESTINATION_ROOT: join(workDir, "downloaded"),
+        KEPPO_SESSION_LOG_UPLOAD_URL: "https://agent-logs.keppo.ai/upload",
+        KEPPO_SESSION_LOG_UPLOAD_TOKEN: "test-token",
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unsafe root_label");
+  });
+
+  it("fails closed when the upload record download_url does not match the expected artifact route", () => {
+    const workDir = mkdtempSync(join(tmpdir(), "download-uploaded-artifacts-bad-url-"));
+    cleanupPaths.push(workDir);
+
+    const bundleContents = "bundle-bytes";
+    const uploadRecord = makeUploadRecord(sha256Hex(bundleContents), bundleContents.length);
+    uploadRecord.response.files[0]!.download_url =
+      "https://evil.example/artifacts/asl_bundle/download";
+    const fakeCurlBin = makeFakeCurlBin(JSON.stringify(uploadRecord), bundleContents);
+
+    const result = spawnSync("bash", [scriptPath], {
+      cwd: workDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${fakeCurlBin}:${process.env.PATH ?? ""}`,
+        UPLOAD_ID: "upload-123",
+        DOWNLOAD_DESTINATION_ROOT: join(workDir, "downloaded"),
+        KEPPO_SESSION_LOG_UPLOAD_URL: "https://agent-logs.keppo.ai/upload",
+        KEPPO_SESSION_LOG_UPLOAD_TOKEN: "test-token",
+      },
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("unexpected download_url");
   });
 });

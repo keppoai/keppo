@@ -1,4 +1,12 @@
-import { chmodSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -178,6 +186,8 @@ describe("scripts/issue-agent/upload-session-logs.sh", () => {
 
     const markerPath = join(workDir, "marker");
     writeFileSync(markerPath, "marker");
+    const oldMarkerTime = new Date(Date.now() - 60_000);
+    utimesSync(markerPath, oldMarkerTime, oldMarkerTime);
 
     const sessionLogPath = join(sessionsDir, "session-2026-03-31T22-00-00.jsonl");
     const pluginJsonPath = join(pluginsDir, "plugin.json");
@@ -263,6 +273,8 @@ describe("scripts/issue-agent/upload-session-logs.sh", () => {
 
     const markerPath = join(workDir, "marker");
     writeFileSync(markerPath, "marker");
+    const oldMarkerTime = new Date(Date.now() - 60_000);
+    utimesSync(markerPath, oldMarkerTime, oldMarkerTime);
 
     const sessionLogPath = join(sessionsDir, "session-2026-03-31T22-00-00.jsonl");
     writeFileSync(sessionLogPath, '{"event":"session"}\n');
@@ -306,5 +318,52 @@ describe("scripts/issue-agent/upload-session-logs.sh", () => {
     expect(result.stderr).toContain("[REDACTED_CLIENT_TOKEN]");
     expect(result.stderr).not.toContain("opaque-live-upload-token");
     expect(result.stderr).toContain("Session log prepare response validation failed");
+  });
+
+  it("truncates session-log comments to stay under the GitHub output size cap", () => {
+    const workDir = mkdtempSync(join(tmpdir(), "upload-session-logs-comment-cap-"));
+    cleanupPaths.push(workDir);
+
+    const codexHome = join(workDir, "codex-home");
+    const sessionsDir = join(codexHome, "sessions");
+    mkdirSync(sessionsDir, { recursive: true });
+
+    const markerPath = join(workDir, "marker");
+    writeFileSync(markerPath, "marker");
+    const oldMarkerTime = new Date(Date.now() - 60_000);
+    utimesSync(markerPath, oldMarkerTime, oldMarkerTime);
+
+    writeFileSync(join(sessionsDir, "session-2026-03-31T22-00-00.jsonl"), '{"event":"session"}\n');
+
+    const commentPath = join(workDir, "session-log-comment.md");
+    const fakeCurlBin = makeFakeCurlBin(
+      join(workDir, "captured-prepare.json"),
+      join(workDir, "captured-complete.json"),
+      join(workDir, "captured-blob-upload.jsonl"),
+    );
+
+    const result = spawnSync("bash", [scriptPath], {
+      cwd: workDir,
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH: `${fakeCurlBin}:${process.env.PATH ?? ""}`,
+        AGENT_KIND: "codex",
+        GITHUB_REPOSITORY: "keppoai/keppo",
+        GITHUB_RUN_ID: "12345",
+        GITHUB_RUN_ATTEMPT: "1",
+        LOG_MARKER_PATH: markerPath,
+        CODEX_HOME: codexHome,
+        SESSION_LOG_COMMENT_PATH: commentPath,
+        SESSION_LOG_COMMENT_MAX_BYTES: "80",
+        KEPPO_SESSION_LOG_UPLOAD_URL: "https://agent-logs.keppo.ai/upload",
+        KEPPO_SESSION_LOG_UPLOAD_TOKEN: "test-token",
+      },
+    });
+
+    expect(result.status).toBe(0);
+    const commentBody = readFileSync(commentPath, "utf8");
+    expect(Buffer.byteLength(commentBody, "utf8")).toBeLessThanOrEqual(80);
+    expect(commentBody).toContain("truncated to fit GitHub Actions job output limits");
   });
 });

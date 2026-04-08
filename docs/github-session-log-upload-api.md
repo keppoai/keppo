@@ -293,6 +293,7 @@ Trusted follow-up jobs fetch the stored upload record by `upload_id`.
 ```
 
 The response must include the exact stored `manifest` plus the exact upload completion `response` that introduced or confirmed the artifacts. This is the trusted job's source of truth for `artifact_id`, `download_url`, `relative_path`, `size_bytes`, and `sha256_hex`.
+Trusted jobs must obtain those fields from this authenticated upload-record lookup, not from mutable workspace files, agent-authored copies of the manifest, or ordinary GitHub job outputs.
 
 ## Authenticated artifact download
 
@@ -376,6 +377,7 @@ For `issue-agent-issue-to-pr.yml`, the only approved non-log extra root is `issu
 - An optional demo video file referenced by trusted PR metadata
 
 Small comment bodies that are meant to become GitHub comments should stay in job outputs rather than this upload channel.
+Keep those job-output comment bodies well under GitHub's 24 KB output limit; larger payloads should be truncated or moved onto the authenticated upload channel instead of risking silent workflow failure.
 
 The trusted follow-up job should:
 

@@ -1,0 +1,26 @@
+- [x] Read `tmp/pr-review-responder/context.json`, `tmp/pr-review-responder/context-summary.md`, and applicable rules/skills; self-review the PR context before making changes.
+- [x] Rebase the current branch onto `upstream/main` and resolve every merge conflict.
+- [x] Investigate the non-E2E `fix-pr` check state from the workflow context and gather any available read-only diagnostics needed for this pass.
+- [x] Investigate the failed non-E2E `codex-review` check and gather any available read-only diagnostics needed for this pass.
+- [x] Address the trusted thread in `docs/rules/github-security.md` about clarifying the 24 KB job-output limit and what content must not use job outputs.
+- [x] Address the trusted thread in `.github/workflows/issue-agent-plan.yml` about trusted-job failure reporting not covering trusted-step failures.
+- [x] Address the trusted thread in `.github/workflows/issue-agent-issue-to-pr.yml` about validating or restricting agent-authored demo video paths before upload.
+- [x] Address the trusted thread in `scripts/issue-agent/download-uploaded-artifacts.sh` about validating `download_url` origin before sending the bearer token.
+- [x] Address the trusted thread in `scripts/issue-agent/download-uploaded-artifacts.sh` about validating `root_label` before building destination paths.
+- [x] Address the trusted thread in `.github/workflows/issue-agent-issue-to-pr.yml` about the nested `node <<'EOF'` heredoc terminator bug.
+- [x] Address the trusted thread in `.github/workflows/issue-agent-issue-to-pr.yml` about agent-supplied `start_sha` being used as the trusted ancestry/diff anchor.
+- [x] Address the trusted thread in `.github/workflows/issue-agent-issue-to-pr.yml` about the trusted job copying into an agent-controlled `DEMO_VIDEO_PATH`.
+- [x] Address the trusted thread in `scripts/issue-agent/download-uploaded-artifacts.sh` about strict `Content-Type` equality rejecting valid responses.
+- [x] Address the trusted thread in `.github/workflows/issue-agent-issue-to-pr.yml` about `session_log_comment` potentially exceeding GitHub Actions output limits.
+- [x] Address the trusted thread in `scripts/issue-agent/download-uploaded-artifacts.sh` about missing HTTP retries and poor failure diagnostics.
+- [x] Address the trusted trusted-review feedback about passing artifact metadata through a trusted channel and documenting job-output limits.
+- [x] Address the trusted issue-comment feedback in `.github/workflows/issue-agent-plan.yml` about shell-safe handling of `inputs.agent_name`.
+- [x] Address the trusted issue-comment feedback in `.github/workflows/issue-agent-plan.yml` about cancelled runs and trusted failure reporting conditions.
+- [x] Update or add any required tests, docs, specs, or rules that must stay in sync with the code changes.
+- [x] Run targeted verification for the changed workflow/script behavior as needed.
+- [ ] Run `pnpm check` and fix every failure until it exits successfully.
+- [ ] Review the final diff and prepare thread resolution/reply decisions plus the top-level summary content.
+- [ ] Create a local Conventional Commit with the completed fixes.
+- [ ] Re-read `TODOS.md` and confirm every item is marked complete before writing outputs.
+- [ ] Write `tmp/pr-review-responder/actions.json`.
+- [ ] Delete `TODOS.md`.
