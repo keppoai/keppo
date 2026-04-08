@@ -184,6 +184,7 @@ jobs:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
           permission-pull-requests: write
+          permission-issues: write
 
       - name: Post Codex inline review comments
         id: post-inline
