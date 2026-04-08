@@ -154,6 +154,16 @@ prepare_curl_log_path="${tmp_dir}/prepare-curl.log"
 complete_curl_log_path="${tmp_dir}/complete-curl.log"
 curl_log_path="${tmp_dir}/curl.log"
 session_log_comment_path="${SESSION_LOG_COMMENT_PATH:-}"
+upload_record_path="${UPLOAD_RECORD_PATH:-}"
+comment_root_labels_json="[]"
+
+if [[ -n "${COMMENT_ROOT_LABELS:-}" ]]; then
+  comment_root_labels_json="$(
+    printf '%s\n' "${COMMENT_ROOT_LABELS}" \
+      | jq -R 'select(length > 0)' \
+      | jq -s '.'
+  )"
+fi
 
 declare -a files=()
 declare -a root_labels=()
@@ -203,7 +213,9 @@ if [[ ${#files[@]} -eq 0 ]]; then
   exit 0
 fi
 
-if command -v uuidgen >/dev/null 2>&1; then
+if [[ -n "${SESSION_LOG_UPLOAD_ID:-}" ]]; then
+  upload_id="${SESSION_LOG_UPLOAD_ID}"
+elif command -v uuidgen >/dev/null 2>&1; then
   upload_id="$(uuidgen | tr '[:upper:]' '[:lower:]')"
 else
   upload_id="$(node -e 'console.log(require("node:crypto").randomUUID())')"
@@ -613,6 +625,18 @@ if [[ -n "${response_validation_error}" ]]; then
   exit 1
 fi
 
+if [[ -n "${upload_record_path}" ]]; then
+  mkdir -p "$(dirname "${upload_record_path}")"
+  jq -n \
+    --slurpfile manifest "${manifest_path}" \
+    --slurpfile response "${response_path}" \
+    '{
+      upload_id: $manifest[0].upload_id,
+      manifest: $manifest[0],
+      response: $response[0]
+    }' > "${upload_record_path}"
+fi
+
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
     printf '### %s session logs\n\n' "${AGENT_KIND}"
@@ -624,15 +648,29 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
 fi
 
 if [[ -n "${session_log_comment_path}" ]]; then
-  mkdir -p "$(dirname "${session_log_comment_path}")"
-  {
-    printf '%s session logs for this run:\n\n' "$(printf '%s' "${AGENT_KIND}" | tr '[:lower:]' '[:upper:]')"
-    jq -r '
-      .files[]
-      | "- `" + (.relative_path // .part_name // "unknown") + "`: " + .viewer_url
-    ' "${response_path}"
-    printf '\nWorkflow run: %s/%s/actions/runs/%s\n' "${github_server_url}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
-  } > "${session_log_comment_path}"
+  comment_links="$(
+    jq -r \
+      --slurpfile manifest "${manifest_path}" \
+      --argjson allowed_root_labels "${comment_root_labels_json}" '
+        .files[]
+        | . as $response_file
+        | ($manifest[0].files[] | select(.part_name == $response_file.part_name)) as $manifest_file
+        | select(
+            ($allowed_root_labels | length) == 0
+            or (($allowed_root_labels | index($manifest_file.root_label)) != null)
+          )
+        | "- `" + ($response_file.relative_path // $response_file.part_name // "unknown") + "`: " + $response_file.viewer_url
+      ' "${response_path}"
+  )"
+
+  if [[ -n "${comment_links}" ]]; then
+    mkdir -p "$(dirname "${session_log_comment_path}")"
+    {
+      printf '%s session logs for this run:\n\n' "$(printf '%s' "${AGENT_KIND}" | tr '[:lower:]' '[:upper:]')"
+      printf '%s\n' "${comment_links}"
+      printf '\nWorkflow run: %s/%s/actions/runs/%s\n' "${github_server_url}" "${GITHUB_REPOSITORY}" "${GITHUB_RUN_ID}"
+    } > "${session_log_comment_path}"
+  fi
 fi
 
 if [[ ${skipped_due_to_cap} -gt 0 ]]; then

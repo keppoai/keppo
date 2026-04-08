@@ -128,7 +128,7 @@ The `issue-agent.yml` and `fix-pr.yml` workflows run in the `ai-bots` GitHub Act
 - environment secret `COPILOT_GITHUB_TOKEN` with a fine-grained PAT that has the `Copilot Requests` permission when `?agent:gh-copilot` issue runs are enabled
 - environment secret `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` when agent-driven PRs are expected to publish demo videos
 - environment variable `KEPPO_SESSION_LOG_UPLOAD_URL` when issue-agent runs should publish session logs
-- environment secret `KEPPO_SESSION_LOG_UPLOAD_TOKEN` for bearer-authenticated session log uploads
+- environment secret `KEPPO_SESSION_LOG_UPLOAD_TOKEN` for bearer-authenticated session log uploads plus trusted follow-up downloads of stored upload records and artifacts
 
 Notes:
 
@@ -136,7 +136,8 @@ Notes:
 - When `CODEX_AUTH_JSON_1` and `CODEX_AUTH_JSON_2` are present, Codex workflows randomly choose one non-empty unique auth blob from that pool plus `CODEX_AUTH_JSON` on each run.
 - `COPILOT_GITHUB_TOKEN` should be a fine-grained PAT from a GitHub user with an active Copilot license and the `Copilot Requests` permission.
 - `VERCEL_DEMO_BLOB_READ_WRITE_TOKEN` should point at a public Vercel Blob store reserved for reviewer-facing PR demos.
-- Session-log upload endpoints should return a `viewer_url` immediately for uploaded or duplicate logs.
+- `KEPPO_SESSION_LOG_UPLOAD_TOKEN` now authorizes `POST /upload`, `POST /upload/complete`, `GET /uploads/{upload_id}`, and `GET /artifacts/{artifact_id}/download`.
+- Session-log upload endpoints should return a `viewer_url` immediately for uploaded or duplicate logs, and a `download_url` for any trusted follow-up job that needs the raw bytes.
 
 Label contract:
 

@@ -32,26 +32,39 @@ on:
         type: string
 
 jobs:
-  run:
+  agent:
     environment: ai-bots
     runs-on: ubicloud-standard-2
     timeout-minutes: 60
     permissions:
       actions: read
-      contents: write
-      pull-requests: write
-      issues: write
+      contents: read
+    outputs:
+      has_session_log_comment: ${{ steps.capture.outputs.has_session_log_comment }}
+      session_log_comment: ${{ steps.capture.outputs.session_log_comment }}
     env:
       ISSUE_BRANCH: ${{ format('{0}/issue-{1}/{2}', inputs.branch_prefix, inputs.issue_number, inputs.branch_slug) }}
       PR_METADATA_PATH: tmp/issue-agent/pr-metadata.json
       PROMPT_PATH: tmp/issue-agent/agent-prompt.txt
       LOG_MARKER_PATH: tmp/issue-agent/session-log-marker
       SESSION_LOG_COMMENT_PATH: tmp/issue-agent/session-log-comment.md
+      SESSION_LOG_UPLOAD_ID: ${{ format('issue-agent-{0}-{1}-{2}-{3}', github.run_id, github.run_attempt, inputs.agent_kind, inputs.issue_number) }}
+      UPLOAD_ARTIFACT_ROOT_LABEL: issue-agent-handoff
+      UPLOAD_ARTIFACT_ROOT: tmp/issue-agent/upload-artifacts
+      UPLOAD_BUNDLE_PATH: tmp/issue-agent/upload-artifacts/branch.bundle
+      UPLOAD_HANDOFF_PATH: tmp/issue-agent/upload-artifacts/handoff.json
+      UPLOAD_RECORD_PATH: tmp/issue-agent/upload-record.json
       CODEX_HOME: tmp/issue-agent/codex-home
       COPILOT_HOME: tmp/issue-agent/copilot-home
       COPILOT_SESSION_DIR: tmp/issue-agent/copilot-session
       COPILOT_SESSION_SHARE_PATH: tmp/issue-agent/copilot-session/session.md
       COPILOT_CLI_VERSION: 1.0.18
+      COMMENT_ROOT_LABELS: |
+        codex-home
+        claude-home-projects
+        claude-config-projects
+        copilot-logs
+        copilot-session
       WORKFLOW_BASE_PATH: .workflow-base
     steps:
       - name: Create GitHub App token
@@ -60,10 +73,7 @@ jobs:
         with:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-pull-requests: write
-          permission-issues: write
-          permission-workflows: write
+          permission-contents: read
 
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -182,18 +192,6 @@ jobs:
           COPILOT_SESSION_SHARE_PATH: ${{ env.COPILOT_SESSION_SHARE_PATH }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/run-gh-copilot.sh"
 
-      - name: Create GitHub App token for post-agent operations
-        if: always()
-        id: post-agent-app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
-          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-contents: write
-          permission-pull-requests: write
-          permission-issues: write
-          permission-workflows: write
-
       - name: Validate agent commit state
         env:
           START_SHA: ${{ steps.start-sha.outputs.sha }}
@@ -211,25 +209,75 @@ jobs:
             exit 1
           fi
 
-          dirty_status="$(git status --short)"
+          if ! git merge-base --is-ancestor "${START_SHA}" "${current_sha}"; then
+            echo "::error::Agent rewrote history instead of appending commits on top of ${START_SHA}"
+            exit 1
+          fi
+
+          dirty_status="$(git status --short -- . ':(exclude).workflow-base')"
           if [ -n "${dirty_status}" ]; then
             echo "::error::Agent left uncommitted changes in the workspace"
             printf '%s\n' "${dirty_status}"
             exit 1
           fi
 
+      - name: Build trusted handoff artifacts
+        env:
+          START_SHA: ${{ steps.start-sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+
+          head_sha="$(git rev-parse HEAD)"
+          bundle_ref="refs/issue-agent/upload"
+
+          rm -rf "${UPLOAD_ARTIFACT_ROOT}"
+          mkdir -p "${UPLOAD_ARTIFACT_ROOT}"
+          cp "${PR_METADATA_PATH}" "${UPLOAD_ARTIFACT_ROOT}/pr-metadata.json"
+
+          demo_video_path="$(
+            node <<'EOF'
+            const fs = require("node:fs");
+            const metadata = JSON.parse(fs.readFileSync(process.env.PR_METADATA_PATH, "utf8"));
+            if (metadata.demo && typeof metadata.demo.videoPath === "string") {
+              process.stdout.write(metadata.demo.videoPath);
+            }
+            EOF
+          )"
+          if [ -n "${demo_video_path}" ]; then
+            if [ ! -f "${demo_video_path}" ]; then
+              echo "::error::Demo video file not found: ${demo_video_path}"
+              exit 1
+            fi
+            mkdir -p "${UPLOAD_ARTIFACT_ROOT}/$(dirname "${demo_video_path}")"
+            cp "${demo_video_path}" "${UPLOAD_ARTIFACT_ROOT}/${demo_video_path}"
+          fi
+
+          git update-ref "${bundle_ref}" "${head_sha}"
+          git bundle create "${UPLOAD_BUNDLE_PATH}" "${bundle_ref}" "^${START_SHA}"
+          git update-ref -d "${bundle_ref}"
+
+          cat > "${UPLOAD_HANDOFF_PATH}" <<EOF
+          {
+            "schema_version": 1,
+            "issue_branch": "${ISSUE_BRANCH}",
+            "start_sha": "${START_SHA}",
+            "head_sha": "${head_sha}",
+            "bundle_ref": "${bundle_ref}"
+          }
+          EOF
+
       - name: Refresh workflow base revision
         if: always()
         uses: actions/checkout@v5
         with:
           repository: ${{ github.repository }}
-          token: ${{ steps.post-agent-app-token.outputs.token }}
+          token: ${{ steps.app-token.outputs.token }}
           ref: ${{ github.sha }}
           path: ${{ env.WORKFLOW_BASE_PATH }}
           fetch-depth: 1
           persist-credentials: false
 
-      - name: Upload session logs
+      - name: Upload session logs and handoff artifacts
         if: always()
         continue-on-error: true
         env:
@@ -239,6 +287,10 @@ jobs:
           GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
           LOG_MARKER_PATH: ${{ env.LOG_MARKER_PATH }}
           SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          SESSION_LOG_UPLOAD_ID: ${{ env.SESSION_LOG_UPLOAD_ID }}
+          UPLOAD_RECORD_PATH: ${{ env.UPLOAD_RECORD_PATH }}
+          COMMENT_ROOT_LABELS: ${{ env.COMMENT_ROOT_LABELS }}
+          EXTRA_UPLOAD_ROOTS: ${{ env.UPLOAD_ARTIFACT_ROOT_LABEL }}:${{ github.workspace }}/${{ env.UPLOAD_ARTIFACT_ROOT }}
           CODEX_HOME: ${{ env.CODEX_HOME }}
           COPILOT_HOME: ${{ env.COPILOT_HOME }}
           COPILOT_SESSION_SHARE_PATH: ${{ env.COPILOT_SESSION_SHARE_PATH }}
@@ -247,12 +299,229 @@ jobs:
           KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
 
+      - name: Capture agent outputs
+        if: always()
+        id: capture
+        env:
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+        run: |
+          set -euo pipefail
+
+          write_multiline_output() {
+            local name="$1"
+            local path="$2"
+            local delimiter="EOF_$(openssl rand -hex 8)"
+            {
+              printf '%s<<%s\n' "${name}" "${delimiter}"
+              cat "${path}"
+              printf '\n%s\n' "${delimiter}"
+            } >> "${GITHUB_OUTPUT}"
+          }
+
+          if [ -s "${SESSION_LOG_COMMENT_PATH}" ]; then
+            echo "has_session_log_comment=true" >> "${GITHUB_OUTPUT}"
+            write_multiline_output session_log_comment "${SESSION_LOG_COMMENT_PATH}"
+          else
+            echo "has_session_log_comment=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  trusted:
+    needs: agent
+    if: always()
+    environment: ai-bots
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+    env:
+      ISSUE_BRANCH: ${{ format('{0}/issue-{1}/{2}', inputs.branch_prefix, inputs.issue_number, inputs.branch_slug) }}
+      SESSION_LOG_UPLOAD_ID: ${{ format('issue-agent-{0}-{1}-{2}-{3}', github.run_id, github.run_attempt, inputs.agent_kind, inputs.issue_number) }}
+      UPLOAD_ARTIFACT_ROOT_LABEL: issue-agent-handoff
+      DOWNLOADED_ARTIFACT_ROOT: tmp/issue-agent/downloaded-artifacts
+      DOWNLOADED_UPLOAD_ROOT: tmp/issue-agent/downloaded-artifacts/issue-agent-handoff
+      DOWNLOADED_BUNDLE_PATH: tmp/issue-agent/downloaded-artifacts/issue-agent-handoff/branch.bundle
+      DOWNLOADED_HANDOFF_PATH: tmp/issue-agent/downloaded-artifacts/issue-agent-handoff/handoff.json
+      DOWNLOADED_PR_METADATA_PATH: tmp/issue-agent/downloaded-artifacts/issue-agent-handoff/pr-metadata.json
+      PR_METADATA_PATH: tmp/issue-agent/downloaded-artifacts/issue-agent-handoff/pr-metadata.json
+      WORKFLOW_BASE_PATH: .workflow-base
+    steps:
+      - name: Create GitHub App token for trusted operations
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-issues: write
+          permission-workflows: write
+
+      - name: Checkout repository
+        if: needs.agent.result == 'success'
+        uses: actions/checkout@v5
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ inputs.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Setup Node
+        if: needs.agent.result == 'success'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Checkout workflow base revision
+        if: needs.agent.result == 'success'
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository }}
+          token: ${{ steps.app-token.outputs.token }}
+          ref: ${{ github.sha }}
+          path: ${{ env.WORKFLOW_BASE_PATH }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Download uploaded handoff artifacts
+        if: needs.agent.result == 'success'
+        env:
+          UPLOAD_ID: ${{ env.SESSION_LOG_UPLOAD_ID }}
+          DOWNLOAD_DESTINATION_ROOT: ${{ env.DOWNLOADED_ARTIFACT_ROOT }}
+          DOWNLOAD_ROOT_LABELS: ${{ env.UPLOAD_ARTIFACT_ROOT_LABEL }}
+          KEPPO_SESSION_LOG_UPLOAD_URL: ${{ vars.KEPPO_SESSION_LOG_UPLOAD_URL }}
+          KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
+        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/download-uploaded-artifacts.sh"
+
+      - name: Read handoff metadata
+        if: needs.agent.result == 'success'
+        id: handoff
+        env:
+          HANDOFF_PATH: ${{ env.DOWNLOADED_HANDOFF_PATH }}
+          EXPECTED_ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
+        run: |
+          node <<'EOF'
+          const crypto = require("node:crypto");
+          const fs = require("node:fs");
+
+          const handoffPath = process.env.HANDOFF_PATH;
+          const expectedIssueBranch = process.env.EXPECTED_ISSUE_BRANCH;
+          const outputPath = process.env.GITHUB_OUTPUT;
+          if (!handoffPath || !outputPath) {
+            throw new Error("HANDOFF_PATH and GITHUB_OUTPUT are required");
+          }
+
+          const parsed = JSON.parse(fs.readFileSync(handoffPath, "utf8"));
+          const shaPattern = /^[0-9a-f]{40}$/i;
+          if (parsed.schema_version !== 1) {
+            throw new Error("handoff schema_version must be 1");
+          }
+          if (parsed.issue_branch !== expectedIssueBranch) {
+            throw new Error(`handoff issue_branch mismatch: ${parsed.issue_branch}`);
+          }
+          if (typeof parsed.bundle_ref !== "string" || !parsed.bundle_ref.startsWith("refs/")) {
+            throw new Error("handoff bundle_ref must be a refs/* string");
+          }
+          if (typeof parsed.start_sha !== "string" || !shaPattern.test(parsed.start_sha)) {
+            throw new Error("handoff start_sha must be a full git sha");
+          }
+          if (typeof parsed.head_sha !== "string" || !shaPattern.test(parsed.head_sha)) {
+            throw new Error("handoff head_sha must be a full git sha");
+          }
+
+          const writeMultiline = (name, value) => {
+            const delimiter = `EOF_${crypto.randomUUID()}`;
+            fs.appendFileSync(outputPath, `${name}<<${delimiter}\n${value}\n${delimiter}\n`);
+          };
+
+          writeMultiline("bundle_ref", parsed.bundle_ref);
+          fs.appendFileSync(outputPath, `start_sha=${parsed.start_sha}\n`);
+          fs.appendFileSync(outputPath, `head_sha=${parsed.head_sha}\n`);
+          EOF
+
+      - name: Restore uploaded branch
+        if: needs.agent.result == 'success'
+        env:
+          BUNDLE_REF: ${{ steps.handoff.outputs.bundle_ref }}
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --heads origin "${ISSUE_BRANCH}" >/dev/null 2>&1; then
+            git fetch origin "${ISSUE_BRANCH}"
+          fi
+
+          git bundle verify "${DOWNLOADED_BUNDLE_PATH}"
+          git fetch "${DOWNLOADED_BUNDLE_PATH}" "${BUNDLE_REF}:refs/heads/__issue_agent_uploaded"
+          git switch -C "${ISSUE_BRANCH}" "__issue_agent_uploaded"
+          git branch -D __issue_agent_uploaded
+
+      - name: Validate restored branch state
+        if: needs.agent.result == 'success'
+        env:
+          START_SHA: ${{ steps.handoff.outputs.start_sha }}
+          EXPECTED_HEAD_SHA: ${{ steps.handoff.outputs.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "${PR_METADATA_PATH}" ]; then
+            echo "::error::Missing downloaded PR metadata file at ${PR_METADATA_PATH}"
+            exit 1
+          fi
+
+          if [ ! -f "${DOWNLOADED_BUNDLE_PATH}" ]; then
+            echo "::error::Missing downloaded bundle at ${DOWNLOADED_BUNDLE_PATH}"
+            exit 1
+          fi
+
+          current_sha="$(git rev-parse HEAD)"
+          if [ "${current_sha}" != "${EXPECTED_HEAD_SHA}" ]; then
+            echo "::error::Restored branch HEAD ${current_sha} did not match expected ${EXPECTED_HEAD_SHA}"
+            exit 1
+          fi
+
+          if ! git merge-base --is-ancestor "${START_SHA}" "${current_sha}"; then
+            echo "::error::Restored branch does not descend from ${START_SHA}"
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" "${current_sha}" -- .gitmodules | grep -q .; then
+            echo "::error::.gitmodules changed in the uploaded branch"
+            exit 1
+          fi
+
+          gitlink_paths="$(git ls-files --stage | awk '$1 == "160000" { print $4 }')"
+          if [ -n "${gitlink_paths}" ]; then
+            echo "::error::Nested gitlink entries are not allowed:"
+            echo "${gitlink_paths}"
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" "${current_sha}" -- .workflow-base | grep -q .; then
+            echo "::error::.workflow-base must never appear in uploaded commits"
+            exit 1
+          fi
+
+          if git diff --name-only "${START_SHA}" "${current_sha}" -- .gitignore | grep -q . &&
+            git diff "${START_SHA}" "${current_sha}" -- .gitignore | grep -F ".workflow-base" >/dev/null; then
+            echo "::error::.gitignore changes that reference .workflow-base are not allowed"
+            exit 1
+          fi
+
+          dirty_status="$(git status --short -- . ':(exclude).workflow-base')"
+          if [ -n "${dirty_status}" ]; then
+            echo "::error::Trusted restore left unexpected workspace changes"
+            printf '%s\n' "${dirty_status}"
+            exit 1
+          fi
+
       - name: Validate PR metadata
+        if: needs.agent.result == 'success'
         env:
           METADATA_PATH: ${{ env.PR_METADATA_PATH }}
         run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/validate-pr-metadata.mjs"
 
       - name: Parse PR metadata
+        if: needs.agent.result == 'success'
         id: pr
         env:
           METADATA_PATH: ${{ env.PR_METADATA_PATH }}
@@ -260,37 +529,69 @@ jobs:
         run: node "${WORKFLOW_BASE_PATH}/scripts/issue-agent/export-pr-metadata.mjs"
 
       - name: Push branch
+        if: needs.agent.result == 'success'
         env:
-          GITHUB_TOKEN: ${{ steps.post-agent-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/push-branch.sh"
 
       - name: Create or update PR
+        if: needs.agent.result == 'success'
         id: pr-create
         env:
-          GITHUB_TOKEN: ${{ steps.post-agent-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           ISSUE_BRANCH: ${{ env.ISSUE_BRANCH }}
           PR_TITLE: ${{ steps.pr.outputs.title }}
           PR_BODY: ${{ steps.pr.outputs.body }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/create-or-update-pr.sh"
 
       - name: Post session log comment
-        if: always()
+        if: needs.agent.result == 'success' && needs.agent.outputs.has_session_log_comment == 'true' && steps.pr-create.outputs.pr_number != ''
+        uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ steps.post-agent-app-token.outputs.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          COMMENT_NUMBER: ${{ steps.pr-create.outputs.pr_number }}
-          COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          PR_NUMBER: ${{ steps.pr-create.outputs.pr_number }}
+          COMMENT_BODY: ${{ needs.agent.outputs.session_log_comment }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const prNumber = Number.parseInt(process.env.PR_NUMBER ?? "", 10);
+            const body = process.env.COMMENT_BODY ?? "";
+
+            if (!Number.isFinite(prNumber)) {
+              throw new Error("PR_NUMBER is required");
+            }
+
+            if (!body.trim()) {
+              core.info("Session log comment body was empty; skipping.");
+              return;
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: prNumber,
+              body,
+            });
+
+      - name: Restore demo video artifact
+        if: needs.agent.result == 'success' && steps.pr.outputs.demo_present == 'true'
+        env:
+          DEMO_VIDEO_PATH: ${{ steps.pr.outputs.demo_video_path }}
         run: |
-          if [ -n "${COMMENT_NUMBER}" ] && [ -s "${COMMENT_PATH}" ]; then
-            bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-github-comment.sh"
+          set -euo pipefail
+          source_path="${DOWNLOADED_UPLOAD_ROOT}/${DEMO_VIDEO_PATH}"
+          if [ ! -f "${source_path}" ]; then
+            echo "::error::Downloaded demo video file not found: ${source_path}"
+            exit 1
           fi
+          mkdir -p "$(dirname "${DEMO_VIDEO_PATH}")"
+          cp "${source_path}" "${DEMO_VIDEO_PATH}"
 
       - name: Publish PR demo video
-        if: steps.pr.outputs.demo_present == 'true'
+        if: needs.agent.result == 'success' && steps.pr.outputs.demo_present == 'true'
         continue-on-error: true
         env:
-          GITHUB_TOKEN: ${{ steps.post-agent-app-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
           PR_NUMBER: ${{ steps.pr-create.outputs.pr_number }}
           DEMO_SUMMARY: ${{ steps.pr.outputs.demo_summary }}
@@ -299,10 +600,10 @@ jobs:
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/publish-pr-demo.sh"
 
       - name: Set failure labels and comment
-        if: failure()
+        if: needs.agent.result == 'failure' || failure()
         uses: actions/github-script@v7
         with:
-          github-token: ${{ steps.post-agent-app-token.outputs.token }}
+          github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const issue_number = Number('${{ inputs.issue_number }}');
             try {
