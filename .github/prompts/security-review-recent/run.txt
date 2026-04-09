@@ -1,6 +1,11 @@
 Use `$security-review:recent` at `{{SKILL_PATH}}` to perform defensive security research on this open-source project in coordination with the maintainer.
 
-Review the last 7 days of commits. Use `./out-security-review` for all intermediate artifacts and write each confirmed finding as an individual markdown file in `{{FINDINGS_DIR}}/`.
+Build 6-8 review buckets with this mix before launching reviewers:
+- {{REVIEW_BUCKETS_PAST_DAY}} buckets focused on files changed in the last day
+- {{REVIEW_BUCKETS_PAST_WEEK}} buckets focused on files changed in the prior week outside the last day
+- {{REVIEW_BUCKETS_BROAD_COVERAGE}} buckets focused on broad codebase coverage regardless of recent churn
+
+Use `./out-security-review` for all intermediate artifacts and write each confirmed finding as an individual markdown file in `{{FINDINGS_DIR}}/`.
 
 Requirements:
 - Focus only on real critical and high severity vulnerabilities.

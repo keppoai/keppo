@@ -30,7 +30,7 @@ if npx -y "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
   "Bash(git status:*)" \
   "Bash(head:*)" \
   "Bash(ls:*)" \
-  "Bash(node .agents/skills/security-review-recent/scripts/select_recent_files.mjs:*)" \
+  "Bash(node .agents/skills/security-review-recent/scripts/build_review_buckets.mjs:*)" \
   "Bash(pwd:*)" \
   "Bash(rg:*)" \
   "Bash(sed:*)" \

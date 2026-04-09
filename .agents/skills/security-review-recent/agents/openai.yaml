@@ -1,4 +1,4 @@
 interface:
   display_name: "Security Review Recent"
-  short_description: "Review recent commits for severe security bugs."
-  default_prompt: "Use $security-review:recent to review the last 7 days of recent commits for real critical and high severity security vulnerabilities, using review buckets instead of one reviewer per file, then verify and emit JSON findings."
+  short_description: "Review recent churn and broad code areas for severe security bugs."
+  default_prompt: "Use $security-review:recent to review recent code with a 2-3 / 2-3 / 2-3 split across past-day, past-week, and broad-coverage review buckets for real critical and high severity security vulnerabilities, then verify and emit JSON findings."
