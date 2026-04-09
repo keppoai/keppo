@@ -7,23 +7,10 @@ test -n "${DEMO_VIDEO_PATH:-}"
 test -n "${GITHUB_REPOSITORY:-}"
 test -n "${VERCEL_DEMO_BLOB_READ_WRITE_TOKEN:-}"
 
-normalized_demo_path="${DEMO_VIDEO_PATH}"
-while [[ "${normalized_demo_path}" == ./* ]]; do
-  normalized_demo_path="${normalized_demo_path#./}"
-done
-
-case "${normalized_demo_path}" in
-  ux-artifacts/video-demos/*) ;;
-  *)
-    echo "Demo video path must be under ux-artifacts/video-demos/: ${DEMO_VIDEO_PATH}" >&2
-    exit 1
-    ;;
-esac
-
-if [[ "${normalized_demo_path}" == *".."* ]] || [[ "${normalized_demo_path}" = /* ]] || [[ "${normalized_demo_path}" == *\\* ]]; then
-  echo "Demo video path must be a safe relative path: ${DEMO_VIDEO_PATH}" >&2
-  exit 1
-fi
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+normalized_demo_path="$(
+  DEMO_VIDEO_PATH="${DEMO_VIDEO_PATH}" node "${script_dir}/demo-video-path.mjs"
+)"
 
 if [[ ! -f "${normalized_demo_path}" ]]; then
   echo "Demo video file not found: ${DEMO_VIDEO_PATH}" >&2

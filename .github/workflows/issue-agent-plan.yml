@@ -26,14 +26,18 @@ on:
         type: string
 
 jobs:
-  run:
+  agent:
     environment: ai-bots
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       actions: read
       contents: read
-      issues: write
+    outputs:
+      has_plan_comment: ${{ steps.capture.outputs.has_plan_comment }}
+      plan_comment: ${{ steps.capture.outputs.plan_comment }}
+      has_session_log_comment: ${{ steps.capture.outputs.has_session_log_comment }}
+      session_log_comment: ${{ steps.capture.outputs.session_log_comment }}
     env:
       PLAN_COMMENT_PATH: tmp/issue-agent/plan-comment.md
       PROMPT_PATH: tmp/issue-agent/agent-plan-prompt.txt
@@ -53,7 +57,6 @@ jobs:
           app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
           private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
           permission-contents: read
-          permission-issues: write
 
       - name: Checkout repository
         uses: actions/checkout@v5
@@ -182,40 +185,147 @@ jobs:
           KEPPO_SESSION_LOG_UPLOAD_TOKEN: ${{ secrets.KEPPO_SESSION_LOG_UPLOAD_TOKEN }}
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/upload-session-logs.sh"
 
-      - name: Post session log comment
+      - name: Capture agent outputs
         if: always()
+        id: capture
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          COMMENT_NUMBER: ${{ inputs.issue_number }}
-          COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
+          PLAN_COMMENT_PATH: ${{ env.PLAN_COMMENT_PATH }}
+          SESSION_LOG_COMMENT_PATH: ${{ env.SESSION_LOG_COMMENT_PATH }}
         run: |
-          if [ -s "${COMMENT_PATH}" ]; then
-            bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-github-comment.sh"
+          set -euo pipefail
+
+          write_multiline_output() {
+            local name="$1"
+            local path="$2"
+            local delimiter="EOF_$(openssl rand -hex 8)"
+            {
+              printf '%s<<%s\n' "${name}" "${delimiter}"
+              cat "${path}"
+              printf '\n%s\n' "${delimiter}"
+            } >> "${GITHUB_OUTPUT}"
+          }
+
+          if [ -s "${PLAN_COMMENT_PATH}" ]; then
+            echo "has_plan_comment=true" >> "${GITHUB_OUTPUT}"
+            write_multiline_output plan_comment "${PLAN_COMMENT_PATH}"
+          else
+            echo "has_plan_comment=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+          if [ -s "${SESSION_LOG_COMMENT_PATH}" ]; then
+            echo "has_session_log_comment=true" >> "${GITHUB_OUTPUT}"
+            write_multiline_output session_log_comment "${SESSION_LOG_COMMENT_PATH}"
+          else
+            echo "has_session_log_comment=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+  trusted:
+    needs: agent
+    if: always()
+    environment: ai-bots
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    steps:
+      - name: Create GitHub App token
+        id: app-token
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
+          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
+          permission-issues: write
+
+      - name: Post session log comment
+        if: needs.agent.outputs.has_session_log_comment == 'true'
+        continue-on-error: true
+        uses: actions/github-script@v7
+        env:
+          ISSUE_NUMBER: ${{ inputs.issue_number }}
+          COMMENT_BODY: ${{ needs.agent.outputs.session_log_comment }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number.parseInt(process.env.ISSUE_NUMBER ?? "", 10);
+            const body = process.env.COMMENT_BODY ?? "";
+
+            if (!Number.isFinite(issue_number)) {
+              throw new Error("ISSUE_NUMBER is required");
+            }
+
+            if (!body.trim()) {
+              core.info("Session log comment body was empty; skipping.");
+              return;
+            }
+
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number,
+                body,
+              });
+            } catch (error) {
+              if (error.status === 403 && /issue is locked/i.test(error.message || "")) {
+                core.warning("Skipping session log comment because the issue is locked.");
+                return;
+              }
+              throw error;
+            }
+
+      - name: Verify plan comment exists
+        if: needs.agent.result == 'success'
+        env:
+          AGENT_NAME: ${{ inputs.agent_name }}
+        run: |
+          set -euo pipefail
+          if [ "${{ needs.agent.outputs.has_plan_comment }}" != "true" ]; then
+            echo "::error::${AGENT_NAME} did not write tmp/issue-agent/plan-comment.md."
+            exit 1
           fi
 
       - name: Post plan comment
+        if: needs.agent.result == 'success'
+        uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
           ISSUE_NUMBER: ${{ inputs.issue_number }}
-          COMMENT_PATH: ${{ env.PLAN_COMMENT_PATH }}
-        run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/post-issue-comment.sh"
+          COMMENT_BODY: ${{ needs.agent.outputs.plan_comment }}
+        with:
+          github-token: ${{ steps.app-token.outputs.token }}
+          script: |
+            const issue_number = Number.parseInt(process.env.ISSUE_NUMBER ?? "", 10);
+            const body = process.env.COMMENT_BODY ?? "";
+
+            if (!Number.isFinite(issue_number)) {
+              throw new Error("ISSUE_NUMBER is required");
+            }
+
+            if (!body.trim()) {
+              throw new Error("COMMENT_BODY is required");
+            }
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number,
+              body,
+            });
 
       - name: Set failure labels and comment
-        if: failure()
+        if: contains(fromJSON('["failure","cancelled"]'), needs.agent.result) || failure()
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const issue_number = Number('${{ inputs.issue_number }}');
+            const agentResult = '${{ needs.agent.result }}';
+            const outcomeWord = agentResult === 'cancelled' ? 'was cancelled' : 'failed';
             try {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number,
                 body: [
-                  `The ${{ inputs.agent_name }} \`plan-issue\` run failed before it could post a plan comment.`,
+                  `The ${{ inputs.agent_name }} \`plan-issue\` run ${outcomeWord} before it could post a plan comment.`,
                   '',
                   `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
                 ].join('\n'),

@@ -64,7 +64,12 @@ Consult this file before changing GitHub Actions workflows that run Claude, Code
 - Never upload security findings, responsible-disclosure material, agent session logs, prompt/context files, private analysis outputs, or any other sensitive workflow byproducts with `actions/upload-artifact`.
 - For security-sensitive or otherwise non-public workflow outputs, use the dedicated trusted upload path (for example `upload-session-logs.sh`) or keep the data within the same job and process it locally without a GitHub artifact hop.
 - When a trusted upload helper scans an agent home directory for session logs, scope discovery to the known session-log subtree or filename pattern. Never treat "all newly written JSON files under agent home" as session logs; agent homes also contain auth, plugin, config, and other unrelated machine files.
-- If a workflow cannot complete without persisting sensitive intermediate data across jobs, redesign the workflow instead of falling back to `actions/upload-artifact`.
+- When a post-agent workflow only needs small agent-authored text that is meant to become a GitHub comment, prefer passing that text through job outputs into a separate trusted comment-posting job instead of keeping write-scoped comment steps on the agent runner. Do not use job outputs for prompt/context files, session logs, or other sensitive byproducts.
+- GitHub job outputs are only safe for small agent-authored comment text. Keep each such payload well under GitHub's 24 KB output limit and never use job outputs for the content of prompt/context files, session logs, raw manifests, or other sensitive byproducts.
+- Small trusted scalar values captured in deterministic pre-agent steps, such as an immutable base commit SHA, may cross jobs via job outputs when the workflow uses them only to validate agent-authored artifacts rather than as a replacement for trusted artifact metadata.
+- When a workflow must persist sensitive intermediate data across jobs, use a deterministic trusted upload id plus an authenticated upload-record lookup. The trusted job must choose artifacts from that stored manifest, not from mutable workspace files or untrusted job outputs.
+- Trusted cross-job artifact restores must verify the download route's artifact identity and digest headers plus the actual byte size and SHA-256 before using the file.
+- If a workflow cannot complete without persisting sensitive intermediate data across jobs through a dedicated trusted channel, redesign the workflow instead of falling back to `actions/upload-artifact`.
 
 ## Permissions rules
 
