@@ -1,8 +1,8 @@
 import { allTools, type ToolDefinition } from "./tool-definitions.js";
-import { providerDeprecations } from "./provider-deprecations.js";
 import { resolveProviderSelection } from "./provider-runtime-config.js";
 import { CANONICAL_PROVIDER_IDS, type CanonicalProviderId } from "./provider-ids.js";
 import type { ProviderCatalogConfigurationStatus, ProviderDeprecationStatus } from "./domain.js";
+import { providerModulesV2 } from "./providers/modules/index.js";
 
 export { CANONICAL_PROVIDER_IDS, PROVIDER_ALIASES, resolveProvider } from "./provider-ids.js";
 export type {
@@ -32,13 +32,6 @@ export type ProviderCatalogEntry = {
     sunset_at?: string;
     replacement_provider?: CanonicalProviderId;
   };
-};
-
-const providerConfigurationRequirements: Partial<Record<CanonicalProviderId, string[]>> = {
-  github: ["GITHUB_CLIENT_ID", "GITHUB_CLIENT_SECRET"],
-  google: ["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"],
-  reddit: ["REDDIT_CLIENT_ID", "REDDIT_CLIENT_SECRET"],
-  stripe: ["STRIPE_CLIENT_ID", "STRIPE_SECRET_KEY"],
 };
 
 const toCatalogTool = (tool: ToolDefinition) => ({
@@ -75,27 +68,33 @@ const providerToolOwnership = (() => {
   return grouped;
 })();
 
+const providerMetadataById = new Map(
+  providerModulesV2.map((module) => [module.providerId, module.metadata] as const),
+);
+
 export const ENABLED_PROVIDER_IDS = resolveProviderSelection(CANONICAL_PROVIDER_IDS);
 
 export const providerCatalog: Array<ProviderCatalogEntry> = ENABLED_PROVIDER_IDS.map((provider) => {
-  const deprecation = providerDeprecations[provider];
-  const configurationRequirements = providerConfigurationRequirements[provider];
+  const metadata = providerMetadataById.get(provider);
+  if (!metadata) {
+    throw new Error(`Provider "${provider}" is missing module metadata.`);
+  }
   return {
     provider,
     supported_tools: [...(providerToolOwnership.get(provider) ?? [])],
-    ...(configurationRequirements
+    ...(metadata.envRequirements.length > 0
       ? {
-          configuration_requirements: [...configurationRequirements],
+          configuration_requirements: [...metadata.envRequirements],
         }
       : {}),
-    ...(deprecation
+    ...(metadata.deprecation
       ? {
           deprecation: {
-            status: deprecation.status,
-            message: deprecation.message,
-            ...(deprecation.sunsetAt ? { sunset_at: deprecation.sunsetAt } : {}),
-            ...(deprecation.replacementProviderId
-              ? { replacement_provider: deprecation.replacementProviderId }
+            status: metadata.deprecation.status,
+            message: metadata.deprecation.message,
+            ...(metadata.deprecation.sunsetAt ? { sunset_at: metadata.deprecation.sunsetAt } : {}),
+            ...(metadata.deprecation.replacementProviderId
+              ? { replacement_provider: metadata.deprecation.replacementProviderId }
               : {}),
           },
         }

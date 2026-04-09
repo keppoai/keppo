@@ -6,7 +6,7 @@ import {
   handleOAuthProviderConnectRequest,
 } from "../../app/lib/server/oauth-api";
 
-const createDeps = (provider: "google" | "reddit" | "x" = "google") => {
+const createDeps = (provider: "google" | "reddit" | "slack" | "notion" | "x" = "google") => {
   const storedPkceCodeVerifier = provider === "x" ? "pkce_verifier_test" : null;
   const buildAuthRequest = vi.fn().mockResolvedValue({
     oauth_start_url: `https://auth.test/oauth/start?provider=${provider}`,
@@ -234,6 +234,31 @@ describe("start-owned oauth api handlers", () => {
 
     expect(handled?.status).toBe(200);
     expect(unhandled).toBeNull();
+  });
+
+  it("accepts managed OAuth providers projected from the module graph", async () => {
+    const deps = createDeps("slack");
+
+    const response = await handleOAuthProviderConnectRequest(
+      withJson(
+        "/api/oauth/integrations/slack/connect",
+        {
+          org_id: "org_test",
+          return_to: "/integrations",
+        },
+        {
+          cookie: "better-auth.session_token=session_token_test",
+        },
+      ),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      status: "requires_oauth",
+      provider: "slack",
+    });
+    expect(deps.getProviderModule).toHaveBeenCalledWith("slack");
   });
 
   it("stores X PKCE verifier server-side instead of embedding it in OAuth state", async () => {

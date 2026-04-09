@@ -1,4 +1,4 @@
-import { CANONICAL_PROVIDER_IDS } from "../../provider-catalog.js";
+import { CANONICAL_PROVIDER_IDS, type CanonicalProviderId } from "../../provider-ids.js";
 import type { ProviderAutomationTriggerDefinition, ProviderModuleV2 } from "../registry/types.js";
 import { assertProviderModulesV2Invariants } from "../registry/invariants.js";
 import { customProviderModule } from "./custom/index.js";
@@ -36,6 +36,24 @@ assertProviderModulesV2Invariants(providerModulesV2);
 
 export const providerModuleV2ById = new Map(
   providerModulesV2.map((module) => [module.providerId, module] as const),
+);
+
+const projectProviderIds = (
+  predicate: (module: ProviderModuleV2) => boolean,
+): CanonicalProviderId[] => {
+  return providerModulesV2.filter(predicate).map((module) => module.providerId);
+};
+
+export const MANAGED_OAUTH_PROVIDER_IDS = projectProviderIds(
+  (module) => module.metadata.auth.managed,
+);
+
+export const WEBHOOK_PROVIDER_IDS = projectProviderIds(
+  (module) => module.metadata.capabilities.webhook,
+);
+
+export const AUTOMATION_TRIGGER_PROVIDER_IDS = projectProviderIds(
+  (module) => module.metadata.capabilities.automationTriggers,
 );
 
 for (const providerId of CANONICAL_PROVIDER_IDS) {

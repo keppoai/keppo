@@ -4,7 +4,7 @@ import type {
   ProviderAutomationTriggersFacet,
   RegisteredProviderAutomationTrigger,
 } from "./registry/types.js";
-import { automationTriggerModules } from "./modules/automation-trigger-modules.js";
+import { providerModulesV2 } from "./modules/index.js";
 
 let cachedAutomationTriggerRegistry: Partial<
   Record<CanonicalProviderId, ProviderAutomationTriggersFacet>
@@ -18,8 +18,11 @@ const getAutomationTriggerRegistry = (): Partial<
   }
 
   const registry: Partial<Record<CanonicalProviderId, ProviderAutomationTriggersFacet>> = {};
-  for (const module of automationTriggerModules) {
-    registry[module.providerId] = module.automationTriggers;
+  for (const module of providerModulesV2) {
+    if (!module.facets.automationTriggers) {
+      continue;
+    }
+    registry[module.providerId] = module.facets.automationTriggers;
   }
 
   cachedAutomationTriggerRegistry = registry;
@@ -60,8 +63,8 @@ export const resolveProviderAutomationTriggerDefinition = (
 };
 
 export const listRegisteredAutomationTriggers = (): RegisteredProviderAutomationTrigger[] => {
-  return automationTriggerModules.flatMap((module) =>
-    Object.values(module.automationTriggers.triggers).map((trigger) => ({
+  return providerModulesV2.flatMap((module) =>
+    Object.values(module.facets.automationTriggers?.triggers ?? {}).map((trigger) => ({
       providerId: module.providerId,
       trigger,
     })),
