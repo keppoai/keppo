@@ -1,0 +1,6 @@
+import type { ProviderSchemasFacet } from "../../registry/types.js";
+import { buildSchemasFacetFromTools, getProviderToolDefinitions } from "../shared.js";
+
+const ownedTools = getProviderToolDefinitions("linkedin");
+
+export const schemas: ProviderSchemasFacet = buildSchemasFacetFromTools(ownedTools);

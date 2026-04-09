@@ -71,4 +71,25 @@ describe("safeFetch", () => {
 
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
   });
+
+  it("allows LinkedIn API hosts from the default allowlist", async () => {
+    globalThis.fetch = vi.fn(
+      async () => new Response(JSON.stringify({ sub: "member_100" }), { status: 200 }),
+    );
+
+    const response = await safeFetch(
+      "https://api.linkedin.com/v2/userinfo",
+      { method: "GET" },
+      "network.linkedin.test",
+    );
+
+    expect(response.ok).toBe(true);
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      new URL("https://api.linkedin.com/v2/userinfo"),
+      expect.objectContaining({
+        method: "GET",
+        headers: expect.any(Headers),
+      }),
+    );
+  });
 });

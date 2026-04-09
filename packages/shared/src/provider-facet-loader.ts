@@ -67,6 +67,16 @@ const managedOAuthFacetLoaders: Record<ManagedOAuthProvider, ManagedOAuthFacetLo
       facets: { auth },
     };
   },
+  linkedin: async () => {
+    const [{ metadata }, { auth }] = await Promise.all([
+      import("./providers/modules/linkedin/metadata.js"),
+      import("./providers/modules/linkedin/auth.js"),
+    ]);
+    return {
+      metadata,
+      facets: { auth },
+    };
+  },
 };
 
 const webhookFacetLoaders: Record<WebhookProvider, WebhookFacetLoader> = {

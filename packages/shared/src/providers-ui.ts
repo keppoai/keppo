@@ -42,6 +42,7 @@ export type ProviderUiIcon =
   | "notion"
   | "reddit"
   | "x"
+  | "linkedin"
   | "custom";
 
 export type ProviderTestActionField = {
@@ -182,6 +183,14 @@ const GENERIC_TOOL_DEFAULT_INPUTS: Record<string, Record<string, unknown>> = {
   },
   "x.createPost": {
     body: "Integration test post from Keppo",
+  },
+  "linkedin.writeApi": {
+    method: "POST",
+    path: "/rest/posts",
+    body: {
+      commentary: "Integration test post from Keppo",
+      visibility: "PUBLIC",
+    },
   },
   "custom.callWrite": {
     tool: "credits.adjust",
@@ -538,6 +547,7 @@ const PROVIDER_DETAIL_UI: Record<CanonicalProviderId, ProviderDetailUiConfig> = 
   notion: createGenericProviderUi("Notion"),
   reddit: createGenericProviderUi("Reddit"),
   x: createGenericProviderUi("X"),
+  linkedin: createGenericProviderUi("LinkedIn"),
   custom: createGenericProviderUi("Custom"),
 };
 
@@ -593,6 +603,12 @@ const PROVIDER_DISPLAY: Record<
     description: "Search posts, create new posts",
     icon: "x",
     colorClass: "bg-neutral-50 dark:bg-neutral-950/30",
+  },
+  linkedin: {
+    label: "LinkedIn",
+    description: "Low-level access to approved LinkedIn APIs",
+    icon: "linkedin",
+    colorClass: "bg-sky-50 dark:bg-sky-950/30",
   },
   custom: {
     label: "Custom",

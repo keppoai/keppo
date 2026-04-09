@@ -22,6 +22,12 @@ audience: self-hosted
 - Enable the billing webhook events your deployment expects, including subscription lifecycle updates.
 - Treat billing writes as high-signal approval surfaces until the team is comfortable automating them.
 
+## LinkedIn
+
+- Configure LinkedIn OAuth client credentials and keep the integration callback on the active deployment origin.
+- Expect product-family access to vary by app approval; a successful connect does not guarantee Community Management, Ads, Sales Navigator, or Talent APIs are all available.
+- Start with the low-level request/response tools and request extra scopes only for the LinkedIn products your app is actually approved to use.
+
 ## Custom and other providers
 
 - Keep catalog-backed providers visible even when env is incomplete.

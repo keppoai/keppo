@@ -47,8 +47,9 @@ Each provider has its own setup guide with env vars, OAuth callbacks, and operat
 - [Google](providers/google.md) - Gmail OAuth, scopes, Gmail watch/polling setup
 - [Stripe](providers/stripe.md) - OAuth, Managed Payments checkout, billing webhooks (enable `subscription_schedule.updated` on the billing endpoint when using native in-app plan schedules), operator write-mode controls
 - [GitHub](providers/github.md) - OAuth, webhook setup, repository allowlisting
+- [LinkedIn](providers/linkedin.md) - OAuth, low-level approved API access, and scope/product approval caveats
 
-Additional providers (`slack`, `notion`, `custom`) require no provider-specific env vars. Reddit requires `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` for managed OAuth. X requires `X_CLIENT_ID` and `X_CLIENT_SECRET`; optional overrides `X_OAUTH_AUTH_URL`, `X_OAUTH_TOKEN_URL`, and `X_API_BASE_URL` let self-hosted operators point at a custom OAuth/API surface instead of the built-in fake-gateway defaults used in local development and E2E. The default outbound fetch allowlist includes `api.x.com:443`, and `X_API_BASE_URL` is merged into the allowlist when set. If you set `KEPPO_EXTERNAL_FETCH_ALLOWLIST` yourself, include `api.x.com:443` (and the host from any non-default `X_API_BASE_URL`) so X connector actions can reach the API.
+Additional providers (`slack`, `notion`, `custom`) require no provider-specific env vars. Reddit requires `REDDIT_CLIENT_ID` and `REDDIT_CLIENT_SECRET` for managed OAuth. X requires `X_CLIENT_ID` and `X_CLIENT_SECRET`; optional overrides `X_OAUTH_AUTH_URL`, `X_OAUTH_TOKEN_URL`, and `X_API_BASE_URL` let self-hosted operators point at a custom OAuth/API surface instead of the built-in fake-gateway defaults used in local development and E2E. LinkedIn requires `LINKEDIN_CLIENT_ID` and `LINKEDIN_CLIENT_SECRET`; optional overrides `LINKEDIN_OAUTH_AUTH_URL`, `LINKEDIN_OAUTH_TOKEN_URL`, and `LINKEDIN_API_BASE_URL` let self-hosted operators point at a custom LinkedIn-compatible OAuth/API surface. Keppo defaults LinkedIn to conservative OIDC scopes (`openid`, `profile`, `email`); if your app has approval for Community Management, Ads, Lead Sync, Sales Navigator, or Talent APIs, request those extra scopes explicitly during the integration connect flow. The default outbound fetch allowlist includes `api.x.com:443`, `www.linkedin.com:443`, and `api.linkedin.com:443`. If you set `KEPPO_EXTERNAL_FETCH_ALLOWLIST` yourself, include `api.x.com:443`, `www.linkedin.com:443`, and `api.linkedin.com:443` plus any non-default `X_*` or `LINKEDIN_*` override hosts so X and LinkedIn OAuth exchange and connector actions can reach their APIs.
 
 Provider rollout flags (all default `true`, set `false` to disable):
 
@@ -61,6 +62,7 @@ Provider rollout flags (all default `true`, set `false` to disable):
 | `KEPPO_FEATURE_INTEGRATIONS_NOTION_FULL` | server |
 | `KEPPO_FEATURE_INTEGRATIONS_REDDIT_FULL` | server |
 | `KEPPO_FEATURE_INTEGRATIONS_X_FULL`      | server |
+| `KEPPO_FEATURE_INTEGRATIONS_LINKEDIN_FULL` | server |
 | `KEPPO_FEATURE_INTEGRATIONS_CUSTOM_FULL` | server |
 
 ### Optional environment variables

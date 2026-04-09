@@ -3,7 +3,7 @@
 ## Provider connector layer
 
 - Provider modules under `packages/shared/src/providers/modules/*` are the source of truth for auth, metadata, tool definitions, refresh behavior, webhook hooks, and UI contracts.
-- The current canonical providers are `google`, `stripe`, `github`, `slack`, `notion`, `reddit`, `x`, and `custom`.
+- The current canonical providers are `google`, `stripe`, `github`, `slack`, `notion`, `reddit`, `x`, `linkedin`, and `custom`.
 - The provider registry snapshot in `packages/shared/provider-registry.snapshot.json` is checked by guardrail scripts and is the concise source of truth for shipped provider metadata.
 - Polling automation trigger registration is derived from provider module metadata, not from a separate hand-maintained trigger registry.
 - Custom MCP server discovery and execution are stateless request-scoped exchanges through the shared custom-MCP client; Keppo stores discovered metadata and the results it owns, not remote session state.
@@ -69,6 +69,7 @@
 - Slack connector runtime now includes full T1 + T2 channel/message/reaction/user/file/scheduling/pin/DM read-write coverage plus an initial T3 conversation-management slice (`renameChannel`, `kickFromChannel`, `leaveChannel`, `closeDM`) through the same SDK boundary and deterministic fake-gateway contract.
 - Reddit connector runtime now includes full T1 + T2 search/list/info/comment/vote/message/user/subreddit coverage plus an initial T3 moderation slice (`approve`, `removeContent`, `lockPost`, `unlockPost`) through the same SDK boundary and deterministic fake-gateway contract.
 - X connector runtime now includes full T1 post/user/timeline/engagement/dm coverage through the same SDK boundary and deterministic fake-gateway contract.
+- LinkedIn connector runtime currently ships as a breadth-first low-level provider surface: managed OAuth plus `linkedin.getProfile`, `linkedin.readApi`, and `linkedin.writeApi` route approved LinkedIn product APIs through one SDK-backed request/response boundary instead of hand-modeling every endpoint family.
 
 ### Storage write path guarantees
 

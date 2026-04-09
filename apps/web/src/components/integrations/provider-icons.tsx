@@ -99,6 +99,18 @@ function XIcon(props: IconProps) {
   );
 }
 
+function LinkedInIcon(props: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" {...props}>
+      <rect width="24" height="24" rx="4" fill="#0A66C2" />
+      <path
+        d="M7.15 9.2H4.95v9.6h2.2V9.2Zm.14-2.97A1.29 1.29 0 1 0 4.71 6.2a1.29 1.29 0 0 0 2.58.03ZM19.1 13.02c0-2.95-1.57-4.32-3.67-4.32-1.69 0-2.45.93-2.87 1.58V9.2h-2.2c.03.72 0 9.6 0 9.6h2.2v-5.36c0-.29.02-.57.11-.78.23-.57.75-1.16 1.63-1.16 1.15 0 1.61.87 1.61 2.15v5.15h2.2v-5.78Z"
+        fill="#fff"
+      />
+    </svg>
+  );
+}
+
 function CustomIcon(props: IconProps) {
   return (
     <svg
@@ -123,6 +135,7 @@ const ICON_COMPONENTS = {
   notion: NotionIcon,
   reddit: RedditIcon,
   x: XIcon,
+  linkedin: LinkedInIcon,
   custom: CustomIcon,
 } as const satisfies Record<ProviderUiIcon, (props: IconProps) => React.ReactNode>;
 

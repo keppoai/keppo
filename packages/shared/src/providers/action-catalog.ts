@@ -114,6 +114,7 @@ const providerScopeExpansion: Record<CanonicalProviderId, Array<string>> = {
     "list.read",
     "list.write",
   ],
+  linkedin: [],
   custom: [],
 };
 
@@ -129,6 +130,10 @@ const providerCatalogScopes: Record<CanonicalProviderId, Array<string>> = {
   notion: dedupeScopes([...getProviderDefaultScopes("notion"), ...providerScopeExpansion.notion]),
   reddit: dedupeScopes([...getProviderDefaultScopes("reddit"), ...providerScopeExpansion.reddit]),
   x: dedupeScopes([...getProviderDefaultScopes("x"), ...providerScopeExpansion.x]),
+  linkedin: dedupeScopes([
+    ...getProviderDefaultScopes("linkedin"),
+    ...providerScopeExpansion.linkedin,
+  ]),
   custom: dedupeScopes([...getProviderDefaultScopes("custom"), ...providerScopeExpansion.custom]),
 };
 
@@ -140,6 +145,7 @@ const oauthProviders = new Set<CanonicalProviderId>([
   "notion",
   "reddit",
   "x",
+  "linkedin",
 ]);
 const refreshProviders = new Set<CanonicalProviderId>(["google", "stripe", "github"]);
 const webhookProviders = new Set<CanonicalProviderId>(["stripe", "github"]);
@@ -152,6 +158,7 @@ const gatewayProviderIdByCanonical: Record<CanonicalProviderId, string> = {
   notion: "notion",
   reddit: "reddit",
   x: "x",
+  linkedin: "linkedin",
   custom: "custom",
 };
 const expectedToolPrefixByProvider: Record<CanonicalProviderId, string> = {
@@ -162,6 +169,7 @@ const expectedToolPrefixByProvider: Record<CanonicalProviderId, string> = {
   notion: "notion",
   reddit: "reddit",
   x: "x",
+  linkedin: "linkedin",
   custom: "custom",
 };
 
@@ -173,7 +181,8 @@ const providerSortIndex: Record<CanonicalProviderId, number> = {
   notion: 4,
   reddit: 5,
   x: 6,
-  custom: 7,
+  linkedin: 7,
+  custom: 8,
 };
 
 const toImplementedActionTier = (
@@ -329,6 +338,14 @@ export const providerLifecycleActionMatrix: ProviderLifecycleActionMatrix = {
     webhook: false,
   },
   x: {
+    oauth_connect: true,
+    oauth_authorize: true,
+    oauth_callback: true,
+    oauth_token: true,
+    refresh: false,
+    webhook: false,
+  },
+  linkedin: {
     oauth_connect: true,
     oauth_authorize: true,
     oauth_callback: true,

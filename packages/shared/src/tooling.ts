@@ -37,6 +37,7 @@ export const githubTools = createProviderToolView("github");
 export const notionTools = createProviderToolView("notion");
 export const redditTools = createProviderToolView("reddit");
 export const xTools = createProviderToolView("x");
+export const linkedinTools = createProviderToolView("linkedin");
 export const customTools = createProviderToolView("custom");
 
 export const keppoInternalTools: ToolDefinition[] = allTools.filter(

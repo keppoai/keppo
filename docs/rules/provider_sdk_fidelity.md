@@ -7,7 +7,7 @@ Use these rules when a provider connector depends on the SDK boundary in `packag
 ## Required contract
 
 - Connector modules call SDK adapter methods only; raw provider HTTP belongs in the SDK layer.
-- Official-SDK providers (`google`, `stripe`, `github`, `slack`, `notion`, `reddit`, `x`) should instantiate their real SDK clients in `provider-sdk/<provider>/real.ts`.
+- Official-SDK providers (`google`, `stripe`, `github`, `slack`, `notion`, `reddit`, `x`, `linkedin`) should instantiate their real SDK clients in `provider-sdk/<provider>/real.ts`.
 - Real SDK adapters must normalize provider failures into the shared SDK error shape used by runtime policy and metrics logic.
 - OAuth exchange and refresh flows must normalize provider-returned scopes into the same canonical app scope strings before connector/runtime checks.
 - When a provider returns its durable external account identifier in the OAuth token response, persist that provider-issued identifier directly instead of inventing a follow-up profile endpoint; only use profile lookup when the provider contract requires it.

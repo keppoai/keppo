@@ -932,6 +932,58 @@
       ]
     },
     {
+      "providerId": "linkedin",
+      "schemaVersion": 1,
+      "auth": {
+        "mode": "oauth2",
+        "managed": true
+      },
+      "capabilities": {
+        "read": true,
+        "write": true,
+        "refreshCredentials": false,
+        "webhook": false
+      },
+      "featureGate": "KEPPO_FEATURE_INTEGRATIONS_LINKEDIN_FULL",
+      "riskClass": "high",
+      "display": {
+        "label": "LinkedIn",
+        "description": "Low-level request and response tools for approved LinkedIn APIs",
+        "icon": "linkedin"
+      },
+      "envRequirements": [
+        "LINKEDIN_CLIENT_ID",
+        "LINKEDIN_CLIENT_SECRET"
+      ],
+      "legacyAliases": [],
+      "toolOwnership": [
+        {
+          "name": "linkedin.getProfile",
+          "capability": "read",
+          "risk_level": "low",
+          "requires_approval": false,
+          "action_type": "get_profile",
+          "provider": "linkedin"
+        },
+        {
+          "name": "linkedin.readApi",
+          "capability": "read",
+          "risk_level": "medium",
+          "requires_approval": false,
+          "action_type": "read_api",
+          "provider": "linkedin"
+        },
+        {
+          "name": "linkedin.writeApi",
+          "capability": "write",
+          "risk_level": "high",
+          "requires_approval": true,
+          "action_type": "write_api",
+          "provider": "linkedin"
+        }
+      ]
+    },
+    {
       "providerId": "notion",
       "schemaVersion": 1,
       "auth": {
@@ -3499,6 +3551,18 @@
     {
       "name": "gmail.watch",
       "providerId": "google"
+    },
+    {
+      "name": "linkedin.getProfile",
+      "providerId": "linkedin"
+    },
+    {
+      "name": "linkedin.readApi",
+      "providerId": "linkedin"
+    },
+    {
+      "name": "linkedin.writeApi",
+      "providerId": "linkedin"
     },
     {
       "name": "notion.appendBlockChildren",

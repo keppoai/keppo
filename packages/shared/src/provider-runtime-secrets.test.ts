@@ -12,6 +12,7 @@ describe("getProviderRuntimeSecrets", () => {
         STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe_provider_webhook_secret",
         GITHUB_WEBHOOK_SECRET: "github_webhook_secret",
         X_CLIENT_ID: "x_client",
+        LINKEDIN_CLIENT_ID: "linkedin_client",
         KEPPO_MASTER_KEY: "should_not_leak",
       },
     });
@@ -21,6 +22,7 @@ describe("getProviderRuntimeSecrets", () => {
       STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe_provider_webhook_secret",
       GITHUB_WEBHOOK_SECRET: "github_webhook_secret",
       X_CLIENT_ID: "x_client",
+      LINKEDIN_CLIENT_ID: "linkedin_client",
     });
   });
 
@@ -47,6 +49,9 @@ describe("getProviderRuntimeSecrets", () => {
         "X_OAUTH_AUTH_URL",
         "X_OAUTH_TOKEN_URL",
         "X_API_BASE_URL",
+        "LINKEDIN_OAUTH_AUTH_URL",
+        "LINKEDIN_OAUTH_TOKEN_URL",
+        "LINKEDIN_API_BASE_URL",
       ]),
     );
   });
@@ -92,6 +97,11 @@ describe("getProviderRuntimeSecrets", () => {
         "X_API_BASE_URL",
         "X_CLIENT_ID",
         "X_CLIENT_SECRET",
+        "LINKEDIN_OAUTH_AUTH_URL",
+        "LINKEDIN_OAUTH_TOKEN_URL",
+        "LINKEDIN_API_BASE_URL",
+        "LINKEDIN_CLIENT_ID",
+        "LINKEDIN_CLIENT_SECRET",
       ]),
     );
     expect(hostedKeys).not.toContain("KEPPO_FAKE_EXTERNAL_BASE_URL");

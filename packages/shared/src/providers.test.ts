@@ -261,4 +261,50 @@ describe("provider registry", () => {
       ),
     ).rejects.toThrow(/did not return a provider account identifier/i);
   });
+
+  it("fails closed for LinkedIn OAuth when profile lookup returns no account id", async () => {
+    const exchange = providerRegistry.getProviderModule("linkedin").hooks.exchangeCredentials;
+
+    await expect(
+      exchange(
+        {
+          code: "oauth_code_test",
+          redirectUri: "http://127.0.0.1/oauth/integrations/linkedin/callback",
+        },
+        runtimeContext({
+          httpClient: async (url, init) => {
+            if (url === "https://www.linkedin.com/oauth/v2/accessToken") {
+              expect(init?.method).toBe("POST");
+              return new Response(
+                JSON.stringify({
+                  access_token: "access_token_test",
+                  expires_in: 120,
+                }),
+                { status: 200, headers: { "content-type": "application/json" } },
+              );
+            }
+            if (url === "https://api.linkedin.com/v2/userinfo") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            if (url === "https://api.linkedin.com/v2/me") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            if (url === "https://api.linkedin.com/rest/me") {
+              return new Response("{}", {
+                status: 200,
+                headers: { "content-type": "application/json" },
+              });
+            }
+            throw new Error(`Unexpected URL: ${url}`);
+          },
+        }),
+      ),
+    ).rejects.toThrow(/did not return a provider account identifier/i);
+  });
 });

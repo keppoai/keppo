@@ -6,6 +6,7 @@ export const CANONICAL_PROVIDER_IDS = [
   "notion",
   "reddit",
   "x",
+  "linkedin",
   "custom",
 ] as const;
 

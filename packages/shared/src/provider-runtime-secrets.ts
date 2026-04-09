@@ -99,6 +99,26 @@ export const PROVIDER_RUNTIME_SECRET_SPECS = [
     syncTargets: ["local", "hosted"],
   },
   {
+    key: "LINKEDIN_OAUTH_AUTH_URL",
+    syncTargets: ["local", "e2e", "hosted"],
+  },
+  {
+    key: "LINKEDIN_OAUTH_TOKEN_URL",
+    syncTargets: ["local", "e2e", "hosted"],
+  },
+  {
+    key: "LINKEDIN_API_BASE_URL",
+    syncTargets: ["local", "e2e", "hosted"],
+  },
+  {
+    key: "LINKEDIN_CLIENT_ID",
+    syncTargets: ["local", "hosted"],
+  },
+  {
+    key: "LINKEDIN_CLIENT_SECRET",
+    syncTargets: ["local", "hosted"],
+  },
+  {
     key: "X_OAUTH_AUTH_URL",
     syncTargets: ["local", "e2e", "hosted"],
   },
