@@ -99,6 +99,7 @@ export const triggerWriteAction = mutation({
 
     await ctx.db.insert("automation_runs", {
       id: runId,
+      org_id: workspace.org_id,
       workspace_id: args.workspaceId,
       mcp_session_id: null,
       client_type: "chatgpt",
@@ -299,6 +300,7 @@ export const createGroupedPendingActions = mutation({
 
     await ctx.db.insert("automation_runs", {
       id: runId,
+      org_id: workspace.org_id,
       workspace_id: args.workspaceId,
       mcp_session_id: null,
       client_type: "chatgpt",
