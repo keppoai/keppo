@@ -140,7 +140,7 @@ Notes:
 
 Label contract:
 
-- Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `?agent:gh-copilot`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`, `prompt-injection-risk`
+- Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `?agent:gh-copilot`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`
 - PR labels: `/fix-pr`, `?agent:claude`, `?agent:codex`, `fix-pr:pending|done|failed`, `/sync-pr`, `sync-pr:pending|failed`, `needs-human:review-issue`, `needs-human:final-check`
 
 Selection rules:

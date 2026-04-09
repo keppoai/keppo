@@ -50,10 +50,6 @@ This document defines the naming scheme for GitHub issue and pull request labels
 - `needs-human:review-issue`
 - `needs-human:final-check`
 
-### Safety label
-
-- `prompt-injection-risk`
-
 ## Notes
 
 - The `/...` prefix is reserved for labels a human intentionally applies to start a workflow.

@@ -207,156 +207,9 @@ jobs:
               labels: nextLabels,
             });
 
-  injection-check:
-    needs: [gate, mark-pending]
-    if: needs.gate.outputs.should_continue == 'true' && (needs.gate.outputs.action_key == 'do-issue' || needs.gate.outputs.action_key == 'plan-issue')
-    environment: ai-bots
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      issues: write
-      contents: read
-    outputs:
-      is_safe: ${{ steps.parse.outputs.is_safe }}
-    steps:
-      - name: Create GitHub App token
-        id: app-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
-          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-issues: write
-          permission-contents: read
-
-      - name: Checkout repository
-        uses: actions/checkout@v5
-        with:
-          token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ github.event.repository.default_branch }}
-          fetch-depth: 1
-
-      - name: Write untrusted issue reference
-        env:
-          ISSUE_NUMBER: ${{ needs.gate.outputs.issue_number }}
-          ISSUE_TITLE: ${{ needs.gate.outputs.issue_title }}
-          ISSUE_BODY: ${{ needs.gate.outputs.issue_body }}
-          ISSUE_COMMENTS_JSON: ${{ needs.gate.outputs.issue_comments_json }}
-        run: node scripts/issue-agent/write-untrusted-issue.mjs
-
-      - name: Build injection classifier prompt
-        id: injection-prompt
-        env:
-          TEMPLATE_PATH: .github/prompts/issue-agent/injection-check.txt
-          OUTPUT_PATH: tmp/issue-agent/injection-check-prompt.txt
-        run: node scripts/issue-agent/render-template.mjs
-
-      - name: Create minimal agent token
-        id: agent-token
-        uses: actions/create-github-app-token@v2
-        with:
-          app-id: ${{ vars.KEPPO_GITHUB_APP_ID }}
-          private-key: ${{ secrets.KEPPO_GITHUB_APP_PRIVATE_KEY }}
-          permission-contents: read
-
-      - name: Run injection classifier
-        id: classify
-        continue-on-error: true
-        uses: anthropics/claude-code-action@v1
-        with:
-          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-          github_token: ${{ steps.agent-token.outputs.token }}
-          track_progress: false
-          show_full_output: false
-          display_report: false
-          claude_args: --model sonnet --allowedTools "Read,Write" --disallowedTools "Bash,Edit,NotebookEdit"
-          prompt: ${{ steps.injection-prompt.outputs.prompt }}
-
-      - name: Parse injection classifier result
-        id: parse
-        env:
-          CLASSIFIER_OUTCOME: ${{ steps.classify.outcome }}
-        run: |
-          set -euo pipefail
-          node <<'EOF'
-          const crypto = require('crypto');
-          const fs = require('fs');
-
-          const outputPath = 'tmp/issue-agent/injection-check.json';
-          let safe = false;
-          let reason = '';
-
-          try {
-            if (process.env.CLASSIFIER_OUTCOME !== 'success') {
-              throw new Error(`classifier step outcome was ${process.env.CLASSIFIER_OUTCOME}`);
-            }
-            if (!fs.existsSync(outputPath)) {
-              throw new Error('classifier output file was not created');
-            }
-            const raw = fs.readFileSync(outputPath, 'utf8').trim();
-            const parsed = JSON.parse(raw);
-            if (typeof parsed.safe !== 'boolean') {
-              throw new Error('classifier output missing boolean "safe" field');
-            }
-            if (!parsed.safe && typeof parsed.reason !== 'string') {
-              throw new Error('unsafe classifier output missing string "reason" field');
-            }
-            safe = parsed.safe;
-            reason = parsed.reason || '';
-          } catch (error) {
-            safe = false;
-            reason = `Injection check failed closed: ${error.message}`;
-          }
-
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `is_safe=${safe}\n`);
-          if (reason) {
-            const delimiter = `EOF_${crypto.randomUUID()}`;
-            fs.appendFileSync(process.env.GITHUB_OUTPUT, `reason<<${delimiter}\n${reason}\n${delimiter}\n`);
-          }
-          EOF
-
-      - name: Mark issue as unsafe
-        if: steps.parse.outputs.is_safe != 'true'
-        env:
-          INJECTION_REASON: ${{ steps.parse.outputs.reason || 'No reason provided.' }}
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ steps.app-token.outputs.token }}
-          script: |
-            const issue_number = Number('${{ needs.gate.outputs.issue_number }}');
-            const action = '${{ needs.gate.outputs.action }}';
-            const actionKey = '${{ needs.gate.outputs.action_key }}';
-            const pendingLabel = `${actionKey}:pending`;
-            const { data: issue } = await github.rest.issues.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-            });
-            const currentLabels = issue.labels.map((label) => label.name);
-            const nextLabels = currentLabels
-              .filter((label) => ![action, pendingLabel].includes(label))
-              .concat(currentLabels.includes('prompt-injection-risk') ? [] : ['prompt-injection-risk']);
-
-            await github.rest.issues.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-              labels: nextLabels,
-            });
-
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number,
-              body: [
-                `Blocked \`${action}\` because the prompt injection pre-check marked this issue as unsafe.`,
-                '',
-                `Reason: ${process.env.INJECTION_REASON}`,
-              ].join('\n'),
-            });
-
   cc-do-issue:
-    needs: [gate, mark-pending, injection-check]
-    if: needs.gate.outputs.run_claude == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.run_claude == 'true' && needs.gate.outputs.action_key == 'do-issue'
     permissions:
       actions: read
       contents: write
@@ -376,8 +229,8 @@ jobs:
     secrets: inherit
 
   codex-do-issue:
-    needs: [gate, mark-pending, injection-check]
-    if: needs.gate.outputs.run_codex == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.run_codex == 'true' && needs.gate.outputs.action_key == 'do-issue'
     permissions:
       actions: read
       contents: write
@@ -397,8 +250,8 @@ jobs:
     secrets: inherit
 
   gh-copilot-do-issue:
-    needs: [gate, mark-pending, injection-check]
-    if: needs.gate.outputs.run_gh_copilot == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.run_gh_copilot == 'true' && needs.gate.outputs.action_key == 'do-issue'
     permissions:
       actions: read
       contents: write
@@ -418,8 +271,8 @@ jobs:
     secrets: inherit
 
   finalize-do-issue:
-    needs: [gate, mark-pending, injection-check, cc-do-issue, codex-do-issue, gh-copilot-do-issue]
-    if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'do-issue' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending, cc-do-issue, codex-do-issue, gh-copilot-do-issue]
+    if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'do-issue'
     environment: ai-bots
     runs-on: ubuntu-latest
     permissions:
@@ -486,8 +339,8 @@ jobs:
             }
 
   cc-plan-issue:
-    needs: [gate, mark-pending, injection-check]
-    if: needs.gate.outputs.run_claude == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.run_claude == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true'
     permissions:
       actions: read
       contents: read
@@ -504,8 +357,8 @@ jobs:
     secrets: inherit
 
   codex-plan-issue:
-    needs: [gate, mark-pending, injection-check]
-    if: needs.gate.outputs.run_codex == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.run_codex == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true'
     permissions:
       actions: read
       contents: read
@@ -522,8 +375,8 @@ jobs:
     secrets: inherit
 
   gh-copilot-plan-issue:
-    needs: [gate, mark-pending, injection-check]
-    if: needs.gate.outputs.run_gh_copilot == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending]
+    if: needs.gate.outputs.run_gh_copilot == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.gate.outputs.should_continue == 'true'
     permissions:
       actions: read
       contents: read
@@ -540,9 +393,8 @@ jobs:
     secrets: inherit
 
   finalize-plan-issue:
-    needs:
-      [gate, mark-pending, injection-check, cc-plan-issue, codex-plan-issue, gh-copilot-plan-issue]
-    if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'plan-issue' && needs.injection-check.outputs.is_safe == 'true'
+    needs: [gate, mark-pending, cc-plan-issue, codex-plan-issue, gh-copilot-plan-issue]
+    if: always() && needs.gate.outputs.should_continue == 'true' && needs.gate.outputs.action_key == 'plan-issue'
     environment: ai-bots
     runs-on: ubuntu-latest
     permissions:
