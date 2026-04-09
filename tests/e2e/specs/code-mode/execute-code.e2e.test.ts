@@ -240,22 +240,22 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
   // transient startup/runtime failure, which would otherwise mask the
   // product behavior this test asserts.
   let output: Record<string, unknown> | string | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     try {
       output = await mcp.executeCode({
         description: "Try a Slack read to verify disabled providers are blocked.",
         code: 'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
       });
-      if (attempt < 2 && isTransientSandboxFailurePayload(output)) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+      if (attempt < 4 && isTransientSandboxFailurePayload(output)) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt + 1)));
         continue;
       }
       break;
     } catch (error) {
-      if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
+      if (attempt >= 4 || !isRetryableExecuteCodeError(error)) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt + 1)));
       if (isSessionExpiredMcpError(error)) {
         await mcp.initialize();
       }

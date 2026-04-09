@@ -54,6 +54,7 @@ import type * as e2e_reliability from "../e2e_reliability.js";
 import type * as e2e_reset from "../e2e_reset.js";
 import type * as e2e_shared from "../e2e_shared.js";
 import type * as e2e_workspaces from "../e2e_workspaces.js";
+import type * as environment from "../environment.js";
 import type * as error_codes from "../error_codes.js";
 import type * as feature_flags from "../feature_flags.js";
 import type * as field_mapper from "../field_mapper.js";
@@ -167,6 +168,7 @@ declare const fullApi: ApiFromModules<{
   e2e_reset: typeof e2e_reset;
   e2e_shared: typeof e2e_shared;
   e2e_workspaces: typeof e2e_workspaces;
+  environment: typeof environment;
   error_codes: typeof error_codes;
   feature_flags: typeof feature_flags;
   field_mapper: typeof field_mapper;
