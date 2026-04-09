@@ -531,6 +531,7 @@ export const seedAutomationCascadeFixture = mutation({
     await ctx.db.insert("automation_trigger_events", {
       id: triggerEventId,
       automation_id: seeded.automationId,
+      org_id: seeded.orgId,
       event_provider: "fixture",
       event_type: "fixture.event",
       event_id: randomIdFor("evt"),

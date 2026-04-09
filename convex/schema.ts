@@ -491,7 +491,7 @@ export default defineSchema({
   automation_runs: defineTable({
     id: v.string(),
     automation_id: v.optional(v.string()),
-    org_id: v.optional(v.string()),
+    org_id: v.string(),
     config_version_id: v.optional(v.string()),
     trigger_type: v.optional(runTriggerTypeValidator),
     error_message: v.optional(v.union(v.string(), v.null())),
@@ -640,7 +640,7 @@ export default defineSchema({
   automation_trigger_events: defineTable({
     id: v.string(),
     automation_id: v.string(),
-    org_id: v.optional(v.string()),
+    org_id: v.string(),
     config_version_id: v.optional(v.string()),
     trigger_id: v.optional(v.string()),
     trigger_key: v.optional(v.string()),

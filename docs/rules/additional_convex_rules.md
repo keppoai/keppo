@@ -6,6 +6,7 @@
 - For app-defined string IDs, use `by_custom_id`.
 - Keep provider and enum validators explicit in `convex/schema.ts` and `convex/validators.ts`; do not make schema evaluation depend on runtime env.
 - Convex-imported module filenames must use only alphanumerics, underscores, and periods.
+- Org-scoped tables must persist `org_id` on every new write when the table is queried or indexed by org; do not leave `org_id` optional in storage just because one caller can infer it from `workspace_id` or `automation_id`. If legacy rows are missing `org_id`, ship a bounded backfill in the same change that makes the field required.
 
 ## Runtime boundaries
 

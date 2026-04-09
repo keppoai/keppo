@@ -132,6 +132,14 @@ export const createRun = internalMutation({
   },
   returns: runValidator,
   handler: async (ctx, args) => {
+    const workspace = await ctx.db
+      .query("workspaces")
+      .withIndex("by_custom_id", (q) => q.eq("id", args.workspaceId))
+      .unique();
+    if (!workspace) {
+      throw new Error("WorkspaceNotFound");
+    }
+
     const id = randomIdFor("run");
     const createdAt = nowIso();
     const metadata = {
@@ -141,6 +149,7 @@ export const createRun = internalMutation({
 
     await ctx.db.insert("automation_runs", {
       id,
+      org_id: workspace.org_id,
       workspace_id: args.workspaceId,
       mcp_session_id: args.sessionId,
       client_type: args.clientType,

@@ -762,6 +762,7 @@ export const createTestAction = mutation({
 
     await ctx.db.insert("automation_runs", {
       id: runId,
+      org_id: auth.orgId,
       workspace_id: args.workspaceId,
       mcp_session_id: null,
       client_type: CLIENT_TYPE.chatgpt,
