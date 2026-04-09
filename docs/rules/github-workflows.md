@@ -32,7 +32,7 @@ Consult this file before changing GitHub Actions workflow structure, runner sele
 
 ## Label and agent-selection rules
 
-- Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `?agent:gh-copilot`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`, `prompt-injection-risk`.
+- Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `?agent:gh-copilot`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`.
 - PR labels: `/fix-pr`, `?agent:claude`, `?agent:codex`, `fix-pr:pending|done|failed`, `/sync-pr`, `sync-pr:pending|failed`, `needs-human:review-issue`, `needs-human:final-check`.
 - PR terminal labels (applied by pr-watcher): `pr=ready-to-merge`, `pr=needs-human-review`, `pr=max-auto-fix`. See `docs/specs/pr-workflow.md` for the full state machine.
 - `no-pr-watcher` label opts a PR out of automated evaluation entirely.
