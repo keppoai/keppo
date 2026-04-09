@@ -1,6 +1,6 @@
 ---
 name: security-review:recent
-description: Review the last 7 days of recent commits for critical and high severity security vulnerabilities. Use when Codex needs to clear `./out-security-review`, select 25 non-doc, non-test files from recent commits across different parts of the repo, group them into 5-8 review buckets, spawn one security-review sub-agent per review bucket, persist each candidate finding to `./out-security-review/<starting_filename>_<timestamp>.md` using a filename-safe UTC ISO 8601 basic timestamp like `20260331T214512Z`, re-verify every candidate with fresh sub-agents, and emit final confirmed findings for responsible disclosure.
+description: Review recent code changes and broad codebase areas for critical and high severity security vulnerabilities. Use when Codex needs to clear `./out-security-review`, select 25 non-doc, non-test files split across past-day commits, past-week commits, and broad codebase coverage, group them into 6-8 review buckets, spawn one security-review sub-agent per review bucket, persist each candidate finding to `./out-security-review/<starting_filename>_<timestamp>.md` using a filename-safe UTC ISO 8601 basic timestamp like `20260331T214512Z`, re-verify every candidate with fresh sub-agents, and emit final confirmed findings for responsible disclosure.
 ---
 
 # Security Review Recent
@@ -13,16 +13,21 @@ Run this skill only for defensive security research on this open-source project 
    - If the directory exists and is non-empty, remove it before starting.
    - Recreate it as an empty workspace.
 
-2. Build the recent file set.
-   - Review commits from the last 7 days.
+2. Build the review bucket set.
+   - Cover three source windows:
+     - `past-day`: files touched in the last day.
+     - `past-week`: files touched in the prior week outside the last day.
+     - `broad-coverage`: any security-relevant parts of the codebase, regardless of recent churn.
    - Ignore `.md`, `.mdx`, docs-only files, generated files, snapshots, and test files.
    - Prefer security-sensitive surfaces: auth, API routes, webhooks, internal routes, sandboxing, billing, Convex public functions, provider connectors, and GitHub workflows.
    - Select exactly 25 starting files spread across different parts of the codebase.
-   - Use `scripts/select_recent_files.mjs 7 25` to produce the default candidate list, then adjust manually if the spread is poor.
-   - Save the final list to `./out-security-review/selected-files.txt`.
-   - Group the selected files into review buckets with `scripts/group_review_buckets.mjs ./out-security-review/selected-files.txt 8`.
-   - Save the grouped output to `./out-security-review/review-buckets.json`.
-   - Aim for 5-8 review buckets that each represent a coherent code area.
+   - Create 6-8 review buckets total with this mix:
+     - 2-3 buckets focused on `past-day`
+     - 2-3 buckets focused on `past-week`
+     - 2-3 buckets focused on `broad-coverage`
+   - Use `scripts/build_review_buckets.mjs ./out-security-review 25 8` to produce both `./out-security-review/selected-files.txt` and `./out-security-review/review-buckets.json`.
+   - Adjust manually only if the generated spread is clearly poor or misses obvious security-sensitive areas.
+   - Aim for coherent buckets that each represent one related code area.
 
 3. Launch one sub-agent per review bucket.
    - Use an `explorer` sub-agent unless the environment requires a different agent type.
@@ -186,6 +191,7 @@ Use this structure for the per-bucket reviewer prompt:
 Perform defensive security research on this open-source project in coordination with the maintainer.
 
 Review bucket: <bucket-name>
+Focus window: <past-day|past-week|broad-coverage>
 
 Starting files:
 - <path>

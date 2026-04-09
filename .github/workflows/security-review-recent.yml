@@ -59,6 +59,9 @@ jobs:
       SKILL_PATH: .agents/skills/security-review-recent/SKILL.md
       WORKFLOW_BASE_PATH: .workflow-base
       REPORT_SEVERITY: ${{ inputs.report_severity || 'critical' }}
+      REVIEW_BUCKETS_PAST_DAY: 2-3
+      REVIEW_BUCKETS_PAST_WEEK: 2-3
+      REVIEW_BUCKETS_BROAD_COVERAGE: 2-3
     steps:
       - name: Checkout repository
         uses: actions/checkout@v5
