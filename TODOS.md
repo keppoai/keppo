@@ -1,0 +1,15 @@
+- [x] Self-review `tmp/pr-review-responder/context.json` and `tmp/pr-review-responder/context-summary.md` to confirm PR scope, trusted feedback, and failing checks.
+- [x] Rebase the current branch onto `upstream/main` and resolve every conflict.
+- [x] Review the active HIGH thread on `.github/workflows/issue-agent-issue-to-pr.yml:366` and ensure the trusted handoff is pinned to an immutable base commit.
+- [x] Review the active HIGH thread on `scripts/issue-agent/download-uploaded-artifacts.sh:63` and fix the upload-record fetch so `curl --write-out` does not corrupt JSON.
+- [x] Review the active MEDIUM thread on `.github/workflows/issue-agent-issue-to-pr.yml:628` and restore user feedback for cancelled `do-issue` runs.
+- [x] Review the active MEDIUM thread on `.github/workflows/issue-agent-issue-to-pr.yml:367` and decide whether the trusted checkout can avoid full-history fetches without breaking bundle validation.
+- [x] Review trusted review/comment feedback about documenting GitHub job output size limits and trusted artifact metadata channels, and update code/docs if still needed after the rebase.
+- [x] Review trusted review/comment feedback about validating `root_label` path usage and constraining artifact download URL/token handling, and update code/tests/docs if still needed after the rebase.
+- [x] Investigate the non-E2E `fix-pr` check from the workflow context and confirm whether any actionable failure remains after the rebase.
+- [x] Make any remaining code, test, workflow, or docs changes required by the verified feedback and CI investigation.
+- [x] Run targeted verification for the changed scripts/workflows as needed.
+- [x] Run `pnpm check` and fix every failure until it passes.
+- [ ] Re-read `TODOS.md` and confirm every item is marked done before writing `tmp/pr-review-responder/actions.json`.
+- [ ] Write `tmp/pr-review-responder/actions.json` with the PR summary and thread actions.
+- [ ] Delete `TODOS.md`.

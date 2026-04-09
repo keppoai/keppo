@@ -42,6 +42,7 @@ jobs:
     outputs:
       has_session_log_comment: ${{ steps.capture.outputs.has_session_log_comment }}
       session_log_comment: ${{ steps.capture.outputs.session_log_comment }}
+      start_sha: ${{ steps.start-sha.outputs.sha }}
     env:
       ISSUE_BRANCH: ${{ format('{0}/issue-{1}/{2}', inputs.branch_prefix, inputs.issue_number, inputs.branch_slug) }}
       PR_METADATA_PATH: tmp/issue-agent/pr-metadata.json
@@ -363,8 +364,8 @@ jobs:
         uses: actions/checkout@v5
         with:
           token: ${{ steps.app-token.outputs.token }}
-          ref: ${{ inputs.default_branch }}
-          fetch-depth: 0
+          ref: ${{ needs.agent.outputs.start_sha }}
+          fetch-depth: 1
           persist-credentials: false
 
       - name: Setup Node
@@ -625,19 +626,21 @@ jobs:
         run: bash "${WORKFLOW_BASE_PATH}/scripts/issue-agent/publish-pr-demo.sh"
 
       - name: Set failure labels and comment
-        if: needs.agent.result == 'failure' || failure()
+        if: contains(fromJSON('["failure","cancelled"]'), needs.agent.result) || failure()
         uses: actions/github-script@v7
         with:
           github-token: ${{ steps.app-token.outputs.token }}
           script: |
             const issue_number = Number('${{ inputs.issue_number }}');
+            const agentResult = '${{ needs.agent.result }}';
+            const outcomeWord = agentResult === 'cancelled' ? 'was cancelled' : 'failed';
             try {
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number,
                 body: [
-                  `The ${{ inputs.agent_name }} \`do-issue\` run failed before it could finish opening or updating a PR.`,
+                  `The ${{ inputs.agent_name }} \`do-issue\` run ${outcomeWord} before it could finish opening or updating a PR.`,
                   '',
                   `Run: https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
                 ].join('\n'),

@@ -118,6 +118,7 @@ url=""
 auth_header=""
 output_path=""
 dump_header_path=""
+write_out=""
 for ((i=1; i <= $#; i++)); do
   arg="\${!i}"
   case "$arg" in
@@ -144,6 +145,10 @@ for ((i=1; i <= $#; i++)); do
       j=$((i + 1))
       dump_header_path="\${!j}"
       ;;
+    --write-out)
+      j=$((i + 1))
+      write_out="\${!j}"
+      ;;
   esac
 done
 
@@ -153,9 +158,18 @@ if [[ "$auth_header" != "Authorization: Bearer test-token" ]]; then
 fi
 
 if [[ "$method" == "GET" && "$url" == "https://agent-logs.keppo.ai/uploads/upload-123" ]]; then
-  cat <<'JSON'
+  if [[ -n "$output_path" ]]; then
+    cat <<'JSON' > "$output_path"
 ${uploadRecordBody}
 JSON
+  else
+    cat <<'JSON'
+${uploadRecordBody}
+JSON
+  fi
+  if [[ "$write_out" == '%{http_code}' ]]; then
+    printf '200'
+  fi
   exit 0
 fi
 
@@ -169,6 +183,9 @@ ${hardeningHeaders}\
     printf '\\r\\n'
   } > "$dump_header_path"
   printf '%s' '${bundleContents}' > "$output_path"
+  if [[ "$write_out" == '%{http_code}' ]]; then
+    printf '200'
+  fi
   exit 0
 fi
 

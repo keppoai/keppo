@@ -58,8 +58,9 @@ fetch_http_code="$(
     --request GET \
     --url "${upload_record_url}" \
     --header "Authorization: Bearer ${KEPPO_SESSION_LOG_UPLOAD_TOKEN}" \
+    --output "${upload_record_path}" \
     --write-out '%{http_code}' \
-    > "${upload_record_path}" 2> "${headers_path}"
+    2> "${headers_path}"
 )"
 fetch_status=$?
 set -e
