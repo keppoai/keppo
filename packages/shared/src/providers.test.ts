@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { allTools } from "./tooling.js";
+import { MANAGED_OAUTH_PROVIDER_IDS } from "./providers/boundaries/common.js";
+import { isWebhookProviderId } from "./provider-facet-loader.js";
 import {
   CANONICAL_PROVIDER_IDS,
   providerRegistry,
@@ -77,11 +79,14 @@ describe("provider registry", () => {
   });
 
   it("enforces declared capabilities", () => {
-    const webhookProviders: Array<CanonicalProviderId> = ["stripe", "github"];
+    const webhookProviders = providerRegistry
+      .listProviders({ capability: "webhook" })
+      .map((module) => module.metadata.providerId);
     for (const providerId of webhookProviders) {
       expect(
         providerRegistry.assertProviderSupports(providerId, "webhook").metadata.providerId,
       ).toBe(providerId);
+      expect(isWebhookProviderId(providerId)).toBe(true);
     }
 
     expect(() => providerRegistry.assertProviderSupports("google", "webhook")).toThrow(
@@ -94,6 +99,17 @@ describe("provider registry", () => {
     expect(() => providerRegistry.assertProviderSupports("github", "automation_triggers")).toThrow(
       /does not support automation triggers/i,
     );
+  });
+
+  it("treats every managed OAuth module as boundary-valid", () => {
+    const managedProviders = providerRegistry
+      .listProviders()
+      .filter((module) => module.metadata.auth.managed)
+      .map((module) => module.metadata.providerId);
+
+    expect([...MANAGED_OAUTH_PROVIDER_IDS].sort()).toEqual([...managedProviders].sort());
+    expect(MANAGED_OAUTH_PROVIDER_IDS).toContain("slack");
+    expect(MANAGED_OAUTH_PROVIDER_IDS).toContain("notion");
   });
 
   it("refreshCredentials uses injected runtime http client and clock", async () => {

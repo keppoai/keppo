@@ -1,4 +1,4 @@
-import { CANONICAL_PROVIDER_IDS, type CanonicalProviderId } from "./provider-catalog.js";
+import { CANONICAL_PROVIDER_IDS, type CanonicalProviderId } from "./provider-ids.js";
 
 export type ProviderUiFieldType =
   | "text"

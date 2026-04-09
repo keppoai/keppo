@@ -30,6 +30,7 @@ Use these rules when a provider connector depends on the SDK boundary in `packag
   - `pnpm run update:provider-docs`
   - `pnpm run check:provider-registry-snapshot`
   - `pnpm run check:provider-docs`
+- Provider capability surfaces must be projected from `ProviderModuleV2` metadata/facets. Do not maintain separate hard-coded provider allowlists for catalog, OAuth, webhook, or automation-trigger routing when the module graph already declares that capability.
 
 ## Migration checklist
 

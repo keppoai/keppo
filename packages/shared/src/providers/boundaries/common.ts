@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { MANAGED_OAUTH_PROVIDER_IDS as DERIVED_MANAGED_OAUTH_PROVIDER_IDS } from "../modules/index.js";
 import {
   PROVIDER_ALIASES,
   resolveProvider,
@@ -29,11 +30,10 @@ export const addBoundaryIssue = (ctx: z.RefinementCtx, code: string, message: st
   });
 };
 
-export type ManagedOAuthProvider = "google" | "stripe" | "github" | "reddit" | "x";
+export type ManagedOAuthProvider = CanonicalProviderId;
+export const MANAGED_OAUTH_PROVIDER_IDS = DERIVED_MANAGED_OAUTH_PROVIDER_IDS;
 
-export const MANAGED_OAUTH_PROVIDER_IDS = ["google", "stripe", "github", "reddit", "x"] as const;
-
-const managedOAuthProviderSet = new Set<ManagedOAuthProvider>(MANAGED_OAUTH_PROVIDER_IDS);
+const managedOAuthProviderSet = new Set<string>(MANAGED_OAUTH_PROVIDER_IDS);
 
 export const canonicalProviderSchema = z
   .string()
@@ -67,7 +67,7 @@ export const canonicalProviderSchema = z
 
 export const managedOAuthProviderSchema = canonicalProviderSchema
   .superRefine((provider, ctx) => {
-    if (!managedOAuthProviderSet.has(provider as ManagedOAuthProvider)) {
+    if (!managedOAuthProviderSet.has(provider)) {
       addBoundaryIssue(
         ctx,
         PROVIDER_PARSE_ERROR_CODE.unsupportedProvider,
@@ -84,7 +84,7 @@ export const canonicalProviderIdSchema = canonicalProviderSchema.transform((prov
 });
 
 export const managedOAuthProviderIdSchema = managedOAuthProviderSchema.transform((provider) => {
-  if (!managedOAuthProviderSet.has(provider as ManagedOAuthProvider)) {
+  if (!managedOAuthProviderSet.has(provider)) {
     throw new Error(`Unsupported managed OAuth provider "${provider}".`);
   }
   return provider as ManagedOAuthProvider;

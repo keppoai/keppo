@@ -1,4 +1,5 @@
 import { makeFunctionReference } from "convex/server";
+import { GITHUB_PROVIDER_ID, GOOGLE_PROVIDER_ID } from "@keppo/shared/provider-ids";
 import {
   createContext,
   useCallback,
@@ -8,7 +9,6 @@ import {
   useRef,
   useState,
 } from "react";
-import { MANAGED_OAUTH_PROVIDER_IDS } from "@keppo/shared/providers/boundaries/common";
 import { useDashboardRuntime } from "@/lib/dashboard-runtime";
 import { toUserFacingError, type UserFacingError } from "@/lib/user-facing-errors";
 import type { AuthSession, Role } from "@/lib/types";
@@ -35,8 +35,6 @@ export type AuthState = {
 
 export const AuthContext = createContext<AuthState | null>(null);
 
-const GOOGLE_PROVIDER_ID = MANAGED_OAUTH_PROVIDER_IDS[0];
-const GITHUB_PROVIDER_ID = MANAGED_OAUTH_PROVIDER_IDS[2];
 const SHOW_EMAIL_PASSWORD = import.meta.env.VITE_ENABLE_EMAIL_PASSWORD === "true";
 const IS_PREVIEW_BUILD = import.meta.env.VITE_KEPPO_ENVIRONMENT === "preview";
 const IS_DEV_BUILD = import.meta.env.DEV;

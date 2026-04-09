@@ -12,6 +12,7 @@ export const CANONICAL_PROVIDER_IDS = [
 export type CanonicalProviderId = (typeof CANONICAL_PROVIDER_IDS)[number];
 
 export const GOOGLE_PROVIDER_ID: CanonicalProviderId = "google";
+export const GITHUB_PROVIDER_ID: CanonicalProviderId = "github";
 export const CUSTOM_PROVIDER_ID: CanonicalProviderId = "custom";
 
 export const PROVIDER_ALIASES: Record<string, CanonicalProviderId> = Object.freeze({

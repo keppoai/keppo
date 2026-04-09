@@ -5,6 +5,7 @@
 - Provider modules under `packages/shared/src/providers/modules/*` are the source of truth for auth, metadata, tool definitions, refresh behavior, webhook hooks, and UI contracts.
 - The current canonical providers are `google`, `stripe`, `github`, `slack`, `notion`, `reddit`, `x`, and `custom`.
 - The provider registry snapshot in `packages/shared/provider-registry.snapshot.json` is checked by guardrail scripts and is the concise source of truth for shipped provider metadata.
+- Provider catalog entries plus managed-OAuth, webhook, and automation-trigger routing subsets are projected from the `ProviderModuleV2` graph instead of separate hand-maintained provider registries.
 - Polling automation trigger registration is derived from provider module metadata, not from a separate hand-maintained trigger registry.
 - Custom MCP server discovery and execution are stateless request-scoped exchanges through the shared custom-MCP client; Keppo stores discovered metadata and the results it owns, not remote session state.
 
