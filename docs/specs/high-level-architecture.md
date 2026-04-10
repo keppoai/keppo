@@ -33,7 +33,7 @@ These specs summarize implemented behavior only. Code is the source of truth whe
 
 - Browser to Convex: normal product data and real-time UI updates.
 - Browser to Start server functions: typed same-origin app-internal operations for session-bound billing, invite, integration, automation, push, and admin health flows.
-- Browser to Start server routes: same-origin `/api/*`, `/mcp/*`, `/oauth/*`, `/webhooks/*`, `/downloads/*`, and `/internal/*` ingress directly owned by the unified web runtime.
+- Browser to Start server routes: same-origin `/api/*`, `/mcp/*`, `/oauth/*`, `/webhooks/*`, and `/internal/*` ingress directly owned by the unified web runtime.
 - Provider-trigger automations are split across three seams: provider modules declare trigger schemas and lifecycle hooks, Convex persists trigger definitions and delivery history and runs reconciliation/dispatch, and the dashboard renders provider-owned authoring controls and diagnostics from those shared contracts.
 - API to Convex: persistence, policy decisions, audit/notification writes, and workspace lookups.
 - Convex/API to providers and sandboxes: external execution only after policy and billing checks.
