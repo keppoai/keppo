@@ -4,6 +4,8 @@ import {
   ACTION_STATUS,
   AUDIT_ACTOR_TYPE,
   AUDIT_EVENT_TYPES,
+  NOTIFICATION_CHANNEL,
+  NOTIFICATION_DELIVERY_STATUS,
   CREDENTIAL_TYPE,
   INVITE_STATUS,
   RUN_STATUS,
@@ -215,6 +217,120 @@ describe("convex maintenance mutations", () => {
     });
 
     expect(expired).toBe(50);
+  });
+
+  it("expires pending actions and dismisses only in-app approval notifications", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_maintenance_expiration_notifications";
+    const fixture = await seedAutomationFixture(t, orgId);
+    const expiredAt = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const runId = "run_pending_expiration_notifications";
+    const actionId = "act_pending_expiration_notifications";
+
+    await t.run(async (ctx) => {
+      await ctx.db.insert("automation_runs", {
+        id: runId,
+        automation_id: fixture.automationId,
+        org_id: orgId,
+        workspace_id: fixture.workspaceId,
+        config_version_id: fixture.configVersionId,
+        trigger_type: "manual",
+        error_message: null,
+        sandbox_id: null,
+        log_storage_id: null,
+        created_at: expiredAt,
+        mcp_session_id: null,
+        client_type: "other",
+        metadata: {},
+        started_at: expiredAt,
+        ended_at: null,
+        status: RUN_STATUS.active,
+      });
+      await ctx.db.insert("actions", {
+        id: actionId,
+        workspace_id: fixture.workspaceId,
+        automation_run_id: runId,
+        tool_call_id: "tool_pending_expiration_notifications",
+        idempotency_key: "pending-expiration-notifications",
+        action_type: "send_email",
+        status: ACTION_STATUS.pending,
+        risk_level: "medium",
+        normalized_payload_enc: "invalid",
+        payload_preview: { sequence: 1 },
+        payload_purged_at: null,
+        created_at: expiredAt,
+        resolved_at: null,
+        result_redacted: null,
+      });
+      await ctx.db.insert("notification_events", {
+        id: "notif_inapp_approval_expire",
+        org_id: orgId,
+        event_type: "approval_needed",
+        channel: NOTIFICATION_CHANNEL.inApp,
+        title: "Approval required",
+        body: "Pending action waiting for approval",
+        cta_url: "/approvals",
+        cta_label: "Review",
+        metadata: JSON.stringify({ source: "maintenance-test" }),
+        action_id: actionId,
+        endpoint_id: null,
+        read_at: null,
+        status: NOTIFICATION_DELIVERY_STATUS.sent,
+        attempts: 0,
+        last_error: null,
+        created_at: expiredAt,
+      });
+      await ctx.db.insert("notification_events", {
+        id: "notif_email_approval_expire",
+        org_id: orgId,
+        event_type: "approval_needed",
+        channel: NOTIFICATION_CHANNEL.email,
+        title: "Approval required",
+        body: "Delivery row should stay untouched",
+        cta_url: "/approvals",
+        cta_label: "Review",
+        metadata: JSON.stringify({ source: "maintenance-test" }),
+        action_id: actionId,
+        endpoint_id: "endpoint_expire",
+        read_at: null,
+        status: NOTIFICATION_DELIVERY_STATUS.pending,
+        attempts: 0,
+        last_error: null,
+        created_at: expiredAt,
+      });
+    });
+
+    await expect(
+      t.mutation(refs.expirePendingActions, {
+        ttlMinutes: 30,
+      }),
+    ).resolves.toBe(1);
+
+    const [action, inAppEvent, emailEvent] = await Promise.all([
+      t.run((ctx) =>
+        ctx.db
+          .query("actions")
+          .withIndex("by_custom_id", (q) => q.eq("id", actionId))
+          .unique(),
+      ),
+      t.run((ctx) =>
+        ctx.db
+          .query("notification_events")
+          .withIndex("by_custom_id", (q) => q.eq("id", "notif_inapp_approval_expire"))
+          .unique(),
+      ),
+      t.run((ctx) =>
+        ctx.db
+          .query("notification_events")
+          .withIndex("by_custom_id", (q) => q.eq("id", "notif_email_approval_expire"))
+          .unique(),
+      ),
+    ]);
+
+    expect(action?.status).toBe(ACTION_STATUS.expired);
+    expect(action?.resolved_at).toBeTruthy();
+    expect(inAppEvent?.read_at).toBeTruthy();
+    expect(emailEvent?.read_at).toBeNull();
   });
 
   it("can continue credential-rotation scans past a fully already-recommended first batch", async () => {

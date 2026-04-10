@@ -10,6 +10,7 @@ import {
 } from "./notifications/endpoints.js";
 import {
   countUnread,
+  dismissApprovalNotificationsForAction,
   listInAppNotifications,
   markAllRead,
   markRead,
@@ -27,6 +28,7 @@ import {
 export {
   countUnread,
   createNotificationEvent,
+  dismissApprovalNotificationsForAction,
   disableEndpoint,
   emitNotificationForOrg,
   ensureDefaultEmailEndpoint,

@@ -24,4 +24,5 @@
 - The unread count source of truth is the Convex unread-count query.
 - Bell badge, sidebar badge, document title, and favicon badge must all use that same unread count.
 - The shared unread-count query backs display-only badges, so keep it bounded to the UI display cap instead of scanning the full unread history under load.
+- Inbox read and dismissal state is owned by the notifications module. Other modules must call notification-owned mutations for approval dismissal or read-state changes instead of patching `notification_events.read_at` directly.
 - Test-only notification endpoint lookups must use the narrowest exact index available (for example org + type + destination), not broad org scans plus in-memory filtering.
