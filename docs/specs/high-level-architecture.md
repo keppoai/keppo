@@ -28,6 +28,7 @@ These specs summarize implemented behavior only. Code is the source of truth whe
 - `apps/web/app/lib/server/api-runtime`: app-owned server/runtime helper library for request parsing, env/auth helpers, logging, rate limiting, sandbox helpers, and other transport-agnostic server utilities used by Start-owned handlers.
 - `packages/shared`: provider registry, SDK adapters and fakes, domain enums, boundary contracts, billing/policy helpers, and Code Mode tooling.
 - `cloud/*`: canonical managed-runtime modules for billing, scheduler, Vercel sandbox execution, and cloud-only adapters that fixed entrypoints import at runtime.
+- `cloud/api/billing.ts` owns billing orchestration only; app-owned runtime concerns such as env loading, Dyad gateway access, and key decryption are supplied through injected runtime ports from `apps/web` instead of cross-importing app-private modules.
 
 ## Ownership model
 

@@ -21,43 +21,183 @@ import { getAiCreditAllowanceForTier } from "@keppo/shared/subscriptions";
 import { NOTIFICATION_EVENT_ID } from "@keppo/shared/notifications";
 import { parseJsonRecord } from "@keppo/shared/providers/boundaries/json";
 import { isActiveStripeSubscriptionStatus } from "@keppo/shared/billing-contracts";
-import type { ConvexInternalClient } from "../../apps/web/app/lib/server/api-runtime/convex.js";
-import {
-  createDyadGatewayUser,
-  deleteDyadGatewayKeys,
-  deleteDyadGatewayUser,
-  generateDyadGatewayKey,
-  getDyadGatewayUserInfo,
-  hasDyadGatewayConfig,
-  resolveDyadGatewayMaxBudgetUsd,
-  updateDyadGatewayUser,
-} from "../../apps/web/app/lib/server/api-runtime/dyad-gateway.js";
-import { getEnv } from "../../apps/web/app/lib/server/api-runtime/env.js";
-import { decryptStoredKey } from "../../apps/web/app/lib/server/api-runtime/routes/automations.js";
 
-export type BillingConvexClient = Pick<
-  ConvexInternalClient,
-  | "addPurchasedAutomationRuns"
-  | "addPurchasedCredits"
-  | "claimApiDedupeKey"
-  | "completeApiDedupeKey"
-  | "convertActiveInvitePromo"
-  | "createAuditEvent"
-  | "emitNotificationForOrg"
-  | "getBillingUsageForOrg"
-  | "getAiCreditBalance"
-  | "getOrgAiKey"
-  | "syncAiCreditsFromGateway"
-  | "releaseApiDedupeKey"
-  | "getSubscriptionByStripeCustomer"
-  | "getSubscriptionByStripeSubscription"
-  | "getSubscriptionForOrg"
-  | "deactivateBundledOrgAiKeys"
-  | "setSubscriptionStatusByCustomer"
-  | "setSubscriptionStatusByStripeSubscription"
-  | "upsertBundledOrgAiKey"
-  | "upsertSubscriptionForOrg"
->;
+export type BillingGatewayUserInfo = {
+  user_id: string;
+  spend: number;
+  max_budget: number;
+  budget_reset_at: string | null;
+};
+
+export type BillingRuntimeConfig = {
+  KEPPO_DASHBOARD_ORIGIN?: string | undefined;
+  STRIPE_API_BASE_URL?: string | undefined;
+  STRIPE_AUTOMATION_RUN_PRODUCT_ID?: string | undefined;
+  STRIPE_BILLING_WEBHOOK_SECRET?: string | undefined;
+  STRIPE_CREDIT_PRODUCT_ID?: string | undefined;
+  STRIPE_PRO_PRICE_ID?: string | undefined;
+  STRIPE_SECRET_KEY?: string | undefined;
+  STRIPE_STARTER_PRICE_ID?: string | undefined;
+};
+
+export type BillingRuntime = {
+  decryptStoredKey: (encrypted: string) => Promise<string>;
+  gateway: {
+    createUser: (params: { orgId: string; maxBudgetUsd: number }) => Promise<string>;
+    deleteKeys: (keys: string[]) => Promise<void>;
+    deleteUser: (orgId: string) => Promise<void>;
+    generateKey: (orgId: string) => Promise<string>;
+    getUserInfo: (orgId: string) => Promise<BillingGatewayUserInfo | null>;
+    hasConfig: () => boolean;
+    resolveMaxBudgetUsd: (params: { remainingCredits: number; currentSpendUsd: number }) => number;
+    updateUser: (params: {
+      orgId: string;
+      maxBudgetUsd: number;
+      resetSpend?: boolean;
+    }) => Promise<void>;
+  };
+  getConfig: () => BillingRuntimeConfig;
+};
+
+type BillingApiDedupeResult = {
+  claimed: boolean;
+  expiresAtMs: number;
+  payload: unknown;
+  status: string;
+};
+
+type BillingApiDedupeScope = (typeof API_DEDUPE_SCOPE)[keyof typeof API_DEDUPE_SCOPE];
+type BillingApiDedupeStatus = (typeof API_DEDUPE_STATUS)[keyof typeof API_DEDUPE_STATUS];
+type BillingAuditActorType = (typeof AUDIT_ACTOR_TYPE)[keyof typeof AUDIT_ACTOR_TYPE];
+type BillingAuditEventType = (typeof AUDIT_EVENT_TYPES)[keyof typeof AUDIT_EVENT_TYPES];
+type BillingNotificationEventType =
+  (typeof NOTIFICATION_EVENT_ID)[keyof typeof NOTIFICATION_EVENT_ID];
+type BillingAiKeyMode = (typeof AI_KEY_MODE)[keyof typeof AI_KEY_MODE];
+
+type BillingAiCreditBalance = {
+  total_available: number;
+} & Record<string, unknown>;
+
+type BillingStoredAiKey = {
+  encrypted_key: string;
+  is_active: boolean;
+} & Record<string, unknown>;
+
+type BillingUsage = {
+  billing_source: string;
+  limits: {
+    price_cents_monthly: number;
+  };
+  period_end: string;
+  tier: SubscriptionTier;
+} & Record<string, unknown>;
+
+type BillingSubscriptionRecordBase = {
+  current_period_end: string;
+  current_period_start: string;
+  org_id: string;
+  status: SubscriptionStatus;
+  stripe_customer_id: string | null;
+  stripe_subscription_id: string | null;
+  tier: SubscriptionTier;
+} & Record<string, unknown>;
+
+export type BillingConvexClient = {
+  addPurchasedAutomationRuns: (args: {
+    multiplier: string;
+    orgId: string;
+    priceCents: number;
+    runs: number;
+    stripePaymentIntentId: string | null;
+    tier: BillingTier;
+    toolCallTimeMs: number;
+    toolCalls: number;
+  }) => Promise<unknown>;
+  addPurchasedCredits: (args: {
+    credits: number;
+    orgId: string;
+    priceCents: number;
+    stripePaymentIntentId: string | null;
+  }) => Promise<unknown>;
+  claimApiDedupeKey: (args: {
+    dedupeKey: string;
+    initialStatus: BillingApiDedupeStatus;
+    scope: BillingApiDedupeScope;
+    ttlMs: number;
+  }) => Promise<BillingApiDedupeResult>;
+  completeApiDedupeKey: (args: {
+    dedupeKey: string;
+    scope: BillingApiDedupeScope;
+  }) => Promise<boolean>;
+  convertActiveInvitePromo: (args: {
+    orgId: string;
+    stripeCustomerId: string | null;
+    stripeSubscriptionId: string;
+  }) => Promise<unknown>;
+  createAuditEvent: (args: {
+    actorId: string;
+    actorType: BillingAuditActorType;
+    eventType: BillingAuditEventType;
+    orgId: string;
+    payload: Record<string, unknown>;
+  }) => Promise<unknown>;
+  deactivateBundledOrgAiKeys: (args: { orgId: string }) => Promise<void>;
+  emitNotificationForOrg: (args: {
+    eventType: BillingNotificationEventType;
+    metadata: Record<string, unknown>;
+    orgId: string;
+  }) => Promise<unknown>;
+  getAiCreditBalance: (args: { orgId: string }) => Promise<BillingAiCreditBalance>;
+  getBillingUsageForOrg: (orgId: string) => Promise<BillingUsage>;
+  getOrgAiKey: (args: {
+    keyMode: BillingAiKeyMode;
+    orgId: string;
+    provider: BillingBundledGatewayProvider;
+  }) => Promise<BillingStoredAiKey | null>;
+  getSubscriptionByStripeCustomer: (
+    stripeCustomerId: string,
+  ) => Promise<BillingSubscriptionRecordBase | null>;
+  getSubscriptionByStripeSubscription: (
+    stripeSubscriptionId: string,
+  ) => Promise<BillingSubscriptionRecordBase | null>;
+  getSubscriptionForOrg: (orgId: string) => Promise<BillingSubscriptionRecordBase | null>;
+  releaseApiDedupeKey: (args: {
+    dedupeKey: string;
+    scope: BillingApiDedupeScope;
+  }) => Promise<boolean>;
+  setSubscriptionStatusByCustomer: (args: {
+    status: SubscriptionStatus;
+    stripeCustomerId: string;
+  }) => Promise<unknown>;
+  setSubscriptionStatusByStripeSubscription: (args: {
+    currentPeriodEnd: string;
+    currentPeriodStart: string;
+    status: SubscriptionStatus;
+    stripeSubscriptionId: string;
+    tier: SubscriptionTier;
+  }) => Promise<unknown>;
+  syncAiCreditsFromGateway: (args: {
+    budgetResetAt: string | null;
+    maxBudgetUsd: number;
+    orgId: string;
+    spendUsd: number;
+  }) => Promise<{ balance?: BillingAiCreditBalance } | null>;
+  upsertBundledOrgAiKey: (args: {
+    createdBy: string;
+    orgId: string;
+    provider: BillingBundledGatewayProvider;
+    rawKey: string;
+  }) => Promise<unknown>;
+  upsertSubscriptionForOrg: (args: {
+    currentPeriodEnd: string;
+    currentPeriodStart: string;
+    orgId: string;
+    status: SubscriptionStatus;
+    stripeCustomerId: string | null;
+    stripeSubscriptionId: string;
+    tier: BillingTier;
+  }) => Promise<unknown>;
+};
 
 export type BillingSessionIdentity = {
   userId: string;
@@ -67,6 +207,7 @@ export type BillingSessionIdentity = {
 
 export type BillingRequestDeps = {
   convex: BillingConvexClient;
+  runtime: BillingRuntime;
   resolveApiSessionIdentity: (request: Request) => Promise<BillingSessionIdentity | null>;
   getStripeClient?: () => Stripe;
 };
@@ -121,6 +262,10 @@ const SECURITY_HEADER_VALUES = {
 
 const BUNDLED_GATEWAY_PROVIDERS = ["openai", "anthropic"] as const;
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+type BillingBundledGatewayProvider = (typeof BUNDLED_GATEWAY_PROVIDERS)[number];
+
+const getRuntimeConfig = (deps: BillingRequestDeps): BillingRuntimeConfig =>
+  deps.runtime.getConfig();
 
 const isLoopbackUrl = (value: string | undefined): boolean => {
   if (!value) {
@@ -195,20 +340,21 @@ const shouldKeepBundledAccess = (tier: SubscriptionTier, status: SubscriptionSta
   );
 };
 
-const readStoredBundledGatewayKey = async (
-  convex: BillingConvexClient,
-  orgId: string,
-): Promise<string | null> => {
+const readStoredBundledGatewayKey = async (params: {
+  convex: BillingConvexClient;
+  orgId: string;
+  runtime: BillingRuntime;
+}): Promise<string | null> => {
   for (const provider of BUNDLED_GATEWAY_PROVIDERS) {
-    const stored = await convex.getOrgAiKey({
-      orgId,
+    const stored = await params.convex.getOrgAiKey({
+      orgId: params.orgId,
       provider,
       keyMode: AI_KEY_MODE.bundled,
     });
     if (!stored?.is_active) {
       continue;
     }
-    return await decryptStoredKey(stored.encrypted_key);
+    return await params.runtime.decryptStoredKey(stored.encrypted_key);
   }
   return null;
 };
@@ -216,23 +362,24 @@ const readStoredBundledGatewayKey = async (
 const syncBundledGatewayForOrg = async (params: {
   convex: BillingConvexClient;
   orgId: string;
+  runtime: BillingRuntime;
   tier: SubscriptionTier;
   status: SubscriptionStatus;
   resetGatewaySpend: boolean;
 }): Promise<void> => {
   if (!shouldKeepBundledAccess(params.tier, params.status)) {
-    if (hasDyadGatewayConfig()) {
-      const storedKey = await readStoredBundledGatewayKey(params.convex, params.orgId);
+    if (params.runtime.gateway.hasConfig()) {
+      const storedKey = await readStoredBundledGatewayKey(params);
       if (storedKey) {
-        await deleteDyadGatewayKeys([storedKey]);
+        await params.runtime.gateway.deleteKeys([storedKey]);
       }
-      await deleteDyadGatewayUser(params.orgId);
+      await params.runtime.gateway.deleteUser(params.orgId);
     }
     await params.convex.deactivateBundledOrgAiKeys({ orgId: params.orgId });
     return;
   }
 
-  if (!hasDyadGatewayConfig()) {
+  if (!params.runtime.gateway.hasConfig()) {
     if (isExplicitLocalOrTestBillingRuntime()) {
       // Local/test billing coverage should keep validating subscription state transitions even
       // when the bundled gateway env is intentionally absent.
@@ -244,7 +391,7 @@ const syncBundledGatewayForOrg = async (params: {
     );
   }
 
-  const existingUser = await getDyadGatewayUserInfo(params.orgId);
+  const existingUser = await params.runtime.gateway.getUserInfo(params.orgId);
   const syncedBalance =
     existingUser && !params.resetGatewaySpend
       ? await params.convex.syncAiCreditsFromGateway({
@@ -259,26 +406,26 @@ const syncBundledGatewayForOrg = async (params: {
   const remainingCredits = params.resetGatewaySpend
     ? balance.total_available
     : balance.total_available;
-  const nextMaxBudgetUsd = resolveDyadGatewayMaxBudgetUsd({
+  const nextMaxBudgetUsd = params.runtime.gateway.resolveMaxBudgetUsd({
     remainingCredits,
     currentSpendUsd: params.resetGatewaySpend ? 0 : (existingUser?.spend ?? 0),
   });
-  const existingStoredKey = await readStoredBundledGatewayKey(params.convex, params.orgId);
+  const existingStoredKey = await readStoredBundledGatewayKey(params);
   let nextKey = existingStoredKey;
 
   if (!existingUser) {
-    nextKey = await createDyadGatewayUser({
+    nextKey = await params.runtime.gateway.createUser({
       orgId: params.orgId,
       maxBudgetUsd: nextMaxBudgetUsd,
     });
   } else {
-    await updateDyadGatewayUser({
+    await params.runtime.gateway.updateUser({
       orgId: params.orgId,
       maxBudgetUsd: nextMaxBudgetUsd,
       resetSpend: params.resetGatewaySpend,
     });
     if (!nextKey) {
-      nextKey = await generateDyadGatewayKey(params.orgId);
+      nextKey = await params.runtime.gateway.generateKey(params.orgId);
     }
   }
 
@@ -309,8 +456,11 @@ const toStripeStatus = (status: string | null | undefined): SubscriptionStatus =
   return SUBSCRIPTION_STATUS.active;
 };
 
-const toTierFromPriceId = (priceId: string | null | undefined): BillingTier | null => {
-  const env = getEnv();
+const toTierFromPriceId = (
+  deps: BillingRequestDeps,
+  priceId: string | null | undefined,
+): BillingTier | null => {
+  const env = getRuntimeConfig(deps);
   const starterPrice = env.STRIPE_STARTER_PRICE_ID;
   const proPrice = env.STRIPE_PRO_PRICE_ID;
   if (priceId && starterPrice && priceId === starterPrice) {
@@ -323,13 +473,14 @@ const toTierFromPriceId = (priceId: string | null | undefined): BillingTier | nu
 };
 
 const requireKnownStripeSubscriptionTier = (params: {
+  deps: BillingRequestDeps;
   eventType: Stripe.Event["type"];
   stripeEventId: string;
   stripeSubscriptionId: string;
   priceId: string | null | undefined;
   orgId?: string;
 }): BillingTier => {
-  const tier = toTierFromPriceId(params.priceId);
+  const tier = toTierFromPriceId(params.deps, params.priceId);
   if (tier) {
     return tier;
   }
@@ -344,8 +495,8 @@ const requireKnownStripeSubscriptionTier = (params: {
   throw new Error("Stripe subscription price does not match a known Keppo tier.");
 };
 
-const getTierPriceId = (tier: BillingTier): string | null => {
-  const env = getEnv();
+const getTierPriceId = (deps: BillingRequestDeps, tier: BillingTier): string | null => {
+  const env = getRuntimeConfig(deps);
   const raw =
     tier === SUBSCRIPTION_TIER.starter ? env.STRIPE_STARTER_PRICE_ID : env.STRIPE_PRO_PRICE_ID;
   const value = raw?.trim();
@@ -708,8 +859,8 @@ type ManagedPaymentsSessionCreateParams = Stripe.Checkout.SessionCreateParams & 
   };
 };
 
-const resolveStripeClientConfig = (): Stripe.StripeConfig => {
-  const env = getEnv();
+const resolveStripeClientConfig = (deps?: BillingRequestDeps): Stripe.StripeConfig => {
+  const env = deps ? getRuntimeConfig(deps) : {};
   const baseUrl = env.STRIPE_API_BASE_URL;
   if (!baseUrl) {
     return {};
@@ -729,8 +880,8 @@ const resolveStripeClientConfig = (): Stripe.StripeConfig => {
   }
 };
 
-const getStripeClient = (): Stripe => {
-  const env = getEnv();
+const getStripeClient = (deps?: BillingRequestDeps): Stripe => {
+  const env = deps ? getRuntimeConfig(deps) : {};
   const key = env.STRIPE_SECRET_KEY;
   if (!key) {
     throw new Error("Missing STRIPE_SECRET_KEY.");
@@ -743,7 +894,7 @@ const getStripeClient = (): Stripe => {
     stripeClientCache = {
       cacheKey,
       client: new Stripe(key, {
-        ...resolveStripeClientConfig(),
+        ...resolveStripeClientConfig(deps),
         apiVersion: STRIPE_MANAGED_PAYMENTS_API_VERSION,
       }),
     };
@@ -752,7 +903,7 @@ const getStripeClient = (): Stripe => {
 };
 
 const resolveStripeClient = (deps?: BillingRequestDeps): Stripe => {
-  return deps?.getStripeClient?.() ?? getStripeClient();
+  return deps?.getStripeClient?.() ?? getStripeClient(deps);
 };
 
 /** Stripe managed-payments typings return `Response<Subscription>`; normalize for our usage. */
@@ -774,8 +925,8 @@ const retrieveStripeSubscriptionSchedule = async (
   return result as Stripe.SubscriptionSchedule;
 };
 
-const defaultDashboardBillingUrl = (): string => {
-  const env = getEnv();
+const defaultDashboardBillingUrl = (deps: BillingRequestDeps): string => {
+  const env = getRuntimeConfig(deps);
   const origin = (env.KEPPO_DASHBOARD_ORIGIN ?? "http://localhost:3000").replace(/\/+$/, "");
   return `${origin}/billing`;
 };
@@ -939,7 +1090,7 @@ export const handleBillingCheckoutRequest = async (
       );
     }
 
-    const priceId = getTierPriceId(tier);
+    const priceId = getTierPriceId(deps, tier);
     if (!priceId) {
       return jsonResponse(
         request,
@@ -957,12 +1108,12 @@ export const handleBillingCheckoutRequest = async (
     const subscription = await deps.convex.getSubscriptionForOrg(resolvedOrg.orgId);
     const successUrl = resolveReturnUrl(
       body.successUrl,
-      `${defaultDashboardBillingUrl()}?checkout=success`,
+      `${defaultDashboardBillingUrl(deps)}?checkout=success`,
       "successUrl",
     );
     const cancelUrl = resolveReturnUrl(
       body.cancelUrl,
-      `${defaultDashboardBillingUrl()}?checkout=cancel`,
+      `${defaultDashboardBillingUrl(deps)}?checkout=cancel`,
       "cancelUrl",
     );
     const customerEmail =
@@ -993,7 +1144,7 @@ export const handleBillingCheckoutRequest = async (
       orgId: resolvedOrg.orgId,
       tier,
       priceId,
-      stripeApiBaseUrl: getEnv().STRIPE_API_BASE_URL ?? "https://api.stripe.com",
+      stripeApiBaseUrl: getRuntimeConfig(deps).STRIPE_API_BASE_URL ?? "https://api.stripe.com",
       vercelDeploymentId: process.env.VERCEL_DEPLOYMENT_ID ?? null,
       vercelGitCommitSha: process.env.VERCEL_GIT_COMMIT_SHA ?? null,
     });
@@ -1047,7 +1198,7 @@ export const handleBillingCreditsCheckoutRequest = async (
 
     const packageIndex = parseInteger(body.packageIndex, "packageIndex");
     const creditProductId = parseString(
-      getEnv().STRIPE_CREDIT_PRODUCT_ID,
+      getRuntimeConfig(deps).STRIPE_CREDIT_PRODUCT_ID,
       "STRIPE_CREDIT_PRODUCT_ID",
     );
     const selectedPackage = AI_CREDIT_PACKAGES[packageIndex];
@@ -1068,12 +1219,12 @@ export const handleBillingCreditsCheckoutRequest = async (
     const subscription = await deps.convex.getSubscriptionForOrg(resolvedOrg.orgId);
     const successUrl = resolveReturnUrl(
       body.successUrl,
-      `${defaultDashboardBillingUrl()}?creditCheckout=success`,
+      `${defaultDashboardBillingUrl(deps)}?creditCheckout=success`,
       "successUrl",
     );
     const cancelUrl = resolveReturnUrl(
       body.cancelUrl,
-      `${defaultDashboardBillingUrl()}?creditCheckout=cancel`,
+      `${defaultDashboardBillingUrl(deps)}?creditCheckout=cancel`,
       "cancelUrl",
     );
     const customerEmail =
@@ -1160,7 +1311,7 @@ export const handleBillingAutomationRunCheckoutRequest = async (
 
     const packageIndex = parseInteger(body.packageIndex, "packageIndex");
     const automationRunProductId = parseString(
-      getEnv().STRIPE_AUTOMATION_RUN_PRODUCT_ID,
+      getRuntimeConfig(deps).STRIPE_AUTOMATION_RUN_PRODUCT_ID,
       "STRIPE_AUTOMATION_RUN_PRODUCT_ID",
     );
     const subscription = await deps.convex.getSubscriptionForOrg(resolvedOrg.orgId);
@@ -1196,12 +1347,12 @@ export const handleBillingAutomationRunCheckoutRequest = async (
     const stripe = resolveStripeClient(deps);
     const successUrl = resolveReturnUrl(
       body.successUrl,
-      `${defaultDashboardBillingUrl()}?runCheckout=success`,
+      `${defaultDashboardBillingUrl(deps)}?runCheckout=success`,
       "successUrl",
     );
     const cancelUrl = resolveReturnUrl(
       body.cancelUrl,
-      `${defaultDashboardBillingUrl()}?runCheckout=cancel`,
+      `${defaultDashboardBillingUrl(deps)}?runCheckout=cancel`,
       "cancelUrl",
     );
     const customerEmail =
@@ -1328,7 +1479,7 @@ export const handleBillingPortalRequest = async (
 
     const portal = await resolveStripeClient(deps).billingPortal.sessions.create({
       customer: activeStripeSubscription.stripe_customer_id,
-      return_url: resolveReturnUrl(body.returnUrl, defaultDashboardBillingUrl(), "returnUrl"),
+      return_url: resolveReturnUrl(body.returnUrl, defaultDashboardBillingUrl(deps), "returnUrl"),
     });
     return jsonResponse(request, {
       url: portal.url,
@@ -1576,7 +1727,7 @@ export const handleBillingSubscriptionChangeRequest = async (
       );
     }
 
-    const liveTier = toTierFromPriceId(currentPriceId);
+    const liveTier = toTierFromPriceId(deps, currentPriceId);
     if (!liveTier) {
       return jsonResponse(
         request,
@@ -1675,8 +1826,8 @@ export const handleBillingSubscriptionChangeRequest = async (
 
     const targetPriceId =
       targetTier === SUBSCRIPTION_TIER.starter
-        ? getTierPriceId(SUBSCRIPTION_TIER.starter)
-        : getTierPriceId(SUBSCRIPTION_TIER.pro);
+        ? getTierPriceId(deps, SUBSCRIPTION_TIER.starter)
+        : getTierPriceId(deps, SUBSCRIPTION_TIER.pro);
     if (!targetPriceId) {
       return jsonResponse(
         request,
@@ -1689,8 +1840,10 @@ export const handleBillingSubscriptionChangeRequest = async (
         503,
       );
     }
+    const targetTierRank = TIER_RANK[targetTier]!;
+    const liveTierRank = TIER_RANK[liveTier]!;
 
-    if (TIER_RANK[targetTier] > TIER_RANK[liveTier]) {
+    if (targetTierRank > liveTierRank) {
       await assertSubscriptionHasPaymentMethod(stripe, liveSubscription);
       await releaseSubscriptionScheduleIfPresent(stripe, liveSubscription);
       liveSubscription = await retrieveStripeSubscription(stripe, stripeSubscriptionId, {
@@ -1766,7 +1919,7 @@ export const handleBillingSubscriptionChangeRequest = async (
       });
     }
 
-    if (TIER_RANK[targetTier] < TIER_RANK[liveTier]) {
+    if (targetTierRank < liveTierRank) {
       const downgradePeriod = requireSubscriptionPeriodForMutation(liveSubscription, {
         action: "schedule this downgrade",
         orgId: resolvedOrg.orgId,
@@ -1962,8 +2115,8 @@ export const handleBillingSubscriptionPendingRequest = async (
         pending_effective_at: null,
       });
     }
-    const pendingTier = toTierFromPriceId(nextPriceId);
-    if (!pendingTier || pendingTier === toTierFromPriceId(firstPriceId)) {
+    const pendingTier = toTierFromPriceId(deps, nextPriceId);
+    if (!pendingTier || pendingTier === toTierFromPriceId(deps, firstPriceId)) {
       return jsonResponse(request, {
         cancel_at_period_end: false,
         pending_tier: null,
@@ -2141,7 +2294,7 @@ export const handleStripeBillingWebhookRequest = async (
   request: Request,
   deps: BillingRequestDeps,
 ): Promise<Response> => {
-  const webhookSecret = getEnv().STRIPE_BILLING_WEBHOOK_SECRET;
+  const webhookSecret = getRuntimeConfig(deps).STRIPE_BILLING_WEBHOOK_SECRET;
   if (!webhookSecret) {
     return jsonResponse(
       request,
@@ -2234,6 +2387,7 @@ export const handleStripeBillingWebhookRequest = async (
               await syncBundledGatewayForOrg({
                 convex: deps.convex,
                 orgId,
+                runtime: deps.runtime,
                 tier: subscription.tier,
                 status: subscription.status,
                 resetGatewaySpend: false,
@@ -2349,13 +2503,14 @@ export const handleStripeBillingWebhookRequest = async (
               orgId,
               subscriptionId: subscription.id,
             });
+            const fallbackTier = session.metadata?.tier;
             const priceId =
               readSubscriptionItemPriceId(subscription) ??
-              (session.metadata?.tier === SUBSCRIPTION_TIER.starter ||
-              session.metadata?.tier === SUBSCRIPTION_TIER.pro
-                ? getTierPriceId(session.metadata.tier)
+              (fallbackTier === SUBSCRIPTION_TIER.starter || fallbackTier === SUBSCRIPTION_TIER.pro
+                ? getTierPriceId(deps, fallbackTier)
                 : null);
             const tier = requireKnownStripeSubscriptionTier({
+              deps,
               eventType: event.type,
               stripeEventId: event.id,
               stripeSubscriptionId: subscription.id,
@@ -2394,6 +2549,7 @@ export const handleStripeBillingWebhookRequest = async (
             await syncBundledGatewayForOrg({
               convex: deps.convex,
               orgId,
+              runtime: deps.runtime,
               tier,
               status,
               resetGatewaySpend: false,
@@ -2428,6 +2584,7 @@ export const handleStripeBillingWebhookRequest = async (
         ...(existing?.org_id ? { orgId: existing.org_id } : {}),
       });
       const tier = requireKnownStripeSubscriptionTier({
+        deps,
         eventType: event.type,
         stripeEventId: event.id,
         stripeSubscriptionId: subscription.id,
@@ -2446,6 +2603,7 @@ export const handleStripeBillingWebhookRequest = async (
         await syncBundledGatewayForOrg({
           convex: deps.convex,
           orgId: existing.org_id,
+          runtime: deps.runtime,
           tier,
           status: nextStatus,
           resetGatewaySpend:
@@ -2503,6 +2661,7 @@ export const handleStripeBillingWebhookRequest = async (
         await syncBundledGatewayForOrg({
           convex: deps.convex,
           orgId: existing.org_id,
+          runtime: deps.runtime,
           tier: SUBSCRIPTION_TIER.free,
           status: SUBSCRIPTION_STATUS.canceled,
           resetGatewaySpend: false,
@@ -2538,6 +2697,7 @@ export const handleStripeBillingWebhookRequest = async (
           await syncBundledGatewayForOrg({
             convex: deps.convex,
             orgId: existing.org_id,
+            runtime: deps.runtime,
             tier: existing.tier,
             status: SUBSCRIPTION_STATUS.pastDue,
             resetGatewaySpend: false,
@@ -2576,6 +2736,7 @@ export const handleStripeBillingWebhookRequest = async (
           await syncBundledGatewayForOrg({
             convex: deps.convex,
             orgId: existing.org_id,
+            runtime: deps.runtime,
             tier: existing.tier,
             status: SUBSCRIPTION_STATUS.active,
             resetGatewaySpend: false,

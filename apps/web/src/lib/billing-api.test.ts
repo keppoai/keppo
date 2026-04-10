@@ -4,6 +4,22 @@ import {
   dispatchStartOwnedBillingRequest,
   type StartOwnedBillingDeps,
 } from "../../app/lib/server/billing-api";
+import {
+  handleBillingCheckoutRequest as handleCloudBillingCheckoutRequest,
+  type BillingRuntime,
+} from "../../../../cloud/api/billing";
+import {
+  createDyadGatewayUser,
+  deleteDyadGatewayKeys,
+  deleteDyadGatewayUser,
+  generateDyadGatewayKey,
+  getDyadGatewayUserInfo,
+  hasDyadGatewayConfig,
+  resolveDyadGatewayMaxBudgetUsd,
+  updateDyadGatewayUser,
+} from "../../app/lib/server/api-runtime/dyad-gateway";
+import { getEnv } from "../../app/lib/server/api-runtime/env";
+import { decryptStoredKey } from "../../app/lib/server/api-runtime/routes/automations";
 
 const encryptStoredKeyForTest = async (secret: string, rawValue: string): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
@@ -30,6 +46,90 @@ const signStripePayload = (rawBody: string): string => {
   const signature = createHmac("sha256", secret).update(`${timestamp}.${rawBody}`).digest("hex");
   return `t=${timestamp},v1=${signature}`;
 };
+
+const createMockBillingRuntime = (): BillingRuntime => ({
+  decryptStoredKey: vi.fn(async (encrypted: string) => {
+    const secret = process.env.KEPPO_MASTER_KEY;
+    if (!secret) {
+      throw new Error("Missing KEPPO_MASTER_KEY for test decryption.");
+    }
+    const [prefix, ivHex, ciphertextHex] = encrypted.split(".");
+    if (prefix !== "keppo-v1" || !ivHex || !ciphertextHex) {
+      throw new Error("Invalid ciphertext payload");
+    }
+    const toBytes = (value: string): Uint8Array => {
+      const bytes = new Uint8Array(value.length / 2);
+      for (let index = 0; index < value.length; index += 2) {
+        bytes[index / 2] = Number.parseInt(value.slice(index, index + 2), 16);
+      }
+      return bytes;
+    };
+    const iv = new Uint8Array(Array.from(toBytes(ivHex)));
+    const ciphertext = new Uint8Array(Array.from(toBytes(ciphertextHex)));
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+    const key = await crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, [
+      "decrypt",
+    ]);
+    const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ciphertext);
+    return new TextDecoder().decode(decrypted);
+  }),
+  gateway: {
+    createUser: vi.fn(async ({ orgId }) => `sk_gateway_${orgId}`),
+    deleteKeys: vi.fn().mockResolvedValue(undefined),
+    deleteUser: vi.fn().mockResolvedValue(undefined),
+    generateKey: vi.fn(async (orgId: string) => `sk_generated_${orgId}`),
+    getUserInfo: vi.fn().mockResolvedValue(null),
+    hasConfig: vi.fn(() =>
+      Boolean(
+        process.env.KEPPO_LLM_GATEWAY_URL &&
+        process.env.KEPPO_LLM_GATEWAY_MASTER_KEY &&
+        process.env.KEPPO_LLM_GATEWAY_TEAM_ID,
+      ),
+    ),
+    resolveMaxBudgetUsd: vi.fn(({ remainingCredits, currentSpendUsd }) => {
+      return Number((currentSpendUsd + remainingCredits / 15).toFixed(4));
+    }),
+    updateUser: vi.fn().mockResolvedValue(undefined),
+  },
+  getConfig: () => ({
+    KEPPO_DASHBOARD_ORIGIN: process.env.KEPPO_DASHBOARD_ORIGIN,
+    STRIPE_API_BASE_URL: process.env.STRIPE_API_BASE_URL,
+    STRIPE_AUTOMATION_RUN_PRODUCT_ID: process.env.STRIPE_AUTOMATION_RUN_PRODUCT_ID,
+    STRIPE_BILLING_WEBHOOK_SECRET:
+      process.env.STRIPE_BILLING_WEBHOOK_SECRET ?? process.env.STRIPE_WEBHOOK_SECRET,
+    STRIPE_CREDIT_PRODUCT_ID: process.env.STRIPE_CREDIT_PRODUCT_ID,
+    STRIPE_PRO_PRICE_ID: process.env.STRIPE_PRO_PRICE_ID,
+    STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY,
+    STRIPE_STARTER_PRICE_ID: process.env.STRIPE_STARTER_PRICE_ID,
+  }),
+});
+
+const createAppBillingRuntime = (): BillingRuntime => ({
+  decryptStoredKey,
+  gateway: {
+    createUser: createDyadGatewayUser,
+    deleteKeys: deleteDyadGatewayKeys,
+    deleteUser: deleteDyadGatewayUser,
+    generateKey: generateDyadGatewayKey,
+    getUserInfo: getDyadGatewayUserInfo,
+    hasConfig: hasDyadGatewayConfig,
+    resolveMaxBudgetUsd: resolveDyadGatewayMaxBudgetUsd,
+    updateUser: updateDyadGatewayUser,
+  },
+  getConfig: () => {
+    const env = getEnv();
+    return {
+      KEPPO_DASHBOARD_ORIGIN: env.KEPPO_DASHBOARD_ORIGIN,
+      STRIPE_API_BASE_URL: env.STRIPE_API_BASE_URL,
+      STRIPE_AUTOMATION_RUN_PRODUCT_ID: env.STRIPE_AUTOMATION_RUN_PRODUCT_ID,
+      STRIPE_BILLING_WEBHOOK_SECRET: env.STRIPE_BILLING_WEBHOOK_SECRET,
+      STRIPE_CREDIT_PRODUCT_ID: env.STRIPE_CREDIT_PRODUCT_ID,
+      STRIPE_PRO_PRICE_ID: env.STRIPE_PRO_PRICE_ID,
+      STRIPE_SECRET_KEY: env.STRIPE_SECRET_KEY,
+      STRIPE_STARTER_PRICE_ID: env.STRIPE_STARTER_PRICE_ID,
+    };
+  },
+});
 
 const createDeps = (): StartOwnedBillingDeps => ({
   convex: {
@@ -163,6 +263,7 @@ const createDeps = (): StartOwnedBillingDeps => ({
     })),
     upsertSubscriptionForOrg: vi.fn().mockResolvedValue(undefined),
   },
+  runtime: createAppBillingRuntime(),
   resolveApiSessionIdentity: vi.fn().mockResolvedValue({
     userId: "user_test",
     orgId: "org_test",
@@ -269,6 +370,58 @@ describe("start-owned billing api", () => {
         allow_promotion_codes: true,
         line_items: [{ price: "price_starter_test", quantity: 1 }],
         client_reference_id: "org_test",
+      }),
+      expect.objectContaining({ apiVersion: "2026-03-04.preview" }),
+    );
+  });
+
+  it("runs cloud billing checkout against injected runtime ports", async () => {
+    vi.stubEnv("STRIPE_STARTER_PRICE_ID", "price_starter_test");
+    vi.stubEnv("KEPPO_DASHBOARD_ORIGIN", "https://app.keppo.test");
+
+    const deps = createDeps();
+    deps.runtime = createMockBillingRuntime();
+    const checkoutCreate = vi.fn(async () => ({
+      id: "cs_cloud_boundary",
+      object: "checkout.session",
+      url: "https://checkout.stripe.test/cs_cloud_boundary",
+    }));
+    deps.getStripeClient = () =>
+      ({
+        checkout: {
+          sessions: {
+            create: checkoutCreate,
+          },
+        },
+      }) as never;
+
+    const response = await handleCloudBillingCheckoutRequest(
+      new Request("https://app.keppo.test/api/billing/checkout", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: "better-auth.session_token=session_token_test",
+        },
+        body: JSON.stringify({
+          orgId: "org_test",
+          tier: "starter",
+          successUrl: "/billing?checkout=success",
+          cancelUrl: "/billing?checkout=cancel",
+        }),
+      }),
+      deps,
+    );
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      url: "https://checkout.stripe.test/cs_cloud_boundary",
+      session_id: "cs_cloud_boundary",
+    });
+    expect(checkoutCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        client_reference_id: "org_test",
+        success_url: "https://app.keppo.test/billing?checkout=success",
+        cancel_url: "https://app.keppo.test/billing?checkout=cancel",
       }),
       expect.objectContaining({ apiVersion: "2026-03-04.preview" }),
     );
