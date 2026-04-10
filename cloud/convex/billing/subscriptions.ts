@@ -1,17 +1,169 @@
 // SPDX-License-Identifier: FSL-1.1-Apache-2.0
 
 import { v } from "convex/values";
-import { internalMutation, internalQuery } from "../../../convex/_generated/server";
+import type { Doc } from "../../../convex/_generated/dataModel";
+import {
+  internalMutation,
+  internalQuery,
+  type MutationCtx,
+} from "../../../convex/_generated/server";
 import { nowIso } from "../../../convex/_auth";
 import { SUBSCRIPTION_STATUS, SUBSCRIPTION_TIER } from "../../../convex/domain_constants";
 import { subscriptionStatusValidator, subscriptionTierValidator } from "../../../convex/validators";
 import {
+  billingSourceValidator,
   chooseLatestSubscription,
+  invitePromoMetadataValidator,
+  resolveActiveInvitePromo,
+  resolveBillingPeriod,
+  resolveBillingSource,
   resolveCurrentSubscription,
   subscriptionIdForOrg,
   subscriptionValidator,
   toSubscription,
+  type DbCtx,
 } from "./shared";
+
+const billingContextValidator = v.object({
+  org_id: v.string(),
+  subscription: v.union(subscriptionValidator, v.null()),
+  effective_tier: subscriptionTierValidator,
+  effective_status: subscriptionStatusValidator,
+  billing_source: billingSourceValidator,
+  invite_promo: invitePromoMetadataValidator,
+  period_start: v.string(),
+  period_end: v.string(),
+  workspace_count: v.union(v.number(), v.null()),
+});
+
+const getSubscriptionRowsForOrg = async (ctx: DbCtx, orgId: string) => {
+  return await ctx.db
+    .query("subscriptions")
+    .withIndex("by_org", (q) => q.eq("org_id", orgId))
+    .collect();
+};
+
+const getCanonicalSubscriptionRow = async (ctx: DbCtx, orgId: string) => {
+  const canonicalId = await subscriptionIdForOrg(orgId);
+  const rows = await getSubscriptionRowsForOrg(ctx, orgId);
+  const current = rows.find((row: Doc<"subscriptions">) => row.id === canonicalId);
+  return {
+    canonicalId,
+    rows,
+    current: current ?? chooseLatestSubscription(rows),
+  };
+};
+
+const ensureCanonicalSubscriptionForOrg = async (
+  ctx: MutationCtx,
+  args: {
+    orgId: string;
+    defaults: {
+      tier: (typeof SUBSCRIPTION_TIER)[keyof typeof SUBSCRIPTION_TIER];
+      status: (typeof SUBSCRIPTION_STATUS)[keyof typeof SUBSCRIPTION_STATUS];
+      stripeCustomerId: string | null;
+      stripeSubscriptionId: string | null;
+      workspaceCount: number;
+      currentPeriodStart: string;
+      currentPeriodEnd: string;
+      inviteCodeId?: string | null;
+    };
+  },
+) => {
+  const updatedAt = nowIso();
+  const { canonicalId, rows, current } = await getCanonicalSubscriptionRow(ctx, args.orgId);
+
+  if (!current) {
+    await ctx.db.insert("subscriptions", {
+      id: canonicalId,
+      org_id: args.orgId,
+      tier: args.defaults.tier,
+      status: args.defaults.status,
+      stripe_customer_id: args.defaults.stripeCustomerId,
+      stripe_subscription_id: args.defaults.stripeSubscriptionId,
+      invite_code_id: args.defaults.inviteCodeId ?? null,
+      workspace_count: args.defaults.workspaceCount,
+      current_period_start: args.defaults.currentPeriodStart,
+      current_period_end: args.defaults.currentPeriodEnd,
+      created_at: updatedAt,
+      updated_at: updatedAt,
+    });
+  } else {
+    const patch: Partial<Doc<"subscriptions">> & { id: string; updated_at: string } = {
+      id: canonicalId,
+      updated_at: updatedAt,
+    };
+    if (typeof current.workspace_count !== "number") {
+      patch.workspace_count = args.defaults.workspaceCount;
+    }
+    if (!current.current_period_start) {
+      patch.current_period_start = args.defaults.currentPeriodStart;
+    }
+    if (!current.current_period_end) {
+      patch.current_period_end = args.defaults.currentPeriodEnd;
+    }
+    if (
+      !current.stripe_customer_id &&
+      args.defaults.stripeCustomerId !== null &&
+      args.defaults.stripeCustomerId.length > 0
+    ) {
+      patch.stripe_customer_id = args.defaults.stripeCustomerId;
+    }
+    if (
+      !current.stripe_subscription_id &&
+      args.defaults.stripeSubscriptionId !== null &&
+      args.defaults.stripeSubscriptionId.length > 0
+    ) {
+      patch.stripe_subscription_id = args.defaults.stripeSubscriptionId;
+    }
+    if (current.invite_code_id === undefined && args.defaults.inviteCodeId !== undefined) {
+      patch.invite_code_id = args.defaults.inviteCodeId;
+    }
+    await ctx.db.patch(current._id, patch);
+  }
+
+  const allRows = await getSubscriptionRowsForOrg(ctx, args.orgId);
+  const canonical =
+    allRows.find((row: Doc<"subscriptions">) => row.id === canonicalId) ??
+    chooseLatestSubscription(allRows);
+  if (!canonical) {
+    throw new Error("Failed to canonicalize subscription");
+  }
+  for (const row of allRows) {
+    if (row._id !== canonical._id) {
+      await ctx.db.delete(row._id);
+    }
+  }
+
+  const updated = await ctx.db
+    .query("subscriptions")
+    .withIndex("by_custom_id", (q) => q.eq("id", canonicalId))
+    .first();
+  if (!updated) {
+    throw new Error("Failed to load canonical subscription");
+  }
+  return updated;
+};
+
+const ensureFreeSubscriptionRow = async (
+  ctx: MutationCtx,
+  orgId: string,
+  workspaceCountSeed: number,
+) => {
+  const period = resolveBillingPeriod(null);
+  return await ensureCanonicalSubscriptionForOrg(ctx, {
+    orgId,
+    defaults: {
+      tier: SUBSCRIPTION_TIER.free,
+      status: SUBSCRIPTION_STATUS.active,
+      stripeCustomerId: null,
+      stripeSubscriptionId: null,
+      workspaceCount: Math.max(0, Math.floor(workspaceCountSeed)),
+      currentPeriodStart: period.periodStart,
+      currentPeriodEnd: period.periodEnd,
+    },
+  });
+};
 
 export const upsertSubscriptionForOrg = internalMutation({
   args: {
@@ -84,6 +236,139 @@ export const upsertSubscriptionForOrg = internalMutation({
       throw new Error("Failed to update subscription");
     }
     return toSubscription(updated);
+  },
+});
+
+export const ensureFreeSubscriptionForOrg = internalMutation({
+  args: {
+    orgId: v.string(),
+    workspaceCountSeed: v.number(),
+  },
+  returns: subscriptionValidator,
+  handler: async (ctx, args) => {
+    const subscription = await ensureFreeSubscriptionRow(ctx, args.orgId, args.workspaceCountSeed);
+    return toSubscription(subscription);
+  },
+});
+
+export const setWorkspaceCountForOrg = internalMutation({
+  args: {
+    orgId: v.string(),
+    workspaceCount: v.number(),
+  },
+  returns: subscriptionValidator,
+  handler: async (ctx, args) => {
+    await ensureFreeSubscriptionRow(ctx, args.orgId, args.workspaceCount);
+    const canonicalId = await subscriptionIdForOrg(args.orgId);
+    const row = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_custom_id", (q) => q.eq("id", canonicalId))
+      .unique();
+    if (!row) {
+      throw new Error("Subscription not found");
+    }
+    await ctx.db.patch(row._id, {
+      workspace_count: Math.max(0, Math.floor(args.workspaceCount)),
+      updated_at: nowIso(),
+    });
+    const updated = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_custom_id", (q) => q.eq("id", canonicalId))
+      .unique();
+    if (!updated) {
+      throw new Error("Failed to update workspace count");
+    }
+    return toSubscription(updated);
+  },
+});
+
+export const redeemInvitePromoForOrg = internalMutation({
+  args: {
+    orgId: v.string(),
+    inviteCodeId: v.string(),
+    grantTier: subscriptionTierValidator,
+    redeemedAt: v.string(),
+    expiresAt: v.string(),
+  },
+  returns: subscriptionValidator,
+  handler: async (ctx, args) => {
+    await ensureFreeSubscriptionRow(ctx, args.orgId, 1);
+    const canonicalId = await subscriptionIdForOrg(args.orgId);
+    const row = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_custom_id", (q) => q.eq("id", canonicalId))
+      .unique();
+    if (!row) {
+      throw new Error("Subscription not found");
+    }
+    await ctx.db.patch(row._id, {
+      tier: args.grantTier,
+      status: SUBSCRIPTION_STATUS.trialing,
+      stripe_subscription_id: null,
+      current_period_start: args.redeemedAt,
+      current_period_end: args.expiresAt,
+      updated_at: args.redeemedAt,
+      ...(typeof row.invite_code_id !== "string" ? { invite_code_id: args.inviteCodeId } : {}),
+    });
+    const updated = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_custom_id", (q) => q.eq("id", canonicalId))
+      .unique();
+    if (!updated) {
+      throw new Error("Failed to redeem invite promo");
+    }
+    return toSubscription(updated);
+  },
+});
+
+export const expireInvitePromoForOrg = internalMutation({
+  args: {
+    orgId: v.string(),
+    expectedTier: subscriptionTierValidator,
+    updatedAt: v.string(),
+  },
+  returns: v.object({
+    fellBackToFree: v.boolean(),
+    subscription: v.union(subscriptionValidator, v.null()),
+  }),
+  handler: async (ctx, args) => {
+    const period = resolveBillingPeriod(null);
+    const seed = await ensureCanonicalSubscriptionForOrg(ctx, {
+      orgId: args.orgId,
+      defaults: {
+        tier: SUBSCRIPTION_TIER.free,
+        status: SUBSCRIPTION_STATUS.active,
+        stripeCustomerId: null,
+        stripeSubscriptionId: null,
+        workspaceCount: 1,
+        currentPeriodStart: period.periodStart,
+        currentPeriodEnd: period.periodEnd,
+      },
+    });
+    let fellBackToFree = false;
+    if (
+      seed.tier === args.expectedTier &&
+      seed.status === SUBSCRIPTION_STATUS.trialing &&
+      seed.stripe_subscription_id === null
+    ) {
+      await ctx.db.patch(seed._id, {
+        tier: SUBSCRIPTION_TIER.free,
+        status: SUBSCRIPTION_STATUS.active,
+        stripe_subscription_id: null,
+        current_period_start: period.periodStart,
+        current_period_end: period.periodEnd,
+        updated_at: args.updatedAt,
+      });
+      fellBackToFree = true;
+    }
+    const updated = await ctx.db
+      .query("subscriptions")
+      .withIndex("by_custom_id", (q) => q.eq("id", seed.id))
+      .unique();
+    return {
+      fellBackToFree,
+      subscription: updated ? toSubscription(updated) : null,
+    };
   },
 });
 
@@ -221,5 +506,51 @@ export const getSubscriptionForOrg = internalQuery({
   handler: async (ctx, args) => {
     const subscription = await resolveCurrentSubscription(ctx, args.orgId);
     return subscription ? toSubscription(subscription) : null;
+  },
+});
+
+export const getBillingContextForOrg = internalQuery({
+  args: {
+    orgId: v.string(),
+  },
+  returns: billingContextValidator,
+  handler: async (ctx, args) => {
+    const subscription = await resolveCurrentSubscription(ctx, args.orgId);
+    const invitePromo =
+      subscription &&
+      subscription.tier !== SUBSCRIPTION_TIER.free &&
+      typeof subscription.stripe_subscription_id === "string" &&
+      subscription.stripe_subscription_id.length > 0
+        ? null
+        : await resolveActiveInvitePromo(ctx, args.orgId);
+    const billingSource = resolveBillingSource({
+      subscription,
+      invitePromo,
+    });
+    const period =
+      billingSource === "invite_promo" && invitePromo
+        ? {
+            periodStart: subscription?.current_period_start ?? invitePromo.redeemed_at,
+            periodEnd: subscription?.current_period_end ?? invitePromo.expires_at,
+          }
+        : resolveBillingPeriod(subscription);
+    return {
+      org_id: args.orgId,
+      subscription: subscription ? toSubscription(subscription) : null,
+      effective_tier:
+        billingSource === "invite_promo"
+          ? (invitePromo?.grant_tier ?? subscription?.tier ?? SUBSCRIPTION_TIER.free)
+          : (subscription?.tier ?? SUBSCRIPTION_TIER.free),
+      effective_status:
+        billingSource === "invite_promo"
+          ? (subscription?.status ?? SUBSCRIPTION_STATUS.trialing)
+          : (subscription?.status ?? SUBSCRIPTION_STATUS.active),
+      billing_source: billingSource,
+      invite_promo: billingSource === "invite_promo" ? invitePromo : null,
+      period_start: period.periodStart,
+      period_end: period.periodEnd,
+      workspace_count:
+        typeof subscription?.workspace_count === "number" ? subscription.workspace_count : null,
+    };
   },
 });

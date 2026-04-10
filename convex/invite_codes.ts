@@ -1,5 +1,6 @@
 import { internal } from "./_generated/api";
 import type { Doc } from "./_generated/dataModel";
+import { makeFunctionReference } from "convex/server";
 import { internalMutation, mutation, type MutationCtx } from "./_generated/server";
 import { ConvexError, v } from "convex/values";
 import {
@@ -19,11 +20,17 @@ import {
   USER_ROLE,
   type SubscriptionTier,
 } from "./domain_constants";
-import { chooseLatestSubscription, subscriptionIdForOrg } from "./billing/shared";
 import { subscriptionTierValidator } from "./validators";
-import { getDefaultBillingPeriod } from "../packages/shared/src/subscriptions.js";
 
 const PROMO_SCAN_LIMIT_DEFAULT = 20;
+const refs = {
+  ensureFreeSubscriptionForOrg: makeFunctionReference<"mutation">(
+    "billing:ensureFreeSubscriptionForOrg",
+  ),
+  getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
+  redeemInvitePromoForOrg: makeFunctionReference<"mutation">("billing:redeemInvitePromoForOrg"),
+  expireInvitePromoForOrg: makeFunctionReference<"mutation">("billing:expireInvitePromoForOrg"),
+};
 
 const redeemInviteCodeResultValidator = v.union(
   v.object({
@@ -64,52 +71,13 @@ export const resolveInviteCodeGrantTier = (
   return resolveInviteGrantTier(inviteCode.grant_tier);
 };
 
-const getCurrentSubscriptionRow = async (ctx: BaseCtx, orgId: string) => {
-  const rows = await ctx.db
-    .query("subscriptions")
-    .withIndex("by_org", (q) => q.eq("org_id", orgId))
-    .take(8);
-  return chooseLatestSubscription(rows);
-};
-
-const ensureSubscriptionRow = async (ctx: MutationCtx, orgId: string) => {
-  let subscription = await getCurrentSubscriptionRow(ctx, orgId);
-  if (subscription) {
-    return subscription;
-  }
-
-  const now = nowIso();
-  const period = getDefaultBillingPeriod(new Date());
-  const subscriptionId = await subscriptionIdForOrg(orgId);
-  await ctx.db.insert("subscriptions", {
-    id: subscriptionId,
-    org_id: orgId,
-    tier: SUBSCRIPTION_TIER.free,
-    status: SUBSCRIPTION_STATUS.active,
-    stripe_customer_id: null,
-    stripe_subscription_id: null,
-    invite_code_id: null,
-    workspace_count: 1,
-    current_period_start: period.periodStart,
-    current_period_end: period.periodEnd,
-    created_at: now,
-    updated_at: now,
-  });
-
-  subscription = await getCurrentSubscriptionRow(ctx, orgId);
-  if (!subscription) {
-    throw new ConvexError({
-      code: "INVITE_CODE_SUBSCRIPTION_MISSING",
-    });
-  }
-  return subscription;
-};
-
-const shouldWriteInviteMarker = (subscription: Doc<"subscriptions"> | null): boolean => {
-  return typeof subscription?.invite_code_id !== "string";
-};
-
-const isStripePaidSubscription = (subscription: Doc<"subscriptions"> | null): boolean => {
+const isStripePaidSubscription = (
+  subscription: {
+    tier: SubscriptionTier;
+    stripe_subscription_id: string | null;
+    status: Doc<"subscriptions">["status"];
+  } | null,
+): boolean => {
   if (!subscription) {
     return false;
   }
@@ -190,7 +158,13 @@ export const redeemInviteCode = mutation({
     }
 
     const grantTier = resolveInviteCodeGrantTier(inviteCode);
-    const subscription = await ensureSubscriptionRow(ctx, auth.orgId);
+    await ctx.runMutation(refs.ensureFreeSubscriptionForOrg, {
+      orgId: auth.orgId,
+      workspaceCountSeed: 1,
+    });
+    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
+      orgId: auth.orgId,
+    });
     const redeemedAt = nowIso();
 
     if (grantTier === SUBSCRIPTION_TIER.free) {
@@ -237,14 +211,12 @@ export const redeemInviteCode = mutation({
     await ctx.db.patch(inviteCode._id, {
       use_count: inviteCode.use_count + 1,
     });
-    await ctx.db.patch(subscription._id, {
-      tier: grantTier,
-      status: SUBSCRIPTION_STATUS.trialing,
-      stripe_subscription_id: null,
-      current_period_start: redeemedAt,
-      current_period_end: expiresAt,
-      updated_at: redeemedAt,
-      ...(shouldWriteInviteMarker(subscription) ? { invite_code_id: inviteCode.id } : {}),
+    await ctx.runMutation(refs.redeemInvitePromoForOrg, {
+      orgId: auth.orgId,
+      inviteCodeId: inviteCode.id,
+      grantTier,
+      redeemedAt,
+      expiresAt,
     });
     await ctx.db.insert("invite_code_redemptions", {
       id: randomIdFor("ired"),
@@ -348,25 +320,11 @@ export const expireInviteCodePromos = internalMutation({
         updated_at: updatedAt,
       });
 
-      const subscription = await getCurrentSubscriptionRow(ctx, row.org_id);
-      let fellBackToFree = false;
-      if (
-        subscription &&
-        subscription.tier === row.grant_tier &&
-        subscription.status === SUBSCRIPTION_STATUS.trialing &&
-        subscription.stripe_subscription_id === null
-      ) {
-        const period = getDefaultBillingPeriod(new Date());
-        await ctx.db.patch(subscription._id, {
-          tier: SUBSCRIPTION_TIER.free,
-          status: SUBSCRIPTION_STATUS.active,
-          stripe_subscription_id: null,
-          current_period_start: period.periodStart,
-          current_period_end: period.periodEnd,
-          updated_at: updatedAt,
-        });
-        fellBackToFree = true;
-      }
+      const { fellBackToFree } = await ctx.runMutation(refs.expireInvitePromoForOrg, {
+        orgId: row.org_id,
+        expectedTier: row.grant_tier,
+        updatedAt,
+      });
 
       await insertAuditEvent(ctx, {
         orgId: row.org_id,

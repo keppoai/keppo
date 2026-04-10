@@ -5,6 +5,7 @@ import {
   type MutationCtx,
   type QueryCtx,
 } from "./_generated/server";
+import { makeFunctionReference } from "convex/server";
 import { ConvexError, v } from "convex/values";
 import { components } from "./_generated/api";
 import {
@@ -28,14 +29,10 @@ import {
   AUDIT_EVENT_TYPES,
   CREDENTIAL_TYPE,
   type AuditEventType,
-  SUBSCRIPTION_STATUS,
-  SUBSCRIPTION_TIER,
   USER_ROLE,
   WORKSPACE_STATUS,
 } from "./domain_constants";
 import { isKeppoToken, validateTokenEntropy } from "./credential_utils";
-import { getDefaultBillingPeriod } from "../packages/shared/src/subscriptions.js";
-import { chooseLatestSubscription, subscriptionIdForOrg } from "./billing/shared";
 import { getTierConfig } from "../packages/shared/src/subscriptions.js";
 import {
   getWorkspaceSlug,
@@ -55,6 +52,10 @@ const WORKSPACE_CREATE_RATE_LIMIT = {
   windowMs: 15 * 60 * 1_000,
 } as const;
 const WORKSPACE_NAME_MAX_LENGTH = 80;
+const refs = {
+  getBillingContextForOrg: makeFunctionReference<"query">("billing:getBillingContextForOrg"),
+  setWorkspaceCountForOrg: makeFunctionReference<"mutation">("billing:setWorkspaceCountForOrg"),
+};
 
 const resolveWorkspaceCountScanLimit = (maxWorkspaces: number): number =>
   Number.isFinite(maxWorkspaces)
@@ -326,53 +327,16 @@ export const createWorkspace = mutation({
       windowMs: WORKSPACE_CREATE_RATE_LIMIT.windowMs,
       message: "Too many workspace creations.",
     });
-    const subscriptionId = await subscriptionIdForOrg(auth.orgId);
-    const canonicalSubscription = await ctx.db
-      .query("subscriptions")
-      .withIndex("by_custom_id", (q) => q.eq("id", subscriptionId))
-      .first();
-    const tier = canonicalSubscription?.tier ?? SUBSCRIPTION_TIER.free;
+    const billing = await ctx.runQuery(refs.getBillingContextForOrg, {
+      orgId: auth.orgId,
+    });
+    const tier = billing.effective_tier;
     const tierConfig = getTierConfig(tier);
     const workspaceCountScanLimit = resolveWorkspaceCountScanLimit(tierConfig.max_workspaces);
     const createdAt = nowIso();
-    let counterSource = canonicalSubscription;
-    if (!counterSource) {
-      const legacySubscriptionRows = await ctx.db
-        .query("subscriptions")
-        .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
-        .take(WORKSPACE_MUTATION_SCAN_BUDGET);
-      const subscription = chooseLatestSubscription(legacySubscriptionRows);
-      const workspaceCountSeed = (
-        await ctx.db
-          .query("workspaces")
-          .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
-          .take(workspaceCountScanLimit)
-      ).length;
-      const period = getDefaultBillingPeriod(new Date());
-      await ctx.db.insert("subscriptions", {
-        id: subscriptionId,
-        org_id: auth.orgId,
-        tier,
-        status: subscription?.status ?? SUBSCRIPTION_STATUS.active,
-        stripe_customer_id: subscription?.stripe_customer_id ?? null,
-        stripe_subscription_id: subscription?.stripe_subscription_id ?? null,
-        workspace_count: workspaceCountSeed,
-        current_period_start: subscription?.current_period_start ?? period.periodStart,
-        current_period_end: subscription?.current_period_end ?? period.periodEnd,
-        created_at: createdAt,
-        updated_at: createdAt,
-      });
-      counterSource = await ctx.db
-        .query("subscriptions")
-        .withIndex("by_custom_id", (q) => q.eq("id", subscriptionId))
-        .first();
-    }
-    if (!counterSource) {
-      throw new Error("Failed to initialize workspace counter");
-    }
     const workspaceCount =
-      typeof counterSource.workspace_count === "number"
-        ? counterSource.workspace_count
+      typeof billing.workspace_count === "number"
+        ? billing.workspace_count
         : (
             await ctx.db
               .query("workspaces")
@@ -387,10 +351,6 @@ export const createWorkspace = mutation({
         tier,
       });
     }
-    await ctx.db.patch(counterSource._id, {
-      workspace_count: workspaceCount + 1,
-      updated_at: createdAt,
-    });
 
     const workspaceId = randomIdFor("workspace");
     const workspaceSlug = await buildUniqueWorkspaceSlug(
@@ -431,6 +391,10 @@ export const createWorkspace = mutation({
     await insertAudit(ctx, auth.orgId, "api", "workspace.credential_rotated", {
       workspace_id: workspaceId,
       credential_id: credentialId,
+    });
+    await ctx.runMutation(refs.setWorkspaceCountForOrg, {
+      orgId: auth.orgId,
+      workspaceCount: workspaceCount + 1,
     });
 
     return {
@@ -552,20 +516,10 @@ export const deleteWorkspace = mutation({
       status: WORKSPACE_STATUS.disabled,
     });
 
-    const subscriptionRows = await ctx.db
-      .query("subscriptions")
-      .withIndex("by_org", (q) => q.eq("org_id", auth.orgId))
-      .take(WORKSPACE_MUTATION_SCAN_BUDGET);
-    const counterSource = chooseLatestSubscription(subscriptionRows);
-    if (counterSource) {
-      await ctx.db.patch(counterSource._id, {
-        workspace_count:
-          typeof counterSource.workspace_count === "number"
-            ? Math.max(0, counterSource.workspace_count - 1)
-            : Math.max(0, activeWorkspaces.length - 1),
-        updated_at: revokedAt,
-      });
-    }
+    await ctx.runMutation(refs.setWorkspaceCountForOrg, {
+      orgId: auth.orgId,
+      workspaceCount: Math.max(0, activeWorkspaces.length - 1),
+    });
 
     await insertAudit(ctx, auth.orgId, auth.userId, AUDIT_EVENT_TYPES.workspaceDeleted, {
       workspace_id: args.workspaceId,

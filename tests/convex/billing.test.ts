@@ -4,6 +4,15 @@ import { SUBSCRIPTION_STATUS, SUBSCRIPTION_TIER } from "../../convex/domain_cons
 import { createConvexTestHarness } from "./harness";
 
 const refs = {
+  ensureFreeSubscriptionForOrg: makeFunctionReference<"mutation">(
+    "billing/subscriptions:ensureFreeSubscriptionForOrg",
+  ),
+  setWorkspaceCountForOrg: makeFunctionReference<"mutation">(
+    "billing/subscriptions:setWorkspaceCountForOrg",
+  ),
+  getBillingContextForOrg: makeFunctionReference<"query">(
+    "billing/subscriptions:getBillingContextForOrg",
+  ),
   upsertSubscriptionForOrg: makeFunctionReference<"mutation">(
     "billing/subscriptions:upsertSubscriptionForOrg",
   ),
@@ -93,5 +102,53 @@ describe("convex billing functions", () => {
 
     expect(creditRows).toHaveLength(1);
     expect(creditRows[0]?.allowance_used).toBe(deductions);
+  });
+
+  it("resolves billing context through the billing-owned bootstrap, counter, and period boundary", async () => {
+    const t = createConvexTestHarness();
+    const orgId = "org_convex_billing_context";
+
+    await t.mutation(refs.ensureFreeSubscriptionForOrg, {
+      orgId,
+      workspaceCountSeed: 1,
+    });
+    await t.mutation(refs.setWorkspaceCountForOrg, {
+      orgId,
+      workspaceCount: 3,
+    });
+
+    const freeContext = await t.query(refs.getBillingContextForOrg, { orgId });
+    expect(freeContext).toMatchObject({
+      org_id: orgId,
+      effective_tier: SUBSCRIPTION_TIER.free,
+      billing_source: "free",
+      workspace_count: 3,
+    });
+
+    const upgradedPeriod = {
+      periodStart: "2026-04-01T00:00:00.000Z",
+      periodEnd: "2026-05-01T00:00:00.000Z",
+    };
+    await t.mutation(refs.upsertSubscriptionForOrg, {
+      orgId,
+      tier: SUBSCRIPTION_TIER.starter,
+      status: SUBSCRIPTION_STATUS.active,
+      stripeCustomerId: "cus_billing_ctx",
+      stripeSubscriptionId: "sub_billing_ctx",
+      currentPeriodStart: upgradedPeriod.periodStart,
+      currentPeriodEnd: upgradedPeriod.periodEnd,
+    });
+
+    const upgradedContext = await t.query(refs.getBillingContextForOrg, { orgId });
+    expect(upgradedContext).toMatchObject({
+      org_id: orgId,
+      effective_tier: SUBSCRIPTION_TIER.starter,
+      effective_status: SUBSCRIPTION_STATUS.active,
+      billing_source: "stripe",
+      period_start: upgradedPeriod.periodStart,
+      period_end: upgradedPeriod.periodEnd,
+      workspace_count: 3,
+      invite_promo: null,
+    });
   });
 });

@@ -22,10 +22,9 @@ import {
 import { pickFields } from "./field_mapper";
 import { automationRunTopupPurchaseStatusValidator } from "./validators";
 import { AUTOMATION_RUN_TOPUP_EXPIRY_DAYS } from "../packages/shared/src/automations.js";
-import { getDefaultBillingPeriod } from "../packages/shared/src/subscriptions.js";
 
 const refs = {
-  getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
+  getBillingContextForOrg: makeFunctionReference<"query">("billing:getBillingContextForOrg"),
   emitNotificationForOrg: makeFunctionReference<"mutation">("notifications:emitNotificationForOrg"),
   claimApiDedupeKey: makeFunctionReference<"mutation">("api_dedupe:claimApiDedupeKey"),
   completeApiDedupeKey: makeFunctionReference<"mutation">("api_dedupe:completeApiDedupeKey"),
@@ -105,28 +104,13 @@ const zeroAutomationRunTopupBalance = () => ({
   purchased_tool_call_time_ms_balance: 0,
 });
 
-const resolveBillingPeriod = (
-  subscription:
-    | {
-        current_period_start: string;
-        current_period_end: string;
-      }
-    | null
-    | undefined,
-) => {
-  if (
-    subscription?.current_period_start &&
-    subscription.current_period_start.length > 0 &&
-    subscription.current_period_end &&
-    subscription.current_period_end.length > 0
-  ) {
-    return {
-      periodStart: subscription.current_period_start,
-      periodEnd: subscription.current_period_end,
-    };
-  }
-  return getDefaultBillingPeriod(new Date());
-};
+const resolveBillingWindowFromContext = (billing: {
+  period_start: string;
+  period_end: string;
+}) => ({
+  periodStart: billing.period_start,
+  periodEnd: billing.period_end,
+});
 
 const ensureSameOrgMembership = async (
   ctx: QueryCtx | MutationCtx,
@@ -148,13 +132,6 @@ const getAutomationRunTopupsRow = async (
   return await ctx.db
     .query("automation_run_topups")
     .withIndex("by_org_period", (q) => q.eq("org_id", orgId).eq("period_start", periodStart))
-    .first();
-};
-
-const getSubscriptionForOrgRow = async (ctx: QueryCtx | MutationCtx, orgId: string) => {
-  return await ctx.db
-    .query("subscriptions")
-    .withIndex("by_org", (q) => q.eq("org_id", orgId))
     .first();
 };
 
@@ -294,8 +271,8 @@ export const getAutomationRunTopupBalanceForOrg = async (
   purchased_tool_calls_balance: number;
   purchased_tool_call_time_ms_balance: number;
 }> => {
-  const subscription = await getSubscriptionForOrgRow(ctx, orgId);
-  const period = resolveBillingPeriod(subscription);
+  const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId });
+  const period = resolveBillingWindowFromContext(billing);
   const row = await getAutomationRunTopupsRow(ctx, orgId, period.periodStart);
   if (row) {
     return {
@@ -358,10 +335,8 @@ export const addPurchasedAutomationRuns = internalMutation({
     const expiresAt = new Date(
       Date.now() + AUTOMATION_RUN_TOPUP_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
     ).toISOString();
-    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, {
-      orgId: args.orgId,
-    });
-    const period = resolveBillingPeriod(subscription);
+    const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId: args.orgId });
+    const period = resolveBillingWindowFromContext(billing);
     await ensureTopupLedgerRow(ctx, {
       orgId: args.orgId,
       periodStart: period.periodStart,
@@ -416,8 +391,8 @@ export const addPurchasedAutomationRuns = internalMutation({
 });
 
 const resolveCurrentPeriodForOrg = async (ctx: MutationCtx, orgId: string) => {
-  const subscription = await getSubscriptionForOrgRow(ctx, orgId);
-  return resolveBillingPeriod(subscription);
+  const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId });
+  return resolveBillingWindowFromContext(billing);
 };
 
 export const deductPurchasedRunInPlace = async (ctx: MutationCtx, orgId: string) => {

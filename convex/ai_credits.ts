@@ -19,10 +19,7 @@ import {
   USER_ROLES,
 } from "./domain_constants";
 import { pickFields } from "./field_mapper";
-import {
-  getDefaultBillingPeriod,
-  getIncludedAiCreditsForTier,
-} from "../packages/shared/src/subscriptions.js";
+import { getIncludedAiCreditsForTier } from "../packages/shared/src/subscriptions.js";
 import {
   supportsBundledAiRuntime,
   AI_CREDIT_USAGE_SOURCE,
@@ -40,7 +37,7 @@ import {
 import { aiCreditPurchaseStatusValidator } from "./validators";
 
 const refs = {
-  getSubscriptionForOrg: makeFunctionReference<"query">("billing:getSubscriptionForOrg"),
+  getBillingContextForOrg: makeFunctionReference<"query">("billing:getBillingContextForOrg"),
   emitNotificationForOrg: makeFunctionReference<"mutation">("notifications:emitNotificationForOrg"),
 };
 const AI_CREDIT_EXPIRY_DAYS = 90;
@@ -153,28 +150,15 @@ const toAiCreditsRow = (row: Doc<"ai_credits">) => pickFields(row, aiCreditsRowF
 
 const toPurchase = (row: Doc<"ai_credit_purchases">) => pickFields(row, purchaseFields);
 
-const resolveBillingPeriod = (
-  subscription:
-    | {
-        current_period_start: string;
-        current_period_end: string;
-      }
-    | null
-    | undefined,
-) => {
-  if (
-    subscription?.current_period_start &&
-    subscription.current_period_start.length > 0 &&
-    subscription.current_period_end &&
-    subscription.current_period_end.length > 0
-  ) {
-    return {
-      periodStart: subscription.current_period_start,
-      periodEnd: subscription.current_period_end,
-    };
-  }
-  return getDefaultBillingPeriod(new Date());
-};
+const resolveBillingWindowFromContext = (billing: {
+  period_start: string;
+  period_end: string;
+  effective_tier: (typeof SUBSCRIPTION_TIER)[keyof typeof SUBSCRIPTION_TIER];
+}) => ({
+  tier: billing.effective_tier,
+  periodStart: billing.period_start,
+  periodEnd: billing.period_end,
+});
 
 const ensureSameOrgMembership = async (
   ctx: QueryCtx | MutationCtx,
@@ -450,10 +434,10 @@ const resolveAllowanceConfigForTier = async (
 export const getAiCreditBalanceForOrg = async (
   ctx: QueryCtx | MutationCtx,
   orgId: string,
-  subscription?: {
-    tier?: string | null;
-    current_period_start?: string | null;
-    current_period_end?: string | null;
+  billingContext?: {
+    effective_tier: (typeof SUBSCRIPTION_TIER)[keyof typeof SUBSCRIPTION_TIER];
+    period_start: string;
+    period_end: string;
   } | null,
 ): Promise<{
   org_id: string;
@@ -468,16 +452,15 @@ export const getAiCreditBalanceForOrg = async (
   bundled_runtime_enabled: boolean;
 }> => {
   const now = nowIso();
-  const resolvedSubscription =
-    subscription ?? (await ctx.runQuery(refs.getSubscriptionForOrg, { orgId }));
-  const tier = resolvedSubscription?.tier ?? SUBSCRIPTION_TIER.free;
-  const period = resolveBillingPeriod(resolvedSubscription);
+  const resolvedBilling =
+    billingContext ?? (await ctx.runQuery(refs.getBillingContextForOrg, { orgId }));
+  const period = resolveBillingWindowFromContext(resolvedBilling);
   const allowanceConfig = await resolveAllowanceConfigForTier(ctx, {
     orgId,
-    tier,
+    tier: period.tier,
     periodStart: period.periodStart,
   });
-  const bundledRuntimeEnabled = supportsBundledAiRuntime(tier) && hasGatewayRuntime();
+  const bundledRuntimeEnabled = supportsBundledAiRuntime(period.tier) && hasGatewayRuntime();
   return await computeBalance(ctx, {
     orgId,
     periodStart: period.periodStart,
@@ -492,14 +475,13 @@ export const getAiCreditBalanceForOrg = async (
 export const isBundledRuntimeEnabledForOrg = async (
   ctx: QueryCtx | MutationCtx,
   orgId: string,
-  subscription?: {
-    tier?: string | null;
+  billingContext?: {
+    effective_tier: (typeof SUBSCRIPTION_TIER)[keyof typeof SUBSCRIPTION_TIER];
   } | null,
 ): Promise<boolean> => {
-  const resolvedSubscription =
-    subscription ?? (await ctx.runQuery(refs.getSubscriptionForOrg, { orgId }));
-  const tier = resolvedSubscription?.tier ?? SUBSCRIPTION_TIER.free;
-  return supportsBundledAiRuntime(tier) && hasGatewayRuntime();
+  const resolvedBilling =
+    billingContext ?? (await ctx.runQuery(refs.getBillingContextForOrg, { orgId }));
+  return supportsBundledAiRuntime(resolvedBilling.effective_tier) && hasGatewayRuntime();
 };
 
 export const getAiCreditBalanceForOrgInternal = internalQuery({
@@ -536,16 +518,15 @@ export const syncAiCreditsFromGateway = internalMutation({
   returns: aiCreditGatewaySyncResultValidator,
   handler: async (ctx, args) => {
     const now = nowIso();
-    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, { orgId: args.org_id });
-    const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
-    const period = resolveBillingPeriod(subscription);
+    const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId: args.org_id });
+    const period = resolveBillingWindowFromContext(billing);
     const allowanceConfig = await resolveAllowanceConfigForTier(ctx, {
       orgId: args.org_id,
-      tier,
+      tier: period.tier,
       periodStart: period.periodStart,
     });
     const activePurchases = await listActivePurchases(ctx, args.org_id, now);
-    const bundledRuntimeEnabled = supportsBundledAiRuntime(tier) && hasGatewayRuntime();
+    const bundledRuntimeEnabled = supportsBundledAiRuntime(period.tier) && hasGatewayRuntime();
     const row = await ensureAiCreditsRow(ctx, {
       orgId: args.org_id,
       periodStart: period.periodStart,
@@ -697,16 +678,15 @@ export const deductAiCredit = internalMutation({
   returns: aiCreditBalanceValidator,
   handler: async (ctx, args) => {
     const now = nowIso();
-    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, { orgId: args.org_id });
-    const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
-    const period = resolveBillingPeriod(subscription);
+    const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId: args.org_id });
+    const period = resolveBillingWindowFromContext(billing);
     const usageSource: AiCreditUsageSource = args.usage_source ?? AI_CREDIT_USAGE_SOURCE.generation;
     const allowanceConfig = await resolveAllowanceConfigForTier(ctx, {
       orgId: args.org_id,
-      tier,
+      tier: period.tier,
       periodStart: period.periodStart,
     });
-    const bundledRuntimeEnabled = supportsBundledAiRuntime(tier) && hasGatewayRuntime();
+    const bundledRuntimeEnabled = supportsBundledAiRuntime(period.tier) && hasGatewayRuntime();
     if (usageSource === AI_CREDIT_USAGE_SOURCE.runtime && !bundledRuntimeEnabled) {
       throw new Error(
         formatAiCreditErrorPayload({
@@ -824,12 +804,11 @@ export const addPurchasedCredits = internalMutation({
     const expiresAt = new Date(
       Date.now() + AI_CREDIT_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
     ).toISOString();
-    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, { orgId: args.org_id });
-    const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
-    const period = resolveBillingPeriod(subscription);
+    const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId: args.org_id });
+    const period = resolveBillingWindowFromContext(billing);
     const allowanceConfig = await resolveAllowanceConfigForTier(ctx, {
       orgId: args.org_id,
-      tier,
+      tier: period.tier,
       periodStart: period.periodStart,
     });
     const row = await ensureAiCreditsRow(ctx, {
@@ -986,11 +965,10 @@ export const resetMonthlyAllowance = internalMutation({
   },
   returns: aiCreditsRowValidator,
   handler: async (ctx, args) => {
-    const subscription = await ctx.runQuery(refs.getSubscriptionForOrg, { orgId: args.org_id });
-    const tier = subscription?.tier ?? SUBSCRIPTION_TIER.free;
+    const billing = await ctx.runQuery(refs.getBillingContextForOrg, { orgId: args.org_id });
     const allowanceConfig = await resolveAllowanceConfigForTier(ctx, {
       orgId: args.org_id,
-      tier,
+      tier: billing.effective_tier,
       periodStart: args.period_start,
     });
     const allowanceTotal = allowanceConfig.allowanceTotal;
