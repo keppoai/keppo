@@ -27,7 +27,7 @@ Production maintenance scheduling runs in Convex. The API maintenance route is o
 - Dashboard requests are served from the same deployment origin through Vercel static hosting.
 - API requests default to same-origin `/api/*`.
 - [`apps/web/vercel.json`](../apps/web/vercel.json) applies the baseline browser-hardening headers to static responses.
-- [`apps/web/vercel.json`](../apps/web/vercel.json) keeps only `/health*` rewritten to `/api/health*` so the hosted readiness surface stays JSON-shaped. Root-path `/webhooks/*`, `/downloads/*`, `/mcp/*`, and `/internal/*` now reach the Start runtime directly, and unowned protocol paths fail closed with JSON `404 route_not_found`.
+- [`apps/web/vercel.json`](../apps/web/vercel.json) keeps only `/health*` rewritten to `/api/health*` so the hosted readiness surface stays JSON-shaped. Root-path `/webhooks/*`, `/mcp/*`, and `/internal/*` now reach the Start runtime directly, and unowned protocol paths fail closed with JSON `404 route_not_found`.
 - `VITE_API_BASE` is optional for hosted deploys. Keep it unset or set it to `/api`; only use a full URL for non-default self-hosted API routing.
 
 ## 3) Required env
