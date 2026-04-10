@@ -33,8 +33,7 @@ import authConfig from "./auth.config";
 import { authAccessControl, authAccessControlRoles } from "./betterAuth/access_control";
 import betterAuthSchema from "./betterAuth/schema";
 import { slugifyWorkspaceName } from "./workspaces_shared";
-import { subscriptionIdForOrg } from "./billing/shared";
-import { SUBSCRIPTION_STATUS, SUBSCRIPTION_TIER } from "./domain_constants";
+import { SUBSCRIPTION_TIER } from "./domain_constants";
 import {
   getDefaultBillingPeriod,
   getIncludedAiCreditsForTier,
@@ -47,6 +46,11 @@ const SECURITY_SYSTEM_ORG_ID = "system";
 const CONVEX_ANALYSIS_SECRET = "convex-analysis-placeholder-secret-0123456789";
 const CONVEX_ANALYSIS_TRUSTED_ORIGIN = "https://convex-analysis.invalid";
 const LOCAL_TRUSTED_ORIGIN = "http://localhost:3000";
+const refs = {
+  ensureFreeSubscriptionForOrg: makeFunctionReference<"mutation">(
+    "billing:ensureFreeSubscriptionForOrg",
+  ),
+};
 
 const toHex = (bytes: Uint8Array): string => {
   return Array.from(bytes)
@@ -335,7 +339,6 @@ const createDefaultWorkspaceForOrg = async (ctx: AuthMutationCtx, orgId: string)
   const workspaceId = randomId("workspace");
   const createdAt = nowIso();
   const period = getDefaultBillingPeriod(new Date());
-  const subscriptionId = await subscriptionIdForOrg(orgId);
 
   await ctx.db.insert("workspaces", {
     id: workspaceId,
@@ -349,25 +352,10 @@ const createDefaultWorkspaceForOrg = async (ctx: AuthMutationCtx, orgId: string)
     created_at: createdAt,
   });
 
-  const existingSubscription = await ctx.db
-    .query("subscriptions")
-    .withIndex("by_custom_id", (q) => q.eq("id", subscriptionId))
-    .first();
-  if (!existingSubscription) {
-    await ctx.db.insert("subscriptions", {
-      id: subscriptionId,
-      org_id: orgId,
-      tier: SUBSCRIPTION_TIER.free,
-      status: SUBSCRIPTION_STATUS.active,
-      stripe_customer_id: null,
-      stripe_subscription_id: null,
-      workspace_count: 1,
-      current_period_start: period.periodStart,
-      current_period_end: period.periodEnd,
-      created_at: createdAt,
-      updated_at: createdAt,
-    });
-  }
+  await ctx.runMutation(refs.ensureFreeSubscriptionForOrg, {
+    orgId,
+    workspaceCountSeed: 1,
+  });
 
   const freeTrialCredits = getIncludedAiCreditsForTier(SUBSCRIPTION_TIER.free);
   const aiCreditsId = await deterministicIdFor("aic", `${orgId}:${period.periodStart}`);

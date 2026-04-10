@@ -1,8 +1,13 @@
 import {
   downgradeOrgToFree,
+  ensureFreeSubscriptionForOrg,
+  expireInvitePromoForOrg,
+  getBillingContextForOrg,
   getSubscriptionByStripeCustomer,
   getSubscriptionByStripeSubscription,
   getSubscriptionForOrg,
+  redeemInvitePromoForOrg,
+  setWorkspaceCountForOrg,
   setSubscriptionStatusByCustomer,
   setSubscriptionStatusByStripeSubscription,
   upsertSubscriptionForOrg,
@@ -10,9 +15,14 @@ import {
 
 export {
   downgradeOrgToFree,
+  ensureFreeSubscriptionForOrg,
+  expireInvitePromoForOrg,
+  getBillingContextForOrg,
   getSubscriptionByStripeCustomer,
   getSubscriptionByStripeSubscription,
   getSubscriptionForOrg,
+  redeemInvitePromoForOrg,
+  setWorkspaceCountForOrg,
   setSubscriptionStatusByCustomer,
   setSubscriptionStatusByStripeSubscription,
   upsertSubscriptionForOrg,
