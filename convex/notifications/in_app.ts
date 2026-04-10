@@ -1,7 +1,7 @@
 import { v } from "convex/values";
-import { mutation, query } from "../_generated/server";
+import { internalMutation, mutation, query, type MutationCtx } from "../_generated/server";
 import { nowIso, requireOrgMember } from "../_auth";
-import { NOTIFICATION_CHANNEL } from "../domain_constants";
+import { NOTIFICATION_CHANNEL, NOTIFICATION_EVENT_ID } from "../domain_constants";
 import {
   type NotificationEventType,
   ensureSameOrgMembership,
@@ -10,6 +10,30 @@ import {
 } from "../notifications_shared";
 
 const UNREAD_NOTIFICATION_DISPLAY_CAP = 100;
+
+const dismissInAppApprovalNotificationsForAction = async (ctx: MutationCtx, actionId: string) => {
+  const events = await ctx.db
+    .query("notification_events")
+    .withIndex("by_action", (q) => q.eq("action_id", actionId))
+    .collect();
+  const unreadApprovalEvents = events.filter(
+    (event) =>
+      event.channel === NOTIFICATION_CHANNEL.inApp &&
+      event.event_type === NOTIFICATION_EVENT_ID.approvalNeeded &&
+      event.read_at === null,
+  );
+  if (unreadApprovalEvents.length === 0) {
+    return 0;
+  }
+
+  const stamp = nowIso();
+  for (const event of unreadApprovalEvents) {
+    await ctx.db.patch(event._id, {
+      read_at: stamp,
+    });
+  }
+  return unreadApprovalEvents.length;
+};
 
 export const listInAppNotifications = query({
   args: {
@@ -120,5 +144,15 @@ export const markAllRead = mutation({
       count += 1;
     }
     return count;
+  },
+});
+
+export const dismissApprovalNotificationsForAction = internalMutation({
+  args: {
+    actionId: v.string(),
+  },
+  returns: v.number(),
+  handler: async (ctx, args) => {
+    return await dismissInAppApprovalNotificationsForAction(ctx, args.actionId);
   },
 });

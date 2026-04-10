@@ -8,8 +8,6 @@ import {
   ACTION_STATUS,
   AUDIT_ACTOR_TYPE,
   AUDIT_EVENT_TYPES,
-  NOTIFICATION_CHANNEL,
-  NOTIFICATION_EVENT_ID,
   RUN_STATUS,
 } from "../domain_constants";
 import { safeRunMutation } from "../safe_convex";
@@ -20,6 +18,9 @@ const refs = {
   runSecurityMaintenance: makeFunctionReference<"mutation">("mcp:runSecurityMaintenance"),
   cleanupCredentialAuthFailures: makeFunctionReference<"mutation">(
     "abuse:cleanupCredentialAuthFailures",
+  ),
+  dismissApprovalNotificationsForAction: makeFunctionReference<"mutation">(
+    "notifications:dismissApprovalNotificationsForAction",
   ),
 };
 const CREDENTIAL_ROTATION_BATCH_SIZE = 25;
@@ -167,20 +168,9 @@ export const expirePendingActions = internalMutation({
       });
 
       if (!isE2EMode) {
-        const relatedEvents = await ctx.db
-          .query("notification_events")
-          .withIndex("by_action", (q) => q.eq("action_id", action.id))
-          .take(50);
-        const stamp = nowIso();
-        for (const event of relatedEvents) {
-          if (
-            event.event_type === NOTIFICATION_EVENT_ID.approvalNeeded &&
-            event.channel === NOTIFICATION_CHANNEL.inApp &&
-            event.read_at === null
-          ) {
-            await ctx.db.patch(event._id, { read_at: stamp });
-          }
-        }
+        await ctx.runMutation(refs.dismissApprovalNotificationsForAction, {
+          actionId: action.id,
+        });
 
         const run = await ctx.db
           .query("automation_runs")

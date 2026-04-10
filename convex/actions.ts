@@ -11,7 +11,6 @@ import {
   AUDIT_ACTOR_TYPE,
   AUDIT_EVENT_TYPES,
   CLIENT_TYPE,
-  NOTIFICATION_CHANNEL,
   NOTIFICATION_EVENT_ID,
   RUN_STATUS,
   TOOL_CALL_STATUS,
@@ -69,6 +68,9 @@ const decodeNormalizedPayload = async (
 const refs = {
   scheduleApprovedAction: makeFunctionReference<"mutation">("mcp_dispatch:scheduleApprovedAction"),
   emitNotificationForOrg: makeFunctionReference<"mutation">("notifications:emitNotificationForOrg"),
+  dismissApprovalNotificationsForAction: makeFunctionReference<"mutation">(
+    "notifications:dismissApprovalNotificationsForAction",
+  ),
 };
 
 const APPROVER_ROLES = [USER_ROLE.owner, USER_ROLE.admin, USER_ROLE.approver] as const;
@@ -77,20 +79,9 @@ const ACTION_TIMELINE_SCAN_LIMIT = 300;
 const WORKSPACE_ACTION_LIST_LIMIT = 200;
 
 const dismissApprovalNotifications = async (ctx: MutationCtx, actionId: string) => {
-  const events = await ctx.db
-    .query("notification_events")
-    .withIndex("by_action", (q) => q.eq("action_id", actionId))
-    .collect();
-  const stamp = nowIso();
-  for (const event of events) {
-    if (
-      event.event_type === NOTIFICATION_EVENT_ID.approvalNeeded &&
-      event.channel === NOTIFICATION_CHANNEL.inApp &&
-      event.read_at === null
-    ) {
-      await ctx.db.patch(event._id, { read_at: stamp });
-    }
-  }
+  await ctx.runMutation(refs.dismissApprovalNotificationsForAction, {
+    actionId,
+  });
 };
 
 const actionValidator = v.object({

@@ -19,7 +19,6 @@ import {
   AUDIT_ACTOR_TYPE,
   AUDIT_EVENT_TYPES,
   DECISION_OUTCOME,
-  NOTIFICATION_CHANNEL,
   NOTIFICATION_EVENT_ID,
   RUN_STATUS,
   TOOL_CALL_STATUS,
@@ -39,6 +38,9 @@ import {
 
 const refs = {
   emitNotificationForOrg: makeFunctionReference<"mutation">("notifications:emitNotificationForOrg"),
+  dismissApprovalNotificationsForAction: makeFunctionReference<"mutation">(
+    "notifications:dismissApprovalNotificationsForAction",
+  ),
 };
 
 const actionStatusFromOutcome = (outcome: DecisionOutcome) => {
@@ -495,20 +497,9 @@ export const setActionStatus = internalMutation({
     });
 
     if (action.status === ACTION_STATUS.pending && args.status !== ACTION_STATUS.pending) {
-      const events = await ctx.db
-        .query("notification_events")
-        .withIndex("by_action", (q) => q.eq("action_id", args.actionId))
-        .collect();
-      const stamp = nowIso();
-      for (const ev of events) {
-        if (
-          ev.event_type === NOTIFICATION_EVENT_ID.approvalNeeded &&
-          ev.channel === NOTIFICATION_CHANNEL.inApp &&
-          ev.read_at === null
-        ) {
-          await ctx.db.patch(ev._id, { read_at: stamp });
-        }
-      }
+      await ctx.runMutation(refs.dismissApprovalNotificationsForAction, {
+        actionId: args.actionId,
+      });
     }
 
     const updated = await ctx.db

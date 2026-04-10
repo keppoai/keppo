@@ -16,6 +16,9 @@ const refs = {
   createNotificationEvent: makeFunctionReference<"mutation">(
     "notifications:createNotificationEvent",
   ),
+  dismissApprovalNotificationsForAction: makeFunctionReference<"mutation">(
+    "notifications:dismissApprovalNotificationsForAction",
+  ),
   registerEndpoint: makeFunctionReference<"mutation">("notifications/endpoints:registerEndpoint"),
   listEndpoints: makeFunctionReference<"query">("notifications/endpoints:listEndpoints"),
   toggleEndpoint: makeFunctionReference<"mutation">("notifications/endpoints:toggleEndpoint"),
@@ -224,6 +227,101 @@ describe("convex notification delivery functions", () => {
     });
     expect(deadLetterRows).toHaveLength(1);
     expect(deadLetterRows[0]?.status).toBe("pending");
+  });
+
+  it("dismisses only unread in-app approval notifications for the action", async () => {
+    const t = createConvexTestHarness();
+
+    await t.run(async (ctx) => {
+      const rows = [
+        {
+          id: "notif_inapp_approval_unread",
+          event_type: "approval_needed" as const,
+          channel: NOTIFICATION_CHANNEL.inApp,
+          action_id: "act_dismiss_target",
+          read_at: null,
+        },
+        {
+          id: "notif_inapp_approval_other_action",
+          event_type: "approval_needed" as const,
+          channel: NOTIFICATION_CHANNEL.inApp,
+          action_id: "act_other",
+          read_at: null,
+        },
+        {
+          id: "notif_email_approval_target",
+          event_type: "approval_needed" as const,
+          channel: NOTIFICATION_CHANNEL.email,
+          action_id: "act_dismiss_target",
+          read_at: null,
+        },
+        {
+          id: "notif_inapp_usage_target",
+          event_type: "tool_call_limit_warning" as const,
+          channel: NOTIFICATION_CHANNEL.inApp,
+          action_id: "act_dismiss_target",
+          read_at: null,
+        },
+        {
+          id: "notif_inapp_approval_read",
+          event_type: "approval_needed" as const,
+          channel: NOTIFICATION_CHANNEL.inApp,
+          action_id: "act_dismiss_target",
+          read_at: "2026-04-01T00:00:00.000Z",
+        },
+      ];
+
+      for (const row of rows) {
+        await ctx.db.insert("notification_events", {
+          id: row.id,
+          org_id: "org_convex_notifications_dismissal",
+          event_type: row.event_type,
+          channel: row.channel,
+          title: row.id,
+          body: "Notification body",
+          cta_url: "/approvals",
+          cta_label: "Review",
+          metadata: JSON.stringify({ source: "convex-test" }),
+          action_id: row.action_id,
+          endpoint_id: row.channel === NOTIFICATION_CHANNEL.email ? "endpoint_email" : null,
+          read_at: row.read_at,
+          status:
+            row.channel === NOTIFICATION_CHANNEL.inApp
+              ? NOTIFICATION_DELIVERY_STATUS.sent
+              : NOTIFICATION_DELIVERY_STATUS.pending,
+          attempts: 0,
+          last_error: null,
+          created_at: "2026-04-01T00:00:00.000Z",
+        });
+      }
+    });
+
+    await expect(
+      t.mutation(refs.dismissApprovalNotificationsForAction, {
+        actionId: "act_dismiss_target",
+      }),
+    ).resolves.toBe(1);
+
+    const events = await t.run((ctx) =>
+      ctx.db
+        .query("notification_events")
+        .withIndex("by_action", (q) => q.eq("action_id", "act_dismiss_target"))
+        .collect(),
+    );
+
+    const byId = Object.fromEntries(events.map((event) => [event.id, event]));
+    expect(byId["notif_inapp_approval_unread"]?.read_at).toBeTruthy();
+    expect(byId["notif_email_approval_target"]?.read_at).toBeNull();
+    expect(byId["notif_inapp_usage_target"]?.read_at).toBeNull();
+    expect(byId["notif_inapp_approval_read"]?.read_at).toBe("2026-04-01T00:00:00.000Z");
+
+    const otherAction = await t.run((ctx) =>
+      ctx.db
+        .query("notification_events")
+        .withIndex("by_custom_id", (q) => q.eq("id", "notif_inapp_approval_other_action"))
+        .unique(),
+    );
+    expect(otherAction?.read_at).toBeNull();
   });
 
   it("auto-retries transient dead-letter entries and replays them", async () => {
