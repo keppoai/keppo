@@ -210,6 +210,7 @@ const apiEnvSchema = z
     FLY_AUTOMATION_MACHINE_CPU_KIND: flyCpuKindSchema,
     FLY_AUTOMATION_MACHINE_CPUS: positiveIntegerWithDefault(1),
     FLY_AUTOMATION_MACHINE_MEMORY_MB: flyMemoryMbSchema,
+    KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY: booleanWithDefault(false),
     UNIKRAFT_API_TOKEN: optionalString,
     UNIKRAFT_METRO: optionalString,
     UNIKRAFT_SANDBOX_IMAGE: optionalString,

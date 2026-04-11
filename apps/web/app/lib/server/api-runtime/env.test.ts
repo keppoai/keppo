@@ -391,6 +391,7 @@ describe("api env schema", () => {
     expect(env.FLY_AUTOMATION_MACHINE_CPU_KIND).toBe("shared");
     expect(env.FLY_AUTOMATION_MACHINE_CPUS).toBe(1);
     expect(env.FLY_AUTOMATION_MACHINE_MEMORY_MB).toBe(1024);
+    expect(env.KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY).toBe(false);
   });
 
   it("maps legacy STRIPE_WEBHOOK_SECRET into both split webhook secrets", () => {

@@ -35,6 +35,20 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     );
   });
 
+  it("rejects private IP callback bases for Fly sandboxes", () => {
+    expect(() => assertSandboxCallbackBaseUrlReachable("http://10.0.0.12:8787", "fly")).toThrow(
+      "automation_route_failed: Fly sandbox callbacks cannot reach http://10.0.0.12:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
+  it("rejects metadata callback bases for Unikraft sandboxes", () => {
+    expect(() =>
+      assertSandboxCallbackBaseUrlReachable("http://metadata.google.internal", "unikraft"),
+    ).toThrow(
+      "automation_route_failed: Unikraft sandbox callbacks cannot reach http://metadata.google.internal. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
   it("rejects localhost for Unikraft sandboxes", () => {
     expect(() =>
       assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "unikraft"),
@@ -53,6 +67,12 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     expect(() =>
       assertSandboxCallbackBaseUrlReachable("https://api.example.com", "fly"),
     ).not.toThrow();
+  });
+
+  it("uses the active provider label for invalid callback base URLs", () => {
+    expect(() => assertSandboxCallbackBaseUrlReachable("not-a-url", "fly")).toThrow(
+      "automation_route_failed: Invalid KEPPO_API_INTERNAL_BASE_URL for Fly sandbox callbacks: not-a-url",
+    );
   });
 
   it("builds the managed Agents SDK runner command shape", () => {

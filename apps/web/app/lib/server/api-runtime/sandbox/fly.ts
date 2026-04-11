@@ -1,4 +1,3 @@
-import { dirname } from "node:path";
 import { getEnv, type ApiEnv } from "../env.js";
 import type { SandboxConfig, SandboxDispatchResult, SandboxProvider } from "./types.js";
 
@@ -8,6 +7,9 @@ const DEFAULT_FLY_CPU_KIND = "shared";
 const DEFAULT_FLY_CPUS = 1;
 const DEFAULT_FLY_MEMORY_MB = 1024;
 const DEFAULT_TERMINATION_GRACE_MS = 5_000;
+const DEFAULT_FLY_FETCH_TIMEOUT_MS = 10_000;
+const DEFAULT_FLY_DELETE_TIMEOUT_MS = 15_000;
+const DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS = 10;
 const WRAPPER_ENTRYPOINT_PATH = "/sandbox/keppo-automation-runner-wrapper.mjs";
 const SANDBOX_HANDLE_SEPARATOR = "::";
 
@@ -63,6 +65,11 @@ export interface FlyMachinesClientLike {
   createMachine(appName: string, request: FlyCreateMachineRequest): Promise<FlyMachineDetails>;
   deleteMachine(appName: string, machineId: string, options?: { force?: boolean }): Promise<void>;
   getApp(appName: string): Promise<FlyAppDetails | null>;
+  waitForMachineStarted(
+    appName: string,
+    machineId: string,
+    options?: { timeoutSeconds?: number },
+  ): Promise<FlyMachineDetails>;
 }
 
 class FlyApiError extends Error {
@@ -72,6 +79,13 @@ class FlyApiError extends Error {
   ) {
     super(message);
     this.name = "FlyApiError";
+  }
+}
+
+class FlyRequestTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "FlyRequestTimeoutError";
   }
 }
 
@@ -125,27 +139,39 @@ class FlyMachinesHttpClient implements FlyMachinesClientLike {
   ) {}
 
   async getApp(appName: string): Promise<FlyAppDetails | null> {
-    const response = await this.fetchFn(this.toUrl(`/v1/apps/${encodeURIComponent(appName)}`), {
-      method: "GET",
-      headers: this.buildHeaders(),
-    });
+    const action = `get Fly app ${appName}`;
+    const response = await this.fetchWithTimeout(
+      this.toUrl(`/v1/apps/${encodeURIComponent(appName)}`),
+      {
+        method: "GET",
+        headers: this.buildHeaders(),
+      },
+      { action, timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS },
+    );
     if (response.status === 404) {
       return null;
     }
     return parseFlyAppDetails(
       await this.parseJsonResponse(response, {
-        action: `get Fly app ${appName}`,
+        action,
         okStatuses: [200],
       }),
     );
   }
 
   async createApp(request: FlyCreateAppRequest): Promise<void> {
-    const response = await this.fetchFn(this.toUrl("/v1/apps"), {
-      method: "POST",
-      headers: this.buildHeaders(),
-      body: JSON.stringify(request),
-    });
+    const response = await this.fetchWithTimeout(
+      this.toUrl("/v1/apps"),
+      {
+        method: "POST",
+        headers: this.buildHeaders(),
+        body: JSON.stringify(request),
+      },
+      {
+        action: `create Fly app ${request.app_name}`,
+        timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS,
+      },
+    );
     await this.parseJsonResponse(response, {
       action: `create Fly app ${request.app_name}`,
       okStatuses: [201],
@@ -157,12 +183,16 @@ class FlyMachinesHttpClient implements FlyMachinesClientLike {
     appName: string,
     request: FlyCreateMachineRequest,
   ): Promise<FlyMachineDetails> {
-    const response = await this.fetchFn(
+    const response = await this.fetchWithTimeout(
       this.toUrl(`/v1/apps/${encodeURIComponent(appName)}/machines`),
       {
         method: "POST",
         headers: this.buildHeaders(),
         body: JSON.stringify(request),
+      },
+      {
+        action: `create Fly machine for app ${appName}`,
+        timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS,
       },
     );
     return parseFlyMachineDetails(
@@ -185,15 +215,59 @@ class FlyMachinesHttpClient implements FlyMachinesClientLike {
     if (options.force === true) {
       url.searchParams.set("force", "true");
     }
-    const response = await this.fetchFn(url, {
-      method: "DELETE",
-      headers: this.buildHeaders(),
-    });
-    await this.parseJsonResponse(response, {
-      action: `delete Fly machine ${machineId} from app ${appName}`,
-      okStatuses: [200, 202],
-      allowEmptyBody: true,
-    });
+    const action = `delete Fly machine ${machineId} from app ${appName}`;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await this.fetchWithTimeout(
+          url,
+          {
+            method: "DELETE",
+            headers: this.buildHeaders(),
+          },
+          { action, timeoutMs: DEFAULT_FLY_DELETE_TIMEOUT_MS },
+        );
+        await this.parseJsonResponse(response, {
+          action,
+          okStatuses: [200, 202],
+          allowEmptyBody: true,
+        });
+        return;
+      } catch (error) {
+        if (attempt === 1 || !this.isRetryableDeleteError(error)) {
+          throw error;
+        }
+      }
+    }
+  }
+
+  async waitForMachineStarted(
+    appName: string,
+    machineId: string,
+    options: { timeoutSeconds?: number } = {},
+  ): Promise<FlyMachineDetails> {
+    const url = this.toUrl(
+      `/v1/apps/${encodeURIComponent(appName)}/machines/${encodeURIComponent(machineId)}/wait`,
+    );
+    url.searchParams.set("state", "started");
+    url.searchParams.set(
+      "timeout",
+      String(options.timeoutSeconds ?? DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS),
+    );
+    const action = `wait for Fly machine ${machineId} in app ${appName} to start`;
+    const response = await this.fetchWithTimeout(
+      url,
+      {
+        method: "GET",
+        headers: this.buildHeaders(),
+      },
+      { action, timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS },
+    );
+    return parseFlyMachineDetails(
+      await this.parseJsonResponse(response, {
+        action,
+        okStatuses: [200],
+      }),
+    );
   }
 
   private buildHeaders(): HeadersInit {
@@ -205,6 +279,29 @@ class FlyMachinesHttpClient implements FlyMachinesClientLike {
 
   private toUrl(pathname: string): URL {
     return new URL(pathname, this.apiHostname);
+  }
+
+  private async fetchWithTimeout(
+    input: URL,
+    init: RequestInit,
+    options: { action: string; timeoutMs: number },
+  ): Promise<Response> {
+    try {
+      return await this.fetchFn(input, {
+        ...init,
+        signal: AbortSignal.timeout(options.timeoutMs),
+      });
+    } catch (error) {
+      if (
+        (error instanceof Error && error.name === "TimeoutError") ||
+        (error instanceof DOMException && error.name === "TimeoutError")
+      ) {
+        throw new FlyRequestTimeoutError(
+          `${options.action} timed out after ${String(options.timeoutMs)}ms.`,
+        );
+      }
+      throw error;
+    }
   }
 
   private async parseJsonResponse(
@@ -239,27 +336,16 @@ class FlyMachinesHttpClient implements FlyMachinesClientLike {
   }
 
   private toErrorMessage(action: string, response: Response, bodyText: string): string {
-    if (bodyText.length === 0) {
-      return `${action} failed with status ${String(response.status)}.`;
+    void bodyText;
+    return `${action} failed with status ${String(response.status)}.`;
+  }
+
+  private isRetryableDeleteError(error: unknown): boolean {
+    if (error instanceof FlyRequestTimeoutError) {
+      return true;
     }
-    try {
-      const parsed = JSON.parse(bodyText);
-      const message =
-        (isRecord(parsed) && typeof parsed.error === "string" && parsed.error.trim().length > 0
-          ? parsed.error
-          : isRecord(parsed) &&
-              typeof parsed.message === "string" &&
-              parsed.message.trim().length > 0
-            ? parsed.message
-            : isRecord(parsed) &&
-                typeof parsed.details === "string" &&
-                parsed.details.trim().length > 0
-              ? parsed.details
-              : null) ?? bodyText;
-      return `${action} failed with status ${String(response.status)}: ${message}`;
-    } catch {
-      return `${action} failed with status ${String(response.status)}: ${bodyText}`;
-    }
+    const status = getErrorStatus(error);
+    return status !== null && status >= 500;
   }
 }
 
@@ -275,6 +361,8 @@ type FlySandboxOptions = {
   timeoutGraceMs: number;
   appNetwork?: string;
 };
+
+const flyAppReadyByName = new Map<string, Promise<void>>();
 
 const createDefaultClient = (env: ApiEnv): FlyMachinesClientLike => {
   const token = env.FLY_API_TOKEN?.trim();
@@ -381,6 +469,10 @@ const buildFlyWrapperSource = (): string => {
     'const TIMEOUT_MS = Math.max(1, Number.parseInt(process.env.KEPPO_TIMEOUT_MS ?? "300000", 10) || 300000);',
     'const TIMEOUT_GRACE_MS = Math.max(1, Number.parseInt(process.env.KEPPO_TIMEOUT_GRACE_MS ?? "5000", 10) || 5000);',
     'const RUN_ID = process.env.KEPPO_AUTOMATION_RUN_ID?.trim() ?? "";',
+    "const MAX_LOG_BATCH_LINES = 100;",
+    "const MAX_BUFFERED_LOG_LINES = 500;",
+    "const LOG_FLUSH_INTERVAL_MS = 250;",
+    "const COMPLETION_RETRY_DELAYS_MS = [250, 750, 1500];",
     "",
     "const parsePackages = () => {",
     "  try {",
@@ -390,6 +482,8 @@ const buildFlyWrapperSource = (): string => {
     "    return [];",
     "  }",
     "};",
+    "",
+    "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
     "",
     "const shellQuote = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;",
     "",
@@ -410,16 +504,76 @@ const buildFlyWrapperSource = (): string => {
     "  }",
     "};",
     "",
-    "const postLogLines = async (level, lines) => {",
+    "let bufferedLogLines = [];",
+    "let droppedLogLineCount = 0;",
+    "let logFlushPromise = null;",
+    "let logFlushTimer = null;",
+    "",
+    "const scheduleLogFlush = () => {",
+    "  if (logFlushTimer !== null) {",
+    "    return;",
+    "  }",
+    "  logFlushTimer = setTimeout(() => {",
+    "    logFlushTimer = null;",
+    "    void flushLogLines();",
+    "  }, LOG_FLUSH_INTERVAL_MS);",
+    "  logFlushTimer.unref?.();",
+    "};",
+    "",
+    "const enqueueLogLines = (level, lines) => {",
     "  if (!Array.isArray(lines) || lines.length === 0 || !LOG_CALLBACK_URL || !RUN_ID) {",
     "    return;",
     "  }",
-    "  try {",
-    "    await postJson(LOG_CALLBACK_URL, {",
-    "      automation_run_id: RUN_ID,",
-    "      lines: lines.map((content) => ({ level, content })),",
-    "    });",
-    "  } catch {}",
+    "  for (const content of lines) {",
+    "    if (bufferedLogLines.length >= MAX_BUFFERED_LOG_LINES) {",
+    "      droppedLogLineCount += 1;",
+    "      continue;",
+    "    }",
+    "    bufferedLogLines.push({ level, content });",
+    "  }",
+    "  if (bufferedLogLines.length >= MAX_LOG_BATCH_LINES) {",
+    "    void flushLogLines();",
+    "    return;",
+    "  }",
+    "  scheduleLogFlush();",
+    "};",
+    "",
+    "const flushLogLines = async () => {",
+    "  if (logFlushPromise) {",
+    "    await logFlushPromise;",
+    "    return;",
+    "  }",
+    "  if (logFlushTimer !== null) {",
+    "    clearTimeout(logFlushTimer);",
+    "    logFlushTimer = null;",
+    "  }",
+    "  if (bufferedLogLines.length === 0 && droppedLogLineCount === 0) {",
+    "    return;",
+    "  }",
+    "  const batch = bufferedLogLines.splice(0, MAX_LOG_BATCH_LINES);",
+    "  const truncatedCount = droppedLogLineCount;",
+    "  droppedLogLineCount = 0;",
+    "  if (truncatedCount > 0) {",
+    '    batch.push({ level: "stderr", content: `[${truncatedCount} log lines truncated before upload]` });',
+    "  }",
+    "  logFlushPromise = (async () => {",
+    "    try {",
+    "      if (batch.length === 0 || !LOG_CALLBACK_URL || !RUN_ID) {",
+    "        return;",
+    "      }",
+    "      await postJson(LOG_CALLBACK_URL, {",
+    "        automation_run_id: RUN_ID,",
+    "        lines: batch,",
+    "      });",
+    "    } catch {}",
+    "    finally {",
+    "      logFlushPromise = null;",
+    "      if (bufferedLogLines.length > 0 || droppedLogLineCount > 0) {",
+    "        scheduleLogFlush();",
+    "      }",
+    "    }",
+    "  })();",
+    "  await logFlushPromise;",
     "};",
     "",
     "let completionSent = false;",
@@ -428,13 +582,23 @@ const buildFlyWrapperSource = (): string => {
     "    return;",
     "  }",
     "  completionSent = true;",
-    "  try {",
-    "    await postJson(COMPLETE_CALLBACK_URL, {",
-    "      automation_run_id: RUN_ID,",
-    "      status,",
-    "      ...(errorMessage ? { error_message: errorMessage } : {}),",
-    "    });",
-    "  } catch {}",
+    "  let lastError = null;",
+    "  for (let attempt = 0; attempt < COMPLETION_RETRY_DELAYS_MS.length; attempt += 1) {",
+    "    try {",
+    "      await postJson(COMPLETE_CALLBACK_URL, {",
+    "        automation_run_id: RUN_ID,",
+    "        status,",
+    "        ...(errorMessage ? { error_message: errorMessage } : {}),",
+    "      });",
+    "      return;",
+    "    } catch (error) {",
+    "      lastError = error;",
+    "      if (attempt < COMPLETION_RETRY_DELAYS_MS.length - 1) {",
+    "        await sleep(COMPLETION_RETRY_DELAYS_MS[attempt]);",
+    "      }",
+    "    }",
+    "  }",
+    "  process.stderr.write(`[keppo-fly-wrapper] completion callback failed: ${lastError instanceof Error ? lastError.message : String(lastError)}\\n`);",
     "};",
     "",
     "const splitLines = (carry, chunk) => {",
@@ -493,13 +657,13 @@ const buildFlyWrapperSource = (): string => {
     'child.stdout.on("data", (chunk) => {',
     "  const { lines, carry } = splitLines(stdoutCarry, chunk);",
     "  stdoutCarry = carry;",
-    '  void postLogLines("stdout", lines);',
+    '  enqueueLogLines("stdout", lines);',
     "});",
     "",
     'child.stderr.on("data", (chunk) => {',
     "  const { lines, carry } = splitLines(stderrCarry, chunk);",
     "  stderrCarry = carry;",
-    '  void postLogLines("stderr", lines);',
+    '  enqueueLogLines("stderr", lines);',
     "});",
     "",
     "const forwardTermination = () => {",
@@ -518,10 +682,13 @@ const buildFlyWrapperSource = (): string => {
     '  child.on("close", async (code, signal) => {',
     "    clearTimeout(timeoutHandle);",
     "    if (stdoutCarry.trim().length > 0) {",
-    '      await postLogLines("stdout", [stdoutCarry.trim()]);',
+    '      enqueueLogLines("stdout", [stdoutCarry.trim()]);',
     "    }",
     "    if (stderrCarry.trim().length > 0) {",
-    '      await postLogLines("stderr", [stderrCarry.trim()]);',
+    '      enqueueLogLines("stderr", [stderrCarry.trim()]);',
+    "    }",
+    "    while (logFlushPromise || bufferedLogLines.length > 0 || droppedLogLineCount > 0) {",
+    "      await flushLogLines();",
     "    }",
     "    const status = timedOut",
     '      ? "timed_out"',
@@ -545,6 +712,13 @@ const buildFlyWrapperSource = (): string => {
   ].join("\n");
 };
 
+const FLY_WRAPPER_SOURCE = buildFlyWrapperSource();
+
+const omitEmptyEnvValues = (env: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(
+    Object.entries(env).filter(([, value]) => typeof value === "string" && value.trim().length > 0),
+  );
+
 export class FlyMachinesSandboxProvider implements SandboxProvider {
   private readonly options: FlySandboxOptions;
 
@@ -556,6 +730,15 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
   }
 
   async dispatch(config: SandboxConfig): Promise<SandboxDispatchResult> {
+    if (
+      config.runtime.network_access === "mcp_only" &&
+      getEnv().KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY !== true
+    ) {
+      throw new Error(
+        "Fly sandbox does not enforce mcp_only egress. Set KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true to allow this configuration explicitly.",
+      );
+    }
+
     const runId =
       extractRunId(config.runtime.callbacks.complete_url) ??
       extractRunId(config.runtime.callbacks.log_url);
@@ -565,7 +748,8 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
 
     await this.ensureAppExists();
 
-    const runtimeEnv: Record<string, string> = {
+    const runtimeEnv = omitEmptyEnvValues({
+      ...config.bootstrap.env,
       ...config.runtime.env,
       ...(config.bootstrap.command.trim().length > 0
         ? { KEPPO_RUNNER_SETUP_COMMAND: config.bootstrap.command }
@@ -582,7 +766,7 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
       KEPPO_TIMEOUT_GRACE_MS: String(this.options.timeoutGraceMs),
       KEPPO_TIMEOUT_MS: String(config.timeout_ms),
       KEPPO_TRACE_CALLBACK_URL: config.runtime.callbacks.trace_url,
-    };
+    });
 
     const machine = await this.client.createMachine(this.options.appName, {
       config: {
@@ -591,7 +775,7 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
         files: [
           {
             guest_path: WRAPPER_ENTRYPOINT_PATH,
-            raw_value: encodeFileContent(buildFlyWrapperSource()),
+            raw_value: encodeFileContent(FLY_WRAPPER_SOURCE),
           },
           {
             guest_path: config.runtime.runner.entrypoint_path,
@@ -624,6 +808,7 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
       ...(this.options.region ? { region: this.options.region } : {}),
       skip_service_registration: true,
     });
+    await this.client.waitForMachineStarted(this.options.appName, machine.id);
 
     return {
       sandbox_id: toSandboxHandle(this.options.appName, machine.id),
@@ -633,7 +818,7 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
   async terminate(sandboxId: string): Promise<void> {
     const { appName, machineId } = parseSandboxHandle(sandboxId);
     if (!appName || !machineId) {
-      return;
+      throw new Error("Invalid Fly sandbox handle.");
     }
 
     try {
@@ -647,6 +832,20 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
   }
 
   private async ensureAppExists(): Promise<void> {
+    const existingCheck = flyAppReadyByName.get(this.options.appName);
+    if (existingCheck) {
+      await existingCheck;
+      return;
+    }
+    const check = this.ensureAppExistsUncached().catch((error) => {
+      flyAppReadyByName.delete(this.options.appName);
+      throw error;
+    });
+    flyAppReadyByName.set(this.options.appName, check);
+    await check;
+  }
+
+  private async ensureAppExistsUncached(): Promise<void> {
     const existing = await this.client.getApp(this.options.appName);
     if (existing) {
       return;

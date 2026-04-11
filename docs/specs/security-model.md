@@ -60,7 +60,7 @@
   - `mcp_only` default denies arbitrary outbound web access.
   - `mcp_and_web` is explicit opt-in per automation config version.
   - Production Vercel sandboxes enforce the fine-grained outbound allowlist.
-  - Production Fly sandboxes provide per-run Firecracker-MicroVM isolation, but currently do not enforce the same fine-grained outbound allowlist as Vercel; `mcp_only` remains a runner/tooling boundary there.
+  - Production Fly sandboxes provide per-run Firecracker-MicroVM isolation, but currently do not enforce the same fine-grained outbound allowlist as Vercel; `mcp_only` requires explicit operator acknowledgment via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` and remains a runner/tooling boundary there.
   - Local Docker sandboxes provide container isolation and must translate host-loopback callback and MCP URLs to `host.docker.internal` so the isolated container can reach local API services without falling back to host-process execution.
 - sandbox bootstrap stays as minimal as the provider allows:
   - Vercel uses an explicit package-registry-only bootstrap stage with no runtime secrets.
@@ -71,6 +71,7 @@
 - Callback ingress hardening:
   - sandbox log/complete callbacks use per-run HMAC-signed URLs with expiry.
   - API rejects callbacks with missing/invalid signatures or expired timestamps.
+  - Remote automation callback bases reject loopback, private, link-local, and metadata-address hosts fail-closed.
   - OAuth integration callback state is HMAC-signed; callbacks reject missing/tampered state tokens.
   - PKCE verifiers for managed OAuth flows stay in server-side storage keyed by the signed state correlation ID; they are not embedded in readable front-channel state.
   - Server-side OAuth connect state for org-scoped integrations also stores the initiating user binding, and callback completion revalidates that same user still has owner/admin integration-management rights before shared credentials are written.

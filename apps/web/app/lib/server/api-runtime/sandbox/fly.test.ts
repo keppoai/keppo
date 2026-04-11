@@ -1,12 +1,15 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildRunnerCommand } from "../routes/automations";
 import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
 import { FlyMachinesSandboxProvider } from "./fly.js";
+import { resetApiRuntimeEnvForTest } from "../runtime-env.js";
 
 const baseConfig = {
   bootstrap: {
     command: "true",
-    env: {},
+    env: {
+      KEPPO_BOOTSTRAP_TOKEN: "bootstrap-secret",
+    },
     network_access: "package_registry_only" as const,
   },
   runtime: {
@@ -36,11 +39,22 @@ const baseConfig = {
 };
 
 describe("FlyMachinesSandboxProvider", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    resetApiRuntimeEnvForTest();
+  });
+
   it("creates the app when it is missing and launches an auto-destroy machine", async () => {
+    vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
+    resetApiRuntimeEnvForTest();
     const client = {
       getApp: vi.fn().mockResolvedValue(null),
       createApp: vi.fn().mockResolvedValue(undefined),
       createMachine: vi.fn().mockResolvedValue({
+        id: "machine_123",
+        state: "started",
+      }),
+      waitForMachineStarted: vi.fn().mockResolvedValue({
         id: "machine_123",
         state: "started",
       }),
@@ -95,6 +109,7 @@ describe("FlyMachinesSandboxProvider", () => {
           },
           env: expect.objectContaining({
             OPENAI_API_KEY: "secret",
+            KEPPO_BOOTSTRAP_TOKEN: "bootstrap-secret",
             KEPPO_MCP_BEARER_TOKEN: "mcp-secret",
             KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
             KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
@@ -107,6 +122,10 @@ describe("FlyMachinesSandboxProvider", () => {
           }),
         }),
       }),
+    );
+    expect(client.waitForMachineStarted).toHaveBeenCalledWith(
+      "keppo-automation-sandbox",
+      "machine_123",
     );
 
     const files = client.createMachine.mock.calls[0]?.[1]?.config.files;
@@ -121,18 +140,26 @@ describe("FlyMachinesSandboxProvider", () => {
   });
 
   it("reuses an existing Fly app without attempting to recreate it", async () => {
+    vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
+    resetApiRuntimeEnvForTest();
     const client = {
-      getApp: vi.fn().mockResolvedValue({ id: "app_123", name: "keppo-automation-sandbox" }),
+      getApp: vi
+        .fn()
+        .mockResolvedValue({ id: "app_123", name: "keppo-automation-sandbox-existing" }),
       createApp: vi.fn().mockResolvedValue(undefined),
       createMachine: vi.fn().mockResolvedValue({
         id: "machine_123",
+      }),
+      waitForMachineStarted: vi.fn().mockResolvedValue({
+        id: "machine_123",
+        state: "started",
       }),
       deleteMachine: vi.fn().mockResolvedValue(undefined),
     };
 
     const provider = new FlyMachinesSandboxProvider(client, {
       apiHostname: "https://api.machines.dev",
-      appName: "keppo-automation-sandbox",
+      appName: "keppo-automation-sandbox-existing",
       automationImage: "registry-1.docker.io/library/node:22-bookworm",
       cpuKind: "shared",
       cpus: 1,
@@ -142,16 +169,24 @@ describe("FlyMachinesSandboxProvider", () => {
     });
 
     await provider.dispatch(baseConfig);
+    await provider.dispatch(baseConfig);
 
     expect(client.createApp).not.toHaveBeenCalled();
+    expect(client.getApp).toHaveBeenCalledTimes(1);
   });
 
   it("treats app-create conflicts as successful races", async () => {
+    vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
+    resetApiRuntimeEnvForTest();
     const client = {
       getApp: vi.fn().mockResolvedValue(null),
       createApp: vi.fn().mockRejectedValue(Object.assign(new Error("conflict"), { status: 409 })),
       createMachine: vi.fn().mockResolvedValue({
         id: "machine_123",
+      }),
+      waitForMachineStarted: vi.fn().mockResolvedValue({
+        id: "machine_123",
+        state: "started",
       }),
       deleteMachine: vi.fn().mockResolvedValue(undefined),
     };
@@ -177,6 +212,7 @@ describe("FlyMachinesSandboxProvider", () => {
       getApp: vi.fn(),
       createApp: vi.fn(),
       createMachine: vi.fn(),
+      waitForMachineStarted: vi.fn(),
       deleteMachine: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -205,6 +241,7 @@ describe("FlyMachinesSandboxProvider", () => {
       getApp: vi.fn(),
       createApp: vi.fn(),
       createMachine: vi.fn(),
+      waitForMachineStarted: vi.fn(),
       deleteMachine: vi
         .fn()
         .mockRejectedValue(Object.assign(new Error("missing"), { status: 404 })),
@@ -224,5 +261,51 @@ describe("FlyMachinesSandboxProvider", () => {
     await expect(
       provider.terminate("keppo-automation-sandbox::machine_123"),
     ).resolves.toBeUndefined();
+  });
+
+  it("rejects Fly mcp_only runs unless the explicit opt-in env is set", async () => {
+    const client = {
+      getApp: vi.fn(),
+      createApp: vi.fn(),
+      createMachine: vi.fn(),
+      waitForMachineStarted: vi.fn(),
+      deleteMachine: vi.fn(),
+    };
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.dispatch(baseConfig)).rejects.toThrow(
+      "Fly sandbox does not enforce mcp_only egress.",
+    );
+  });
+
+  it("rejects malformed sandbox handles on terminate", async () => {
+    const client = {
+      getApp: vi.fn(),
+      createApp: vi.fn(),
+      createMachine: vi.fn(),
+      waitForMachineStarted: vi.fn(),
+      deleteMachine: vi.fn(),
+    };
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.terminate("bad-handle")).rejects.toThrow("Invalid Fly sandbox handle.");
   });
 });

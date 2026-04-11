@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
+import { isIP } from "node:net";
 import {
   AI_MODEL_PROVIDER,
   AUTOMATION_RUN_CONFIG_KEYS,
@@ -28,6 +29,11 @@ import {
   parseJsonValue,
   tryParseJsonValue,
 } from "@keppo/shared/providers/boundaries/json";
+import {
+  BLOCKED_HOSTNAMES,
+  isBlockedIpAddress,
+  normalizeHostname,
+} from "@keppo/shared/network-address-policy";
 import { getEnv, getRawEnv } from "../env.js";
 import type { AutomationSandboxProviderMode } from "../sandbox/index.js";
 import { resolveSandboxRunnerEntrypointPath } from "../sandbox/agents-sdk-runner.js";
@@ -485,9 +491,14 @@ const redactVercelProtectionBypassUrl = (rawUrl: string): string => {
   }
 };
 
-const isLoopbackHostname = (hostname: string): boolean => {
-  const normalized = hostname.trim().toLowerCase();
-  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
+const getSandboxProviderLabel = (providerMode: AutomationSandboxProviderMode): string =>
+  providerMode === "vercel" ? "Vercel" : providerMode === "fly" ? "Fly" : "Unikraft";
+
+const isBlockedSandboxCallbackHostname = (hostname: string): boolean => {
+  const normalized = normalizeHostname(hostname);
+  return (
+    BLOCKED_HOSTNAMES.has(normalized) || (isIP(normalized) !== 0 && isBlockedIpAddress(normalized))
+  );
 };
 
 export const assertSandboxCallbackBaseUrlReachable = (
@@ -497,18 +508,17 @@ export const assertSandboxCallbackBaseUrlReachable = (
   if (providerMode === "docker") {
     return;
   }
+  const providerLabel = getSandboxProviderLabel(providerMode);
   let parsed: URL;
   try {
     parsed = new URL(baseUrl);
   } catch {
     throw createAutomationRouteError(
       "automation_route_failed",
-      `Invalid KEPPO_API_INTERNAL_BASE_URL for Vercel sandbox callbacks: ${baseUrl}`,
+      `Invalid KEPPO_API_INTERNAL_BASE_URL for ${providerLabel} sandbox callbacks: ${baseUrl}`,
     );
   }
-  if (isLoopbackHostname(parsed.hostname)) {
-    const providerLabel =
-      providerMode === "vercel" ? "Vercel" : providerMode === "fly" ? "Fly" : "Unikraft";
+  if (isBlockedSandboxCallbackHostname(parsed.hostname)) {
     throw createAutomationRouteError(
       "automation_route_failed",
       `${providerLabel} sandbox callbacks cannot reach ${baseUrl}. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,

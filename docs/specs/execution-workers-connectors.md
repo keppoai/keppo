@@ -112,7 +112,9 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - launches an in-guest Node wrapper as the machine `init.exec`, which installs the explicit managed runner packages from `runtime.runner.install_packages`, executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
   - sets `auto_destroy=true` with `restart.policy=no` so completed runs tear down their own machine state instead of relying on a persistent worker pool,
   - stores `sandbox_id` as an opaque Fly app + Machine handle so terminate requests can force-delete the machine,
-  - does not currently enforce instance-level outbound allowlists; `mcp_only` versus `mcp_and_web` remains enforced at the runner/tooling layer, similar to the current Unikraft path.
+  - waits for the new Machine to reach `started` before reporting dispatch success, so create-time scheduling failures do not leave runs stuck in `running` without guest execution,
+  - bounds Machines API requests with explicit timeouts and a retryable delete path so Fly control-plane stalls do not hang Keppo dispatch/terminate indefinitely,
+  - does not currently enforce instance-level outbound allowlists; `mcp_only` versus `mcp_and_web` remains enforced at the runner/tooling layer, and `mcp_only` dispatches require explicit operator opt-in via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true`.
 - Production `unikraft` sandbox provider behavior:
   - creates a Unikraft Cloud MicroVM from an OCI image referenced by `UNIKRAFT_SANDBOX_IMAGE`,
   - injects the composed runner command, signed log/trace/completion callback URLs, and the base64 runner source through environment variables (`KEPPO_RUNNER_COMMAND`, `KEPPO_LOG_CALLBACK_URL`, `KEPPO_TRACE_CALLBACK_URL`, `KEPPO_COMPLETE_CALLBACK_URL`, `KEPPO_TIMEOUT_MS`),

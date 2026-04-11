@@ -126,6 +126,7 @@ Provider rollout flags (all default `true`, set `false` to disable):
 | `FLY_AUTOMATION_MACHINE_CPU_KIND`                          | server         | `shared`                          | Optional Fly CPU class for automation machines (`shared` or `performance`).                                                                                                                                                        |
 | `FLY_AUTOMATION_MACHINE_CPUS`                              | server         | `1`                               | Optional Fly vCPU count for automation machines.                                                                                                                                                                                   |
 | `FLY_AUTOMATION_MACHINE_MEMORY_MB`                         | server         | `1024`                            | Optional Fly memory allocation in MiB for automation machines. Must be a positive multiple of `256`.                                                                                                                              |
+| `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY`                      | server         | `false`                           | Required only when `KEPPO_SANDBOX_PROVIDER=fly` and automation runs use `mcp_only`. Explicit operator opt-in acknowledging that Fly does not currently enforce Vercel-style outbound allowlists for that mode.                   |
 | `UNIKRAFT_API_TOKEN`                                       | server         | -                                 | Required when either sandbox provider is `unikraft`. Unikraft Cloud API bearer token.                                                                                                                                             |
 | `UNIKRAFT_METRO`                                           | server         | -                                 | Required when either sandbox provider is `unikraft`. Regional metro slug such as `fra0`, `dal0`, `sin0`, `was0`, or `sfo0`.                                                                                                       |
 | `UNIKRAFT_SANDBOX_IMAGE`                                   | server         | -                                 | Required when `KEPPO_SANDBOX_PROVIDER=unikraft`. OCI image used for automation MicroVMs.                                                                                                                                          |
@@ -164,11 +165,12 @@ Provider rollout flags (all default `true`, set `false` to disable):
 
 Notes:
 
-- `KEPPO_API_INTERNAL_BASE_URL` must be publicly reachable from remote automation sandboxes (`vercel`, `fly`, and `unikraft`). Loopback addresses will dispatch a sandbox that cannot stream logs or send callbacks.
+- `KEPPO_API_INTERNAL_BASE_URL` must be publicly reachable from remote automation sandboxes (`vercel`, `fly`, and `unikraft`). Loopback, private, link-local, and metadata-address hosts are rejected for remote callback traffic because those sandboxes cannot reliably reach them.
 - `UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL` must be reachable from the Unikraft MicroVM. In local-only experiments you can rely on the default loopback bridge URL, but production/preview deployments need a public or otherwise routable callback origin.
 - If Vercel Deployment Protection is enabled, propagate `VERCEL_AUTOMATION_BYPASS_SECRET` into both the API runtime and the hosted Convex env only for `preview` and `staging`. Do not propagate or use it when `KEPPO_ENVIRONMENT=production`.
 - Local `docker` sandbox execution requires a working Docker engine on the API host.
 - Fly automation machines bootstrap the repo-owned runner inside the guest at launch time. If you override `FLY_AUTOMATION_IMAGE`, keep a compatible Node + npm runtime available or machine startup will fail before the automation can report completion.
+- Fly does not currently enforce instance-level outbound allowlists. If an automation stays on `mcp_only`, set `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` explicitly to acknowledge that the restriction is currently a runner/tooling boundary rather than a hard egress boundary.
 - Sandboxed automation runs use a repo-owned `openai-agents-js` runner pinned to `@openai/agents@0.8.2` in the local automation sandbox image, the Vercel bootstrap path, and the Fly in-guest bootstrap path. Custom image-based automation runtimes should preserve that pin and the `/sandbox/.keppo-automation-runner/` entrypoint contract unless you are intentionally upgrading the runner.
 - OpenAI trace export is opt-in. Keppo sends hashed run/group identifiers plus non-sensitive metadata by default; full prompts, tool arguments, tool outputs, and automation memory are not included in trace exports.
 - Client IP resolution: `none` ignores forwarded headers, `vercel` prefers `x-real-ip`, `cloudflare` prefers `cf-connecting-ip`.
@@ -205,11 +207,12 @@ Common auth failures:
 
 ## Fly Machines setup
 
-1. Create or choose a Fly organization and generate a Fly API token with access to manage apps and machines.
+1. Create or choose a Fly organization, generate a Fly API token with access to manage apps and machines, and set `FLY_API_TOKEN=<token>`.
 2. Pick a globally unique Fly app name for automation runs and set `FLY_AUTOMATION_APP_NAME` plus `FLY_AUTOMATION_ORG_SLUG`.
 3. Optionally choose a dedicated Fly private network with `FLY_AUTOMATION_APP_NETWORK`, a specific region with `FLY_AUTOMATION_MACHINE_REGION`, and the machine resource shape with `FLY_AUTOMATION_MACHINE_CPU_KIND`, `FLY_AUTOMATION_MACHINE_CPUS`, and `FLY_AUTOMATION_MACHINE_MEMORY_MB`.
-4. Keep `KEPPO_API_INTERNAL_BASE_URL` on a publicly reachable URL so the Fly machine can post signed log, trace, and completion callbacks back into Keppo.
-5. Set `KEPPO_SANDBOX_PROVIDER=fly`.
+4. Keep `KEPPO_API_INTERNAL_BASE_URL` on a publicly reachable URL so the Fly machine can post signed log, trace, and completion callbacks back into Keppo. Remote Fly callbacks reject loopback, private, link-local, and metadata-address hosts.
+5. If any automation config will run with `network_access="mcp_only"`, set `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` to acknowledge the current lack of hard egress enforcement on Fly.
+6. Set `KEPPO_SANDBOX_PROVIDER=fly`.
 
 ## First-run operator path
 
