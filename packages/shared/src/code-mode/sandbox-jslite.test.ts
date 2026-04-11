@@ -251,6 +251,7 @@ describe("JsliteSandbox", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain("JSLite sandbox provider is unavailable");
+    expect(result.error).toContain("KEPPO_JSLITE_PROJECT_PATH");
     expect(result.failure).toEqual({
       type: "execution_failed",
       errorCode: "sandbox_unavailable",
@@ -383,6 +384,263 @@ describe("JsliteSandbox", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toBe("sidecar crashed during execution");
+    expect(result.failure).toEqual({
+      type: "execution_failed",
+      errorCode: "sandbox_runtime_failed",
+      reason: "Code execution failed in the sandbox runtime.",
+    });
+  });
+
+  it("keeps the original spawn ENOENT error classification when close fires afterward", async () => {
+    const child = new FakeJsliteProcess();
+    const spawnFn = vi.fn(() => {
+      queueMicrotask(() => {
+        child.emit("error", Object.assign(new Error("spawn ENOENT"), { code: "ENOENT" }));
+        child.emit("close", null, null);
+      });
+      return child as unknown as JsliteChildProcess;
+    });
+    const sandbox = new JsliteSandbox({
+      spawnProcess: spawnFn as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return 1;",
+      sdkSource: "",
+      toolCallHandler: async () => null,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("JSLite sandbox provider is unavailable");
+    expect(result.failure).toEqual({
+      type: "execution_failed",
+      errorCode: "sandbox_unavailable",
+      reason: "JSLite sandbox provider is unavailable.",
+    });
+  });
+
+  it("handles stdin stream errors without crashing the host process", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "compile") {
+          child.stdin.emit("error", new Error("write EPIPE"));
+          child.emit("close", 1, null);
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return 1;",
+      sdkSource: "",
+      toolCallHandler: async () => null,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("stdin: write EPIPE");
+    expect(result.failure).toEqual({
+      type: "execution_failed",
+      errorCode: "sandbox_runtime_failed",
+      reason: "Code execution failed in the sandbox runtime.",
+    });
+  });
+
+  it("waits for drain when stdin backpressure is signaled", async () => {
+    const child = new FakeJsliteProcess();
+    const originalWrite = child.stdin.write.bind(child.stdin);
+    let sawBackpressureWrite = false;
+    child.stdin.write = ((
+      chunk: Buffer | string,
+      encoding?: BufferEncoding | ((error?: Error | null) => void),
+      callback?: (error?: Error | null) => void,
+    ) => {
+      sawBackpressureWrite = true;
+      const result =
+        typeof encoding === "function"
+          ? originalWrite(chunk, encoding)
+          : typeof encoding === "string"
+            ? originalWrite(chunk, encoding, callback)
+            : originalWrite(chunk);
+      queueMicrotask(() => {
+        child.stdin.emit("drain");
+      });
+      return false;
+    }) as typeof child.stdin.write;
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "compile") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: { kind: "program", program_base64: "program" },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "start") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "completed",
+                  value: {
+                    Object: {
+                      success: boolValue(true),
+                      hasReturnValue: boolValue(false),
+                      logs: { Array: [] },
+                      toolCallsExecuted: { Array: [] },
+                    },
+                  },
+                },
+              },
+            })}\n`,
+          );
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return 1;",
+      sdkSource: "",
+      toolCallHandler: async () => null,
+    });
+
+    expect(result.success).toBe(true);
+    expect(sawBackpressureWrite).toBe(true);
+  });
+
+  it("fails fast when a bridge request exceeds the payload limit", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "compile") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "program",
+                program_base64: "program",
+              },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "start") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "suspended",
+                  capability: "__keppo_search_tools",
+                  args: [stringValue("oversized"), { Object: {} }],
+                  snapshot_base64: "snapshot-oversized",
+                },
+              },
+            })}\n`,
+          );
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return await searchTools('oversized');",
+      sdkSource:
+        "const searchTools = async function (query, options) { return __keppo_execute_search_tools(query, options); };",
+      toolCallHandler: async () => null,
+      searchToolsHandler: async () => "x".repeat(8 * 1024 * 1024),
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("JSLite bridge request exceeded");
+    expect(result.failure).toEqual({
+      type: "execution_failed",
+      errorCode: "sandbox_runtime_failed",
+      reason: "Code execution failed in the sandbox runtime.",
+    });
+  });
+
+  it("rejects oversized sidecar response lines before they can exhaust memory", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "compile") {
+          child.stdout.write(`${"x".repeat(16 * 1024 * 1024 + 1)}\n`);
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return 1;",
+      sdkSource: "",
+      toolCallHandler: async () => null,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("response line larger");
     expect(result.failure).toEqual({
       type: "execution_failed",
       errorCode: "sandbox_runtime_failed",

@@ -1,7 +1,7 @@
 import { spawn, type SpawnOptions } from "node:child_process";
+import { once } from "node:events";
 import { access } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import { createInterface } from "node:readline";
 import { parseJsonValue } from "../providers/boundaries/json.js";
 import type { SandboxExecutionResult, SandboxProvider } from "./sandbox.js";
 import {
@@ -13,7 +13,10 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_PROJECT_DIR = "../jslite";
 const DEFAULT_RESULT_ERROR = "Code execution failed in JSLite sandbox.";
 const DEFAULT_UNAVAILABLE_ERROR =
-  "JSLite sandbox provider is unavailable. Build jslite-sidecar first or set KEPPO_JSLITE_SIDECAR_PATH.";
+  "JSLite sandbox provider is unavailable. Build jslite-sidecar in KEPPO_JSLITE_PROJECT_PATH (or ../jslite) or set KEPPO_JSLITE_SIDECAR_PATH to a built binary.";
+const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
+const MAX_RESPONSE_LINE_BYTES = 16 * 1024 * 1024;
+const MAX_STDERR_LINES = 200;
 
 type JsliteStructuredValue =
   | undefined
@@ -448,6 +451,16 @@ const defaultFileExists = async (path: string): Promise<boolean> => {
   }
 };
 
+const pushStderrLine = (stderrLines: string[], message: string): void => {
+  if (message.length === 0) {
+    return;
+  }
+  stderrLines.push(message);
+  if (stderrLines.length > MAX_STDERR_LINES) {
+    stderrLines.splice(0, stderrLines.length - MAX_STDERR_LINES);
+  }
+};
+
 export class JsliteSandbox implements SandboxProvider {
   private readonly spawnProcess: JsliteSpawn;
   private readonly env: NodeJS.ProcessEnv;
@@ -530,9 +543,10 @@ export class JsliteSandbox implements SandboxProvider {
     const stderrLines: string[] = [];
     child.stderr.on("data", (chunk: Buffer | string) => {
       const text = chunk.toString("utf8").trim();
-      if (text.length > 0) {
-        stderrLines.push(text);
-      }
+      pushStderrLine(stderrLines, text);
+    });
+    child.stdin.on("error", (error) => {
+      pushStderrLine(stderrLines, `stdin: ${error.message}`);
     });
 
     let timedOut = false;
@@ -541,8 +555,6 @@ export class JsliteSandbox implements SandboxProvider {
       child.kill("SIGKILL");
     }, timeoutMs);
 
-    const lines = createInterface({ input: child.stdout });
-    const lineIterator = lines[Symbol.asyncIterator]();
     let exitError: Error | null = null;
     const exitPromise = new Promise<"exit">((resolve) => {
       child.on("error", (error) => {
@@ -550,28 +562,124 @@ export class JsliteSandbox implements SandboxProvider {
         resolve("exit");
       });
       child.on("close", (code, signal) => {
-        const stderr = stderrLines.join("\n").trim();
-        exitError = Object.assign(
-          new Error(
-            stderr ||
-              `JSLite sidecar exited before returning a response (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
-          ),
-          { code, signal },
-        );
+        if (!exitError) {
+          const stderr = stderrLines.join("\n").trim();
+          exitError = Object.assign(
+            new Error(
+              stderr ||
+                `JSLite sidecar exited before returning a response (code=${code ?? "null"}, signal=${signal ?? "null"}).`,
+            ),
+            { code, signal },
+          );
+        }
         resolve("exit");
       });
     });
+    const bufferedLines: string[] = [];
+    let stdoutBuffer = "";
+    let stdoutEnded = false;
+    let pendingLineResolve: ((result: IteratorResult<string>) => void) | null = null;
+    let stdoutReadError: Error | null = null;
+    const flushPendingLine = (): void => {
+      if (!pendingLineResolve) {
+        return;
+      }
+      if (bufferedLines.length > 0) {
+        const resolvePending = pendingLineResolve;
+        pendingLineResolve = null;
+        resolvePending({ done: false, value: bufferedLines.shift()! });
+        return;
+      }
+      if (stdoutReadError || stdoutEnded) {
+        const resolvePending = pendingLineResolve;
+        pendingLineResolve = null;
+        resolvePending({ done: true, value: undefined });
+      }
+    };
+    const failStdoutRead = (message: string): void => {
+      if (stdoutReadError) {
+        return;
+      }
+      stdoutReadError = new Error(message);
+      child.kill("SIGKILL");
+      flushPendingLine();
+    };
+    child.stdout.on("data", (chunk: Buffer | string) => {
+      stdoutBuffer += chunk.toString("utf8");
+      let newlineIndex = stdoutBuffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = stdoutBuffer.slice(0, newlineIndex);
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        if (Buffer.byteLength(line, "utf8") > MAX_RESPONSE_LINE_BYTES) {
+          failStdoutRead(
+            `JSLite sidecar returned a response line larger than ${MAX_RESPONSE_LINE_BYTES} bytes.`,
+          );
+          return;
+        }
+        bufferedLines.push(line);
+        flushPendingLine();
+        newlineIndex = stdoutBuffer.indexOf("\n");
+      }
+      if (Buffer.byteLength(stdoutBuffer, "utf8") > MAX_RESPONSE_LINE_BYTES) {
+        failStdoutRead(
+          `JSLite sidecar returned a response line larger than ${MAX_RESPONSE_LINE_BYTES} bytes.`,
+        );
+      }
+    });
+    child.stdout.on("end", () => {
+      stdoutEnded = true;
+      flushPendingLine();
+    });
+    child.stdout.on("error", (error) => {
+      stdoutReadError = error;
+      flushPendingLine();
+    });
     let nextRequestId = 1;
+    const nextLine = async (): Promise<IteratorResult<string>> => {
+      if (bufferedLines.length > 0) {
+        return { done: false, value: bufferedLines.shift()! };
+      }
+      if (stdoutReadError || stdoutEnded) {
+        return { done: true, value: undefined };
+      }
+      return await new Promise<IteratorResult<string>>((resolve) => {
+        pendingLineResolve = resolve;
+      });
+    };
+    const writeRequestLine = async (line: string): Promise<void> => {
+      if (!child.stdin || !child.stdin.writable) {
+        throw exitError ?? new Error("JSLite sidecar stdin is no longer writable.");
+      }
+      const stream = child.stdin as NodeJS.WritableStream & NodeJS.EventEmitter;
+      const shouldContinue = stream.write(line);
+      if (shouldContinue) {
+        return;
+      }
+      const drainResult = await Promise.race([
+        once(stream, "drain").then(() => ({ kind: "drain" as const })),
+        exitPromise.then(() => ({ kind: "exit" as const })),
+      ]);
+      if (drainResult.kind === "exit") {
+        throw exitError ?? new Error("JSLite sidecar stopped responding.");
+      }
+    };
 
     const sendRequest = async (payload: Record<string, unknown>): Promise<JsliteResponse> => {
       const requestId = nextRequestId++;
-      child.stdin?.write(`${JSON.stringify({ ...payload, id: requestId })}\n`);
+      const requestLine = `${JSON.stringify({ ...payload, id: requestId })}\n`;
+      if (Buffer.byteLength(requestLine, "utf8") > MAX_REQUEST_BYTES) {
+        throw new Error(`JSLite bridge request exceeded ${MAX_REQUEST_BYTES} bytes.`);
+      }
+      await writeRequestLine(requestLine);
       const lineResult = await Promise.race([
-        lineIterator.next().then((result) => ({ kind: "line" as const, result })),
+        nextLine().then((result) => ({ kind: "line" as const, result })),
         exitPromise.then(() => ({ kind: "exit" as const })),
       ]);
       if (lineResult.kind === "exit") {
         throw exitError ?? new Error("JSLite sidecar stopped responding.");
+      }
+      if (stdoutReadError) {
+        throw stdoutReadError;
       }
       if (lineResult.result.done || typeof lineResult.result.value !== "string") {
         throw new Error("JSLite sidecar closed stdout before returning a response.");
@@ -755,8 +863,11 @@ export class JsliteSandbox implements SandboxProvider {
       };
     } finally {
       clearTimeout(timeoutHandle);
-      child.stdin?.end();
-      lines.close();
+      try {
+        child.stdin?.end();
+      } catch {
+        // Ignore stream shutdown races after the sidecar exits.
+      }
       child.kill("SIGKILL");
     }
   }
