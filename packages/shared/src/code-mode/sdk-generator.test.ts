@@ -19,4 +19,23 @@ describe("generateCodeModeSDK", () => {
     expect(typeof globals.gmail).toBe("object");
     expect(typeof globals.search_tools).toBe("function");
   });
+
+  it("produces a jslite-compatible SDK target", () => {
+    const source = `${generateCodeModeSDK(allTools, { target: "jslite" })}
+globalThis.__capture = { gmail, search_tools };`;
+    const context = vm.createContext({
+      globalThis: {},
+      __keppo_execute_tool: async () => ({ ok: true }),
+      __keppo_execute_search_tools: async () => [],
+    });
+
+    const script = new vm.Script(source);
+    script.runInContext(context);
+
+    expect(source).not.toContain("Object.freeze");
+    expect(source).not.toContain("globalThis.gmail");
+    const globals = (context.globalThis as { __capture?: Record<string, unknown> }).__capture ?? {};
+    expect(typeof globals.gmail).toBe("object");
+    expect(typeof globals.search_tools).toBe("function");
+  });
 });

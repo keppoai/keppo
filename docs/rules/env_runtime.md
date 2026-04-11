@@ -77,6 +77,7 @@
 - Remote sandboxes should receive a minimal, sandbox-valid `PATH`, not the host machine `PATH`.
 - Sandbox providers must not infer which CLI package to install by parsing the first token of `runtime.command`; managed runner commands may be wrapped shell blocks for signal handling and artifact upload, so keep the installed runner package explicit in the sandbox contract.
 - Docker sandboxes must rewrite host loopback URLs to `host.docker.internal` or an equivalent gateway alias.
+- JSLite Code Mode experiments must resolve the sidecar from an explicit `KEPPO_JSLITE_SIDECAR_PATH` or a checked-out `KEPPO_JSLITE_PROJECT_PATH` / default `../jslite` project, and that mode must remain blocked in strict/non-local deployments.
 - Local Code Mode should default to the sandbox provider, not a silent in-process fallback.
 - Bundled sandboxed OpenAI runs that point `OPENAI_BASE_URL` at the Dyad gateway must stay on the HTTP Responses transport; that gateway does not support websocket Responses, so the repo-owned automation runner must force HTTP transport when it configures the OpenAI Agents SDK.
 - Automation model-class routing must resolve from the explicit env contract: `KEPPO_AUTOMATION_MODEL_AUTO`, `KEPPO_AUTOMATION_MODEL_FRONTIER`, `KEPPO_AUTOMATION_MODEL_BALANCED`, and `KEPPO_AUTOMATION_MODEL_VALUE`. Treat `Auto` as an env alias, not a hard-coded model name.

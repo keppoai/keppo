@@ -86,7 +86,7 @@ const codeModeSandboxSchema = z.preprocess(
     const normalized = toTrimmedString(value);
     return (normalized ?? "docker").toLowerCase();
   },
-  z.enum(["docker", "vercel", "unikraft"]),
+  z.enum(["docker", "vercel", "unikraft", "jslite"]),
 );
 
 const apiEnvSchema = z
@@ -183,6 +183,8 @@ const apiEnvSchema = z
     UNIKRAFT_CODE_MODE_IMAGE: optionalString,
     UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL: optionalString,
     UNIKRAFT_CODE_MODE_BRIDGE_BIND_HOST: optionalString,
+    KEPPO_JSLITE_PROJECT_PATH: optionalString,
+    KEPPO_JSLITE_SIDECAR_PATH: optionalString,
     VERCEL_SANDBOX_API_TOKEN: optionalString,
     VERCEL_OIDC_TOKEN: optionalString,
     VERCEL_TOKEN: optionalString,
@@ -423,6 +425,12 @@ const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
       env,
       ["UNIKRAFT_API_TOKEN", "UNIKRAFT_METRO", "UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL"],
       missing,
+    );
+  }
+
+  if (mode === "strict" && env.KEPPO_CODE_MODE_SANDBOX_PROVIDER === "jslite") {
+    missing.push(
+      "KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only; use vercel or unikraft in strict mode",
     );
   }
 

@@ -32,7 +32,7 @@ export interface SandboxProvider {
   }): Promise<SandboxExecutionResult>;
 }
 
-export type SandboxMode = "docker" | "vercel" | "unikraft";
+export type SandboxMode = "docker" | "vercel" | "unikraft" | "jslite";
 
 const isLocalDevRuntime = (): boolean => {
   const nodeEnv = process.env.NODE_ENV?.toLowerCase();
@@ -44,6 +44,11 @@ export const createSandboxProvider = async (mode: SandboxMode): Promise<SandboxP
   if (mode === "docker" && !isLocalDevRuntime()) {
     throw new Error(
       "Docker sandbox provider is not allowed in production. Set KEPPO_CODE_MODE_SANDBOX_PROVIDER=vercel or unikraft for non-local deployments.",
+    );
+  }
+  if (mode === "jslite" && !isLocalDevRuntime()) {
+    throw new Error(
+      "JSLite sandbox provider is not allowed in production. See JSLITE_BLOCKERS.md and use KEPPO_CODE_MODE_SANDBOX_PROVIDER=vercel or unikraft for non-local deployments.",
     );
   }
   if (mode === "vercel") {
@@ -59,6 +64,10 @@ export const createSandboxProvider = async (mode: SandboxMode): Promise<SandboxP
       throw new Error("Unikraft sandbox provider requires UNIKRAFT_API_TOKEN and UNIKRAFT_METRO.");
     }
     return new UnikraftSandbox(new UnikraftCloudClient({ token, metro }));
+  }
+  if (mode === "jslite") {
+    const { JsliteSandbox } = await import("./sandbox-jslite.js");
+    return new JsliteSandbox();
   }
   return new DockerSandbox();
 };

@@ -28,7 +28,7 @@
 - Code Mode uses `search_tools` and `execute_code` plus the `code_mode_tool_index` table.
 - `search_tools` queries the indexed tool catalog and filters results to providers enabled for the workspace.
 - `execute_code` requires an operator-facing 1-2 sentence `description`, generates a typed SDK, statically extracts referenced tools, then runs sandboxed JavaScript with gated provider calls.
-- Sandbox provider selection for Code Mode is independent from automation sandbox selection and is controlled by `KEPPO_CODE_MODE_SANDBOX_PROVIDER` (`docker`, `vercel`, or `unikraft`).
+- Sandbox provider selection for Code Mode is independent from automation sandbox selection and is controlled by `KEPPO_CODE_MODE_SANDBOX_PROVIDER` (`docker`, `vercel`, `unikraft`, or local/dev-only `jslite`).
 
 ## Guardrails
 
@@ -120,6 +120,12 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - uses an HTTP bridge variant instead of the file-based bridge because the remote MicroVM cannot write response files back onto the host filesystem,
   - logs request markers with `REQUEST_PREFIX` for visibility and returns the final structured result through the usual `RESULT_PREFIX` log line,
   - requires the MicroVM to reach a host callback URL (`UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL` in strict/non-local setups), which is the main networking constraint of this provider.
+- Code Mode `jslite` sandbox behavior:
+  - is local/dev-only and blocked in strict/non-local runtime validation and provider construction,
+  - resolves a sidecar binary from `KEPPO_JSLITE_SIDECAR_PATH`, or from an adjacent `KEPPO_JSLITE_PROJECT_PATH` / default `../jslite` checkout,
+  - compiles a JSLite-specific SDK wrapper instead of the default ESM/globalThis bridge so guest code can call provider tools within JSLite’s supported JavaScript subset,
+  - proxies tool and `search_tools` calls over the sidecar suspend/resume protocol on stdio,
+  - relies on host-side sidecar isolation only and therefore is not a production-tier sandbox until the blockers in `JSLITE_BLOCKERS.md` are resolved.
 - Dispatch path requirements:
   - resolve automation run dispatch context from Convex snapshot (`automation_runs:getAutomationRunDispatchContext`),
   - derive sandbox `timeout_ms` from the org's current subscription tier `automation_limits.max_run_duration_ms`; only fall back to `KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS` when dispatch cannot resolve a tier,

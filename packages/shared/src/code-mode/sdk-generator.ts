@@ -138,7 +138,9 @@ export const generateToolTypeStubs = (tools: ToolDefinition[]): string => {
   return lines.join("\n");
 };
 
-export const generateCodeModeSDK = (tools: ToolDefinition[]): string => {
+type CodeModeSdkTarget = "default" | "jslite";
+
+const generateDefaultCodeModeSDK = (tools: ToolDefinition[]): string => {
   const providers = new Map<string, string[]>();
 
   for (const tool of tools) {
@@ -185,6 +187,62 @@ export const generateCodeModeSDK = (tools: ToolDefinition[]): string => {
     "",
     ...namespaceBlocks,
   ].join("\n");
+};
+
+const generateJsliteCodeModeSDK = (tools: ToolDefinition[]): string => {
+  const providers = new Map<string, string[]>();
+
+  for (const tool of tools) {
+    if (tool.provider === "keppo") {
+      continue;
+    }
+    const { namespace, functionName } = splitToolName(tool.name);
+    const docs = formatParamDoc(tool.input_schema);
+    const functionLines = [
+      "  /**",
+      ` * ${escapeBlockComment(tool.description)}`,
+      ...docs,
+      "   */",
+      `  ${JSON.stringify(functionName)}: async function (args) {`,
+      `    return __keppo_execute_tool(${JSON.stringify(tool.name)}, args);`,
+      "  },",
+    ];
+    const existing = providers.get(namespace) ?? [];
+    existing.push(functionLines.join("\n"));
+    providers.set(namespace, existing);
+  }
+
+  const namespaceBlocks = [...providers.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([namespace, functions]) => {
+      return [`const ${namespace} = {`, functions.sort().join("\n"), "};"].join("\n");
+    });
+
+  return [
+    '"use strict";',
+    "",
+    'if (typeof __keppo_execute_tool !== "function") {',
+    '  throw new Error("Missing __keppo_execute_tool runtime bridge.");',
+    "}",
+    'if (typeof __keppo_execute_search_tools !== "function") {',
+    '  throw new Error("Missing __keppo_execute_search_tools runtime bridge.");',
+    "}",
+    "",
+    "async function search_tools(query, options) {",
+    "  return __keppo_execute_search_tools(query, options);",
+    "}",
+    "",
+    ...namespaceBlocks,
+  ].join("\n");
+};
+
+export const generateCodeModeSDK = (
+  tools: ToolDefinition[],
+  options: { target?: CodeModeSdkTarget } = {},
+): string => {
+  return options.target === "jslite"
+    ? generateJsliteCodeModeSDK(tools)
+    : generateDefaultCodeModeSDK(tools);
 };
 
 export const generateCodeModeDeclarations = (tools: ToolDefinition[]): string => {

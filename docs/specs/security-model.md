@@ -105,10 +105,12 @@
 
 - Code Mode execution runs in sandbox providers:
   - local/e2e default: Docker container sandbox (`docker` mode).
+  - local/dev experimental option: JSLite sidecar sandbox (`jslite` mode), blocked outside local/dev runtimes.
   - production target: Vercel sandbox provider (`vercel` mode).
 - `search_tools` fails closed to tools that are actually usable in the current workspace: built-in providers must be both enabled and connected, while custom MCP tools must remain workspace-enabled.
 - Vercel sandbox execution is created with `runtime: node24` and `networkPolicy: "deny-all"` for fail-closed outbound network access.
 - Host/tool communication in `vercel` mode uses a structured stdout request marker + host-written response files under `/tmp`, so provider tool calls never execute directly inside the microVM.
+- Host/tool communication in `jslite` mode uses the JSLite sidecar suspend/resume protocol over stdio. That keeps Keppo out of the in-process addon path, but it is still not a hardened production sandbox boundary without additional OS-level containment.
 - Sandbox global surface is restricted (`process`, `require`, `eval`, `Function` are not exposed to user code).
 - Tool invocation from sandbox always routes through `__keppo_call_tool` runtime bridge.
 - Dual-layer gating is enforced:
