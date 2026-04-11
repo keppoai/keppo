@@ -959,6 +959,103 @@ describe("JsliteSandbox", () => {
     });
   });
 
+  it("propagates nullish thrown values from host handlers back to the guest", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as {
+          id: number;
+          method: string;
+          payload?: { type: string; error?: { name?: string; message?: string } };
+        };
+        if (request.method === "compile") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: { kind: "program", program_base64: "program" },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "start") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "suspended",
+                  capability: "__keppo_search_tools",
+                  args: [stringValue("nullish"), { Object: {} }],
+                  snapshot_base64: "snapshot-nullish",
+                },
+              },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "resume") {
+          expect(request.payload).toEqual({
+            type: "error",
+            error: {
+              name: "Error",
+              message: "undefined",
+              code: null,
+              details: null,
+            },
+          });
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "completed",
+                  value: {
+                    Object: {
+                      success: boolValue(false),
+                      error: stringValue("undefined"),
+                      logs: { Array: [] },
+                      toolCallsExecuted: { Array: [] },
+                    },
+                  },
+                },
+              },
+            })}\n`,
+          );
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return await searchTools('nullish');",
+      sdkSource:
+        "const searchTools = async function (query, options) { return __keppo_execute_search_tools(query, options); };",
+      toolCallHandler: async () => null,
+      searchToolsHandler: async () => {
+        throw undefined;
+      },
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("undefined");
+  });
+
   it("returns a structured runtime failure when the sidecar step response is a non-validation error", async () => {
     const child = new FakeJsliteProcess();
     child.stdin.on("data", (chunk: Buffer | string) => {

@@ -258,7 +258,7 @@ const generateJsliteCodeModeSDK = (tools: ToolDefinition[]): string => {
       ` * ${escapeBlockComment(tool.description)}`,
       ...docs,
       "   */",
-      `  ${JSON.stringify(functionName)}: async function (args) {`,
+      `  [${JSON.stringify(functionName)}]: async function (args) {`,
       `    return __keppo_execute_tool(${JSON.stringify(tool.name)}, args);`,
       "  },",
     ];

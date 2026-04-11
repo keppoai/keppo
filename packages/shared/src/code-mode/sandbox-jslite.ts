@@ -337,15 +337,24 @@ const toGuestErrorPayload = (
     details?: EncodedStructuredValue | null;
   };
 } => {
-  const source = error instanceof Error ? error : Object(error);
+  const source =
+    error instanceof Error
+      ? error
+      : error === null || error === undefined
+        ? null
+        : typeof error === "object" || typeof error === "function"
+          ? Object(error)
+          : null;
   const named = source as Error & { code?: unknown; details?: unknown };
+  const message =
+    typeof named?.message === "string" && named.message.length > 0 ? named.message : String(error);
   return {
     type: "error",
     error: {
-      name: named.name || "Error",
-      message: named.message || String(error),
-      ...(typeof named.code === "string" ? { code: named.code } : { code: null }),
-      ...(named.details === undefined
+      name: typeof named?.name === "string" && named.name.length > 0 ? named.name : "Error",
+      message,
+      ...(typeof named?.code === "string" ? { code: named.code } : { code: null }),
+      ...(named?.details === undefined
         ? { details: null }
         : { details: encodeStructured(toStructuredValue(named.details)) }),
     },

@@ -74,4 +74,48 @@ globalThis.__capture = { provider: globalThis["default"] };`;
     expect(typeof globals?.provider).toBe("object");
     expect(typeof globals?.provider?.run).toBe("function");
   });
+
+  it("keeps __proto__ tool names callable on the jslite target", async () => {
+    const source = `${generateCodeModeSDK(
+      [
+        {
+          name: "gmail.__proto__",
+          provider: "gmail",
+          capability: "read",
+          risk_level: "low",
+          requires_approval: false,
+          output_sensitivity: "internal",
+          action_type: "read",
+          description: "Call the proto-named tool",
+          redaction_policy: [],
+          input_schema: z.object({ query: z.string() }),
+        },
+      ] as never,
+      { target: "jslite" },
+    )}
+globalThis.__capture = globalThis.gmail["__proto__"];`;
+    const toolCalls: Array<{ name: string; args: unknown }> = [];
+    const context = vm.createContext({
+      globalThis: {},
+      __keppo_execute_tool: async (name: string, args: unknown) => {
+        toolCalls.push({ name, args });
+        return { ok: true };
+      },
+      __keppo_execute_search_tools: async () => [],
+    });
+
+    const script = new vm.Script(source);
+    script.runInContext(context);
+
+    const fn = (context.globalThis as { __capture?: (args: { query: string }) => Promise<unknown> })
+      .__capture;
+    expect(typeof fn).toBe("function");
+    await fn?.({ query: "status:unread" });
+    expect(toolCalls).toEqual([
+      {
+        name: "gmail.__proto__",
+        args: { query: "status:unread" },
+      },
+    ]);
+  });
 });
