@@ -1167,7 +1167,9 @@ const createMcpServer = (
           const env = getEnv();
           const sandboxMode = env.KEPPO_CODE_MODE_SANDBOX_PROVIDER;
           const sandbox = await createSandboxProvider(sandboxMode);
-          const sdkSource = generateCodeModeSDK(indexedTools);
+          const sdkSource = generateCodeModeSDK(indexedTools, {
+            target: sandboxMode === "jslite" ? "jslite" : "default",
+          });
 
           const executeToolCallFn = async (
             candidateToolName: string,

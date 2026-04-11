@@ -318,6 +318,75 @@ describe("api env schema", () => {
     ).toThrow("UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL");
   });
 
+  it("rejects the jslite code-mode sandbox provider in strict mode", () => {
+    expect(() =>
+      parseApiEnv(
+        {
+          NODE_ENV: "production",
+          CONVEX_URL: "https://example.convex.cloud",
+          KEPPO_CONVEX_ADMIN_KEY: "convex-admin-key",
+          KEPPO_MASTER_KEY: "master-key",
+          KEPPO_URL: "https://dashboard.keppo.ai",
+          STRIPE_SECRET_KEY: "stripe-secret",
+          STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe-provider-webhook-secret",
+          STRIPE_BILLING_WEBHOOK_SECRET: "stripe-billing-webhook-secret",
+          GOOGLE_CLIENT_ID: "google-client-id",
+          GOOGLE_CLIENT_SECRET: "google-client-secret",
+          STRIPE_CLIENT_ID: "stripe-client-id",
+          GITHUB_CLIENT_ID: "github-client-id",
+          GITHUB_CLIENT_SECRET: "github-client-secret",
+          REDDIT_CLIENT_ID: "reddit-client-id",
+          REDDIT_CLIENT_SECRET: "reddit-client-secret",
+          OPENAI_API_KEY: "openai-api-key",
+          KEPPO_OAUTH_STATE_SECRET: "oauth-state-secret",
+          KEPPO_CALLBACK_HMAC_SECRET: "callback-hmac-secret",
+          BETTER_AUTH_SECRET: "better-auth-secret-better-auth-secret",
+          KEPPO_CRON_SECRET: "cron-secret",
+          KEPPO_CODE_MODE_SANDBOX_PROVIDER: "jslite",
+        },
+        {
+          validateRequired: true,
+          mode: "strict",
+        },
+      ),
+    ).toThrow("KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only");
+  });
+
+  it("reports jslite strict-mode rejection alongside other missing env errors", () => {
+    expect(() =>
+      parseApiEnv(
+        {
+          NODE_ENV: "production",
+          CONVEX_URL: "https://example.convex.cloud",
+          KEPPO_CONVEX_ADMIN_KEY: "convex-admin-key",
+          KEPPO_MASTER_KEY: "master-key",
+          KEPPO_URL: "https://dashboard.keppo.ai",
+          STRIPE_SECRET_KEY: "stripe-secret",
+          STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe-provider-webhook-secret",
+          STRIPE_BILLING_WEBHOOK_SECRET: "stripe-billing-webhook-secret",
+          GOOGLE_CLIENT_ID: "google-client-id",
+          GOOGLE_CLIENT_SECRET: "google-client-secret",
+          STRIPE_CLIENT_ID: "stripe-client-id",
+          GITHUB_CLIENT_ID: "github-client-id",
+          GITHUB_CLIENT_SECRET: "github-client-secret",
+          REDDIT_CLIENT_ID: "reddit-client-id",
+          REDDIT_CLIENT_SECRET: "reddit-client-secret",
+          OPENAI_API_KEY: "openai-api-key",
+          KEPPO_OAUTH_STATE_SECRET: "oauth-state-secret",
+          KEPPO_CALLBACK_HMAC_SECRET: "callback-hmac-secret",
+          KEPPO_CRON_SECRET: "cron-secret",
+          KEPPO_CODE_MODE_SANDBOX_PROVIDER: "jslite",
+        },
+        {
+          validateRequired: true,
+          mode: "strict",
+        },
+      ),
+    ).toThrow(
+      "Invalid API environment:\n- Missing BETTER_AUTH_SECRET\n- Invalid KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only. Use 'vercel' or 'unikraft' in strict mode.",
+    );
+  });
+
   it("maps legacy STRIPE_WEBHOOK_SECRET into both split webhook secrets", () => {
     const env = parseApiEnv(
       {

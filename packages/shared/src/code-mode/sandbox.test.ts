@@ -3,6 +3,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("./sandbox-docker.js", () => ({
   DockerSandbox: vi.fn(),
 }));
+vi.mock("./sandbox-jslite.js", () => ({
+  JsliteSandbox: vi.fn(),
+}));
 vi.mock("./sandbox-unikraft.js", () => ({
   UnikraftSandbox: vi.fn(),
 }));
@@ -72,6 +75,23 @@ describe("createSandboxProvider", () => {
 
     const { createSandboxProvider } = await import("./sandbox.js");
     await expect(createSandboxProvider("vercel")).resolves.toBeDefined();
+  });
+
+  it("allows jslite provider in development", async () => {
+    process.env.NODE_ENV = "development";
+
+    const { createSandboxProvider } = await import("./sandbox.js");
+    await expect(createSandboxProvider("jslite")).resolves.toBeDefined();
+  });
+
+  it("throws when jslite provider is used in production", async () => {
+    process.env.NODE_ENV = "production";
+    delete process.env.KEPPO_E2E_MODE;
+
+    const { createSandboxProvider } = await import("./sandbox.js");
+    await expect(createSandboxProvider("jslite")).rejects.toThrow(
+      "JSLite sandbox provider is not allowed in production",
+    );
   });
 
   it("allows unikraft provider in production when credentials are set", async () => {

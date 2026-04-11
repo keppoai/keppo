@@ -86,7 +86,7 @@ const codeModeSandboxSchema = z.preprocess(
     const normalized = toTrimmedString(value);
     return (normalized ?? "docker").toLowerCase();
   },
-  z.enum(["docker", "vercel", "unikraft"]),
+  z.enum(["docker", "vercel", "unikraft", "jslite"]),
 );
 
 const apiEnvSchema = z
@@ -183,6 +183,8 @@ const apiEnvSchema = z
     UNIKRAFT_CODE_MODE_IMAGE: optionalString,
     UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL: optionalString,
     UNIKRAFT_CODE_MODE_BRIDGE_BIND_HOST: optionalString,
+    KEPPO_JSLITE_PROJECT_PATH: optionalString,
+    KEPPO_JSLITE_SIDECAR_PATH: optionalString,
     VERCEL_SANDBOX_API_TOKEN: optionalString,
     VERCEL_OIDC_TOKEN: optionalString,
     VERCEL_TOKEN: optionalString,
@@ -361,6 +363,7 @@ const resolveWithFallbacks = (base: ApiEnv): ApiEnv => {
 
 const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
   const missing: string[] = [];
+  const invalid: string[] = [];
   const requiredCore = [
     "KEPPO_CONVEX_ADMIN_KEY",
     "KEPPO_MASTER_KEY",
@@ -426,9 +429,18 @@ const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
     );
   }
 
-  if (missing.length > 0) {
+  if (mode === "strict" && env.KEPPO_CODE_MODE_SANDBOX_PROVIDER === "jslite") {
+    invalid.push(
+      "KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only. Use 'vercel' or 'unikraft' in strict mode.",
+    );
+  }
+
+  if (missing.length > 0 || invalid.length > 0) {
     throw new Error(
-      `Invalid API environment:\n${missing.map((item) => `- Missing ${item}`).join("\n")}`,
+      `Invalid API environment:\n${[
+        ...missing.map((item) => `- Missing ${item}`),
+        ...invalid.map((item) => `- Invalid ${item}`),
+      ].join("\n")}`,
     );
   }
 };

@@ -12,6 +12,7 @@ import {
   type SandboxToolCall,
 } from "./sandbox.js";
 import { DockerSandbox } from "./sandbox-docker.js";
+import { JsliteSandbox } from "./sandbox-jslite.js";
 import { UnikraftSandbox } from "./sandbox-unikraft.js";
 import { VercelSandbox } from "./sandbox-vercel.js";
 import { extractToolReferences } from "./static-analyzer.js";
@@ -39,6 +40,7 @@ export {
   CODE_MODE_TOOLS,
   CodeModeGatingError,
   DockerSandbox,
+  JsliteSandbox,
   UnikraftSandbox,
   VercelSandbox,
   createCodeModeStructuredExecutionError,
