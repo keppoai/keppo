@@ -1,0 +1,228 @@
+import { describe, expect, it, vi } from "vitest";
+import { buildRunnerCommand } from "../routes/automations";
+import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
+import { FlyMachinesSandboxProvider } from "./fly.js";
+
+const baseConfig = {
+  bootstrap: {
+    command: "true",
+    env: {},
+    network_access: "package_registry_only" as const,
+  },
+  runtime: {
+    bootstrap_command: "true",
+    command: buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      providerMode: "fly",
+      aiModelProvider: "openai",
+    }),
+    env: {
+      OPENAI_API_KEY: "secret",
+      KEPPO_MCP_BEARER_TOKEN: "mcp-secret",
+      KEPPO_MCP_SERVER_URL: "https://api.keppo.ai/mcp/ws_test",
+    },
+    network_access: "mcp_only" as const,
+    callbacks: {
+      log_url:
+        "https://api.keppo.ai/internal/automations/log?automation_run_id=arun_test&expires=1&signature=abc",
+      complete_url:
+        "https://api.keppo.ai/internal/automations/complete?automation_run_id=arun_test&expires=1&signature=abc",
+      trace_url:
+        "https://api.keppo.ai/internal/automations/trace?automation_run_id=arun_test&expires=1&signature=abc",
+    },
+    runner: buildSandboxRunnerContract("fly"),
+  },
+  timeout_ms: 120_000,
+};
+
+describe("FlyMachinesSandboxProvider", () => {
+  it("creates the app when it is missing and launches an auto-destroy machine", async () => {
+    const client = {
+      getApp: vi.fn().mockResolvedValue(null),
+      createApp: vi.fn().mockResolvedValue(undefined),
+      createMachine: vi.fn().mockResolvedValue({
+        id: "machine_123",
+        state: "started",
+      }),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      region: "iad",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.dispatch(baseConfig)).resolves.toEqual({
+      sandbox_id: "keppo-automation-sandbox::machine_123",
+    });
+
+    expect(client.getApp).toHaveBeenCalledWith("keppo-automation-sandbox");
+    expect(client.createApp).toHaveBeenCalledWith({
+      app_name: "keppo-automation-sandbox",
+      org_slug: "personal",
+    });
+    expect(client.createMachine).toHaveBeenCalledWith(
+      "keppo-automation-sandbox",
+      expect.objectContaining({
+        name: "keppo-arun-test",
+        region: "iad",
+        skip_service_registration: true,
+        config: expect.objectContaining({
+          auto_destroy: true,
+          image: "registry-1.docker.io/library/node:22-bookworm",
+          init: {
+            exec: ["node", "/sandbox/keppo-automation-runner-wrapper.mjs"],
+          },
+          restart: {
+            policy: "no",
+          },
+          guest: {
+            cpu_kind: "shared",
+            cpus: 1,
+            memory_mb: 1024,
+          },
+          metadata: {
+            automation_run_id: "arun_test",
+            keppo_network_access: "mcp_only",
+            keppo_sandbox_provider: "fly",
+          },
+          env: expect.objectContaining({
+            OPENAI_API_KEY: "secret",
+            KEPPO_MCP_BEARER_TOKEN: "mcp-secret",
+            KEPPO_LOG_CALLBACK_URL: baseConfig.runtime.callbacks.log_url,
+            KEPPO_COMPLETE_CALLBACK_URL: baseConfig.runtime.callbacks.complete_url,
+            KEPPO_TRACE_CALLBACK_URL: baseConfig.runtime.callbacks.trace_url,
+            KEPPO_AUTOMATION_RUN_ID: "arun_test",
+            KEPPO_RUNNER_COMMAND: baseConfig.runtime.command,
+            KEPPO_RUNNER_ENTRYPOINT_PATH:
+              "/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
+            KEPPO_RUNNER_PACKAGES_JSON: JSON.stringify(["@openai/agents@0.8.2"]),
+          }),
+        }),
+      }),
+    );
+
+    const files = client.createMachine.mock.calls[0]?.[1]?.config.files;
+    expect(files).toHaveLength(2);
+    expect(files?.[0]?.guest_path).toBe("/sandbox/keppo-automation-runner-wrapper.mjs");
+    expect(Buffer.from(files?.[0]?.raw_value ?? "", "base64").toString("utf8")).toContain(
+      "KEPPO_RUNNER_PACKAGES_JSON",
+    );
+    expect(Buffer.from(files?.[1]?.raw_value ?? "", "base64").toString("utf8")).toContain(
+      'from "@openai/agents"',
+    );
+  });
+
+  it("reuses an existing Fly app without attempting to recreate it", async () => {
+    const client = {
+      getApp: vi.fn().mockResolvedValue({ id: "app_123", name: "keppo-automation-sandbox" }),
+      createApp: vi.fn().mockResolvedValue(undefined),
+      createMachine: vi.fn().mockResolvedValue({
+        id: "machine_123",
+      }),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await provider.dispatch(baseConfig);
+
+    expect(client.createApp).not.toHaveBeenCalled();
+  });
+
+  it("treats app-create conflicts as successful races", async () => {
+    const client = {
+      getApp: vi.fn().mockResolvedValue(null),
+      createApp: vi.fn().mockRejectedValue(Object.assign(new Error("conflict"), { status: 409 })),
+      createMachine: vi.fn().mockResolvedValue({
+        id: "machine_123",
+      }),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.dispatch(baseConfig)).resolves.toEqual({
+      sandbox_id: "keppo-automation-sandbox::machine_123",
+    });
+  });
+
+  it("force-deletes the machine on terminate", async () => {
+    const client = {
+      getApp: vi.fn(),
+      createApp: vi.fn(),
+      createMachine: vi.fn(),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(
+      provider.terminate("keppo-automation-sandbox::machine_123"),
+    ).resolves.toBeUndefined();
+
+    expect(client.deleteMachine).toHaveBeenCalledWith("keppo-automation-sandbox", "machine_123", {
+      force: true,
+    });
+  });
+
+  it("ignores missing machines on terminate", async () => {
+    const client = {
+      getApp: vi.fn(),
+      createApp: vi.fn(),
+      createMachine: vi.fn(),
+      deleteMachine: vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error("missing"), { status: 404 })),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(
+      provider.terminate("keppo-automation-sandbox::machine_123"),
+    ).resolves.toBeUndefined();
+  });
+});

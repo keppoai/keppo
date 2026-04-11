@@ -11,6 +11,9 @@ describe("agents-sdk-runner", () => {
     expect(resolveSandboxRunnerEntrypointPath("docker")).toBe(
       "/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
     );
+    expect(resolveSandboxRunnerEntrypointPath("fly")).toBe(
+      "/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
+    );
     expect(resolveSandboxRunnerEntrypointPath("vercel")).toBe(
       "/vercel/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs",
     );

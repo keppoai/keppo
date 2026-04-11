@@ -19,7 +19,7 @@
 
 - Automation configs and runs live in Convex.
 - Provider-trigger configs persist a provider id, provider trigger key, schema version, structured filter payload, preferred/fallback delivery modes, and provider-managed subscription state instead of only flat event strings.
-- API dispatches automation runs to a sandbox provider selected by `KEPPO_SANDBOX_PROVIDER` (`docker`, `vercel`, or `unikraft`).
+- API dispatches automation runs to a sandbox provider selected by `KEPPO_SANDBOX_PROVIDER` (`docker`, `vercel`, `fly`, or `unikraft`).
 - Automation configs may still store legacy runner metadata (`chatgpt_codex` or `claude_code`), but sandbox execution always dispatches through the managed `openai-agents-js` runner and rejects Anthropic/Claude automation models fail-closed.
 - Sandboxes stream logs and completion back through signed callback routes; termination is a separate internal route.
 
@@ -88,7 +88,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - `POST /internal/automations/trace`
   - `POST /internal/automations/complete`
 - `POST /internal/automations/dispatch` requires both the internal bearer secret and a scheduler-minted single-use `dispatch_token` bound to the targeted `automation_run_id`; the runtime must reject requests that cannot claim that short-lived per-run token before decrypting org-scoped AI credentials, claims become invalid once the run leaves `pending`, and scheduler retries must reuse the exact recent in-flight token for a pending run rather than replacing or recomputing it. If a reused claim later returns `404 run_not_found`, the scheduler must retry with a fresh claim instead of leaving the run pending indefinitely.
-- Sandbox provider interface is environment-switched (`docker` for local, `vercel` or `unikraft` for production-tier deployments) with contract:
+- Sandbox provider interface is environment-switched (`docker` for local, `vercel`, `fly`, or `unikraft` for production-tier deployments) with contract:
   - `dispatch({ bootstrap: { command, env, network_access }, runtime: { command, env, network_access, callbacks, runner }, timeout_ms })`
   - `terminate(sandbox_id)`
 - Local `docker` sandbox provider behavior:
@@ -106,6 +106,13 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - stores `sandbox_id` as an opaque sandbox-handle that includes the detached command identifier so terminate requests can signal the runner process before stopping the VM,
   - when Deployment Protection is enabled in `preview` or `staging`, uses `VERCEL_AUTOMATION_BYPASS_SECRET` for Convex dispatch/terminate requests and sandbox-origin callback traffic, and appends the same bypass token to sandbox MCP URLs; `production` does not inject or propagate that bypass secret,
   - constrains `mcp_only` runs to the MCP host, callback host, model-provider API host(s), and OpenAI trace-export host when tracing is enabled; `mcp_and_web` remains unrestricted.
+- Production `fly` sandbox provider behavior:
+  - ensures a configured Fly app exists via the Machines API, creating it in the configured org when necessary,
+  - creates one Fly Machine per automation run from a configurable Node base image, writing both the shared sandbox wrapper and the repo-owned runner source into the guest via the Machine `files` API before boot,
+  - launches an in-guest Node wrapper as the machine `init.exec`, which installs the explicit managed runner packages from `runtime.runner.install_packages`, executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
+  - sets `auto_destroy=true` with `restart.policy=no` so completed runs tear down their own machine state instead of relying on a persistent worker pool,
+  - stores `sandbox_id` as an opaque Fly app + Machine handle so terminate requests can force-delete the machine,
+  - does not currently enforce instance-level outbound allowlists; `mcp_only` versus `mcp_and_web` remains enforced at the runner/tooling layer, similar to the current Unikraft path.
 - Production `unikraft` sandbox provider behavior:
   - creates a Unikraft Cloud MicroVM from an OCI image referenced by `UNIKRAFT_SANDBOX_IMAGE`,
   - injects the composed runner command, signed log/trace/completion callback URLs, and the base64 runner source through environment variables (`KEPPO_RUNNER_COMMAND`, `KEPPO_LOG_CALLBACK_URL`, `KEPPO_TRACE_CALLBACK_URL`, `KEPPO_COMPLETE_CALLBACK_URL`, `KEPPO_TIMEOUT_MS`),

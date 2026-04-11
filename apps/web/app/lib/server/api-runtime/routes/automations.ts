@@ -494,7 +494,7 @@ export const assertSandboxCallbackBaseUrlReachable = (
   baseUrl: string,
   providerMode: AutomationSandboxProviderMode,
 ): void => {
-  if (providerMode !== "vercel") {
+  if (providerMode === "docker") {
     return;
   }
   let parsed: URL;
@@ -507,9 +507,11 @@ export const assertSandboxCallbackBaseUrlReachable = (
     );
   }
   if (isLoopbackHostname(parsed.hostname)) {
+    const providerLabel =
+      providerMode === "vercel" ? "Vercel" : providerMode === "fly" ? "Fly" : "Unikraft";
     throw createAutomationRouteError(
       "automation_route_failed",
-      `Vercel sandbox callbacks cannot reach ${baseUrl}. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
+      `${providerLabel} sandbox callbacks cannot reach ${baseUrl}. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
     );
   }
 };

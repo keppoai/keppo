@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 vi.mock("./docker.js", () => ({
   DockerSandboxProvider: vi.fn(),
 }));
+vi.mock("./fly.js", () => ({
+  FlyMachinesSandboxProvider: vi.fn(),
+}));
 vi.mock("./unikraft.js", () => ({
   UnikraftSandboxProvider: vi.fn(),
 }));
@@ -100,6 +103,22 @@ describe("createAutomationSandboxProvider", () => {
 
     const { createAutomationSandboxProvider } = await import("./index.js");
     expect(() => createAutomationSandboxProvider("vercel")).not.toThrow();
+  });
+
+  it("allows fly provider in production", async () => {
+    vi.doMock("../env.js", () => ({
+      getEnv: () => ({
+        NODE_ENV: "production",
+        KEPPO_E2E_MODE: false,
+        KEPPO_SANDBOX_PROVIDER: "fly",
+        FLY_API_TOKEN: "fly_test",
+        FLY_AUTOMATION_APP_NAME: "keppo-sandbox",
+        FLY_AUTOMATION_ORG_SLUG: "personal",
+      }),
+    }));
+
+    const { createAutomationSandboxProvider } = await import("./index.js");
+    expect(() => createAutomationSandboxProvider("fly")).not.toThrow();
   });
 
   it("allows unikraft provider in production", async () => {

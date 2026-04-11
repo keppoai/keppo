@@ -55,13 +55,18 @@
 
 ### Automation sandbox security
 
-- Automation runs execute in isolated sandbox providers (`docker` local, `vercel` production).
+- Automation runs execute in isolated sandbox providers (`docker` local, `vercel` / `fly` / `unikraft` remote).
 - Network policy expectations:
   - `mcp_only` default denies arbitrary outbound web access.
   - `mcp_and_web` is explicit opt-in per automation config version.
   - Production Vercel sandboxes enforce the fine-grained outbound allowlist.
+  - Production Fly sandboxes provide per-run Firecracker-MicroVM isolation, but currently do not enforce the same fine-grained outbound allowlist as Vercel; `mcp_only` remains a runner/tooling boundary there.
   - Local Docker sandboxes provide container isolation and must translate host-loopback callback and MCP URLs to `host.docker.internal` so the isolated container can reach local API services without falling back to host-process execution.
-- sandbox bootstrap uses a separate bootstrap stage with minimal env and a package-registry-only policy; AI keys, MCP bearer tokens, and signed callback URLs are injected only into the runtime stage.
+- sandbox bootstrap stays as minimal as the provider allows:
+  - Vercel uses an explicit package-registry-only bootstrap stage with no runtime secrets.
+  - Docker reuses a prebuilt local image and injects runtime secrets only when the run container starts.
+  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but the machine already holds its run-scoped runtime env because Machines do not expose a separate staged bootstrap API.
+  - Unikraft reuses an image-based guest bootstrap and injects the composed runner env at instance start.
   - automation-issued MCP bearer tokens remain run-scoped: Convex revokes them when the owning run reaches a terminal state, and MCP auth rejects tokens whose `automation_run_id` no longer resolves to a non-terminal run in the same workspace.
 - Callback ingress hardening:
   - sandbox log/complete callbacks use per-run HMAC-signed URLs with expiry.

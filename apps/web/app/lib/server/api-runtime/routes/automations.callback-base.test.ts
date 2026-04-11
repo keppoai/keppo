@@ -29,9 +29,29 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     );
   });
 
+  it("rejects localhost for Fly sandboxes", () => {
+    expect(() => assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "fly")).toThrow(
+      "automation_route_failed: Fly sandbox callbacks cannot reach http://localhost:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
+  it("rejects localhost for Unikraft sandboxes", () => {
+    expect(() =>
+      assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "unikraft"),
+    ).toThrow(
+      "automation_route_failed: Unikraft sandbox callbacks cannot reach http://localhost:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
   it("allows public callback bases for Vercel sandboxes", () => {
     expect(() =>
       assertSandboxCallbackBaseUrlReachable("https://api.example.com", "vercel"),
+    ).not.toThrow();
+  });
+
+  it("allows public callback bases for Fly sandboxes", () => {
+    expect(() =>
+      assertSandboxCallbackBaseUrlReachable("https://api.example.com", "fly"),
     ).not.toThrow();
   });
 
@@ -78,6 +98,16 @@ describe("assertSandboxCallbackBaseUrlReachable", () => {
     expect(command).toBe(
       "node '/vercel/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'",
     );
+  });
+
+  it("uses the standard runner entrypoint inside Fly sandboxes", () => {
+    const command = buildRunnerCommand({
+      runnerType: "chatgpt_codex",
+      providerMode: "fly",
+      aiModelProvider: "openai",
+    });
+
+    expect(command).toBe("node '/sandbox/.keppo-automation-runner/keppo-automation-runner.mjs'");
   });
 
   it("still builds the Agents SDK command when legacy runner metadata says claude_code", () => {

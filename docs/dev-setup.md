@@ -10,6 +10,7 @@ Local contributor setup, verification, and repo-maintainer workflow prerequisite
 - **Docker** (required for local automation sandbox runs when `KEPPO_SANDBOX_PROVIDER=docker`, for local Code Mode runs when `KEPPO_CODE_MODE_SANDBOX_PROVIDER=docker`, and for PR/main GitHub Actions E2E validation of those Docker-backed paths)
 - **ffmpeg / ffprobe** (required when trimming or reviewing reviewer-facing PR demo videos with the repo-owned `$create-video-demo` tooling)
 - **Secure Exec dependencies** (installed by `pnpm install`; used only for CI/test runs when `KEPPO_SANDBOX_PROVIDER=secure_exec` or `KEPPO_CODE_MODE_SANDBOX_PROVIDER=secure_exec`)
+- **Fly.io account + API token** (required only when intentionally validating `KEPPO_SANDBOX_PROVIDER=fly`)
 - **Unikraft Cloud account + API token** (required only when intentionally validating `KEPPO_SANDBOX_PROVIDER=unikraft` or `KEPPO_CODE_MODE_SANDBOX_PROVIDER=unikraft`)
 - Environment variables loaded via [dotenvx](https://dotenvx.com)
 
