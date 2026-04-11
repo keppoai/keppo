@@ -17,6 +17,7 @@ const DEFAULT_UNAVAILABLE_ERROR =
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_LINE_BYTES = 16 * 1024 * 1024;
 const MAX_STDERR_LINES = 200;
+const STRUCTURED_VALUE_FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
 type JsliteStructuredValue =
   | undefined
@@ -116,6 +117,22 @@ const isPlainStructuredObject = (value: unknown): value is Record<string, unknow
   return prototype === Object.prototype || prototype === null;
 };
 
+const assertSafeStructuredKey = (key: string): void => {
+  if (STRUCTURED_VALUE_FORBIDDEN_KEYS.has(key)) {
+    throw new Error(
+      `JSLite structured values may not include the reserved key ${JSON.stringify(key)}.`,
+    );
+  }
+};
+
+const failureForBridgeError = (message: string) => ({
+  type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
+  errorCode: isValidationFailure(message)
+    ? CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed
+    : CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.sandboxRuntimeFailed,
+  reason: isValidationFailure(message) ? message : "Code execution failed in the sandbox runtime.",
+});
+
 const toStructuredValue = (
   value: unknown,
   seen: Set<object> = new Set(),
@@ -146,6 +163,7 @@ const toStructuredValue = (
   }
   const record: Record<string, JsliteStructuredValue> = {};
   for (const [key, entry] of Object.entries(value)) {
+    assertSafeStructuredKey(key);
     record[key] = toStructuredValue(entry, seen);
   }
   seen.delete(value);
@@ -199,6 +217,7 @@ const encodeStructured = (value: JsliteStructuredValue): EncodedStructuredValue 
   }
   const object: Record<string, EncodedStructuredValue> = {};
   for (const [key, entry] of Object.entries(value)) {
+    assertSafeStructuredKey(key);
     object[key] = encodeStructured(entry);
   }
   return { Object: object };
@@ -238,6 +257,7 @@ const decodeStructured = (value: EncodedStructuredValue): JsliteStructuredValue 
   }
   const object: Record<string, JsliteStructuredValue> = {};
   for (const [key, entry] of Object.entries(value.Object)) {
+    assertSafeStructuredKey(key);
     object[key] = decodeStructured(entry);
   }
   return object;
@@ -627,6 +647,16 @@ export class JsliteSandbox implements SandboxProvider {
       }
     });
     child.stdout.on("end", () => {
+      if (stdoutBuffer.length > 0) {
+        if (Buffer.byteLength(stdoutBuffer, "utf8") > MAX_RESPONSE_LINE_BYTES) {
+          failStdoutRead(
+            `JSLite sidecar returned a response line larger than ${MAX_RESPONSE_LINE_BYTES} bytes.`,
+          );
+          return;
+        }
+        bufferedLines.push(stdoutBuffer);
+        stdoutBuffer = "";
+      }
       stdoutEnded = true;
       flushPendingLine();
     });
@@ -655,8 +685,10 @@ export class JsliteSandbox implements SandboxProvider {
       if (shouldContinue) {
         return;
       }
+      const drainPromise = once(stream, "drain").then(() => ({ kind: "drain" as const }));
+      drainPromise.catch(() => {});
       const drainResult = await Promise.race([
-        once(stream, "drain").then(() => ({ kind: "drain" as const })),
+        drainPromise,
         exitPromise.then(() => ({ kind: "exit" as const })),
       ]);
       if (drainResult.kind === "exit") {
@@ -701,15 +733,7 @@ export class JsliteSandbox implements SandboxProvider {
           success: false,
           output: { logs: [] },
           error: compileResponse.error,
-          ...(isValidationFailure(compileResponse.error)
-            ? {
-                failure: {
-                  type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
-                  errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
-                  reason: compileResponse.error,
-                },
-              }
-            : {}),
+          failure: failureForBridgeError(compileResponse.error),
           toolCallsExecuted: [],
           durationMs: Date.now() - started,
         };
@@ -736,12 +760,14 @@ export class JsliteSandbox implements SandboxProvider {
             throw new Error("JSLite sandbox returned an invalid completion payload.");
           }
           if (!result.success) {
+            const error = asNonEmptyString(result.error) ?? DEFAULT_RESULT_ERROR;
             return {
               success: false,
               output: {
                 logs: normalizeLogs(result.logs),
               },
-              error: asNonEmptyString(result.error) ?? DEFAULT_RESULT_ERROR,
+              error,
+              failure: failureForBridgeError(error),
               toolCallsExecuted: normalizeToolCalls(result.toolCallsExecuted),
               durationMs: Date.now() - started,
             };
@@ -812,15 +838,7 @@ export class JsliteSandbox implements SandboxProvider {
           success: false,
           output: { logs: [] },
           error: stepResponse.error,
-          ...(isValidationFailure(stepResponse.error)
-            ? {
-                failure: {
-                  type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
-                  errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.validationFailed,
-                  reason: stepResponse.error,
-                },
-              }
-            : {}),
+          failure: failureForBridgeError(stepResponse.error),
           toolCallsExecuted: [],
           durationMs: Date.now() - started,
         };

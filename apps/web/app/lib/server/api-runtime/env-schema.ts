@@ -363,6 +363,7 @@ const resolveWithFallbacks = (base: ApiEnv): ApiEnv => {
 
 const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
   const missing: string[] = [];
+  const invalid: string[] = [];
   const requiredCore = [
     "KEPPO_CONVEX_ADMIN_KEY",
     "KEPPO_MASTER_KEY",
@@ -429,14 +430,17 @@ const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
   }
 
   if (mode === "strict" && env.KEPPO_CODE_MODE_SANDBOX_PROVIDER === "jslite") {
-    throw new Error(
-      "Invalid API environment: KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only. Use 'vercel' or 'unikraft' in strict mode.",
+    invalid.push(
+      "KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only. Use 'vercel' or 'unikraft' in strict mode.",
     );
   }
 
-  if (missing.length > 0) {
+  if (missing.length > 0 || invalid.length > 0) {
     throw new Error(
-      `Invalid API environment:\n${missing.map((item) => `- Missing ${item}`).join("\n")}`,
+      `Invalid API environment:\n${[
+        ...missing.map((item) => `- Missing ${item}`),
+        ...invalid.map((item) => `- Invalid ${item}`),
+      ].join("\n")}`,
     );
   }
 };

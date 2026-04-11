@@ -1,4 +1,5 @@
 import vm from "node:vm";
+import { z } from "zod";
 import { describe, expect, it } from "vitest";
 import { allTools } from "../tool-definitions.js";
 import { generateCodeModeSDK } from "./sdk-generator.js";
@@ -37,5 +38,40 @@ globalThis.__capture = { gmail, search_tools };`;
     const globals = (context.globalThis as { __capture?: Record<string, unknown> }).__capture ?? {};
     expect(typeof globals.gmail).toBe("object");
     expect(typeof globals.search_tools).toBe("function");
+  });
+
+  it("keeps reserved namespaces reachable on the jslite target without emitting invalid bindings", () => {
+    const source = `${generateCodeModeSDK(
+      [
+        {
+          name: "default.run",
+          provider: "gmail",
+          capability: "read",
+          risk_level: "low",
+          requires_approval: false,
+          output_sensitivity: "internal",
+          action_type: "read",
+          description: "Run the default tool",
+          redaction_policy: [],
+          input_schema: z.object({}),
+        },
+      ] as never,
+      { target: "jslite" },
+    )}
+globalThis.__capture = { provider: globalThis["default"] };`;
+    const context = vm.createContext({
+      globalThis: {},
+      __keppo_execute_tool: async () => ({ ok: true }),
+      __keppo_execute_search_tools: async () => [],
+    });
+
+    const script = new vm.Script(source);
+    script.runInContext(context);
+
+    expect(source).not.toContain("const default =");
+    const globals = (context.globalThis as { __capture?: { provider?: Record<string, unknown> } })
+      .__capture;
+    expect(typeof globals?.provider).toBe("object");
+    expect(typeof globals?.provider?.run).toBe("function");
   });
 });

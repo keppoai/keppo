@@ -5,6 +5,59 @@ const sanitizeIdentifier = (value: string): string => {
   return value.replace(/[^a-zA-Z0-9_$]/g, "_");
 };
 
+const RESERVED_IDENTIFIERS = new Set([
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "new",
+  "null",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "return",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]);
+
+const isSafeBindingIdentifier = (value: string): boolean => {
+  return /^[A-Za-z_$][A-Za-z0-9_$]*$/u.test(value) && !RESERVED_IDENTIFIERS.has(value);
+};
+
 const escapeBlockComment = (value: string): string => {
   return value.replace(/\*\//g, "*\\/");
 };
@@ -166,9 +219,11 @@ const generateDefaultCodeModeSDK = (tools: ToolDefinition[]): string => {
   const namespaceBlocks = [...providers.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([namespace, functions]) => {
-      return [`globalThis.${namespace} = Object.freeze({`, functions.sort().join("\n"), "});"].join(
-        "\n",
-      );
+      return [
+        `globalThis[${JSON.stringify(namespace)}] = Object.freeze({`,
+        functions.sort().join("\n"),
+        "});",
+      ].join("\n");
     });
 
   return [
@@ -215,7 +270,15 @@ const generateJsliteCodeModeSDK = (tools: ToolDefinition[]): string => {
   const namespaceBlocks = [...providers.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([namespace, functions]) => {
-      return [`const ${namespace} = {`, functions.sort().join("\n"), "};"].join("\n");
+      const lines = [
+        `globalThis[${JSON.stringify(namespace)}] = {`,
+        functions.sort().join("\n"),
+        "};",
+      ];
+      if (isSafeBindingIdentifier(namespace)) {
+        lines.push(`const ${namespace} = globalThis[${JSON.stringify(namespace)}];`);
+      }
+      return lines.join("\n");
     });
 
   return [
