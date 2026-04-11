@@ -1,7 +1,7 @@
 import { spawn, type SpawnOptions } from "node:child_process";
 import { once } from "node:events";
 import { access } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { parseJsonValue } from "../providers/boundaries/json.js";
 import type { SandboxExecutionResult, SandboxProvider } from "./sandbox.js";
 import {
@@ -17,7 +17,28 @@ const DEFAULT_UNAVAILABLE_ERROR =
 const MAX_REQUEST_BYTES = 8 * 1024 * 1024;
 const MAX_RESPONSE_LINE_BYTES = 16 * 1024 * 1024;
 const MAX_STDERR_LINES = 200;
-const STRUCTURED_VALUE_FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+const STRUCTURED_VALUE_FORBIDDEN_KEYS = new Set(["__proto__"]);
+const SIDE_CAR_ENV_ALLOWLIST = [
+  "HOME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "TZ",
+  "TERM",
+  "COLORTERM",
+  "NO_COLOR",
+  "FORCE_COLOR",
+  "RUST_LOG",
+  "RUST_BACKTRACE",
+  "SystemRoot",
+  "SYSTEMROOT",
+  "WINDIR",
+  "ComSpec",
+  "COMSPEC",
+  "PATHEXT",
+] as const;
 
 type JsliteStructuredValue =
   | undefined
@@ -481,6 +502,28 @@ const pushStderrLine = (stderrLines: string[], message: string): void => {
   }
 };
 
+const buildSidecarEnv = (env: NodeJS.ProcessEnv, command: string): NodeJS.ProcessEnv => {
+  const sidecarEnv: NodeJS.ProcessEnv = {};
+
+  for (const key of SIDE_CAR_ENV_ALLOWLIST) {
+    const value = env[key];
+    if (typeof value === "string" && value.length > 0) {
+      sidecarEnv[key] = value;
+    }
+  }
+
+  const pathSeparator = process.platform === "win32" ? ";" : ":";
+  const pathEntries =
+    process.platform === "win32"
+      ? [dirname(command), env["SystemRoot"], env["WINDIR"]]
+      : [dirname(command), "/usr/bin", "/bin", "/usr/sbin", "/sbin"];
+  sidecarEnv["PATH"] = [...new Set(pathEntries.filter((entry): entry is string => !!entry))].join(
+    pathSeparator,
+  );
+
+  return sidecarEnv;
+};
+
 export class JsliteSandbox implements SandboxProvider {
   private readonly spawnProcess: JsliteSpawn;
   private readonly env: NodeJS.ProcessEnv;
@@ -542,6 +585,7 @@ export class JsliteSandbox implements SandboxProvider {
 
     const programSource = buildProgramSource(params.code, params.sdkSource);
     const child = this.spawnProcess(launchCommand.command, launchCommand.args, {
+      env: buildSidecarEnv(this.env, launchCommand.command),
       stdio: ["pipe", "pipe", "pipe"],
     });
 

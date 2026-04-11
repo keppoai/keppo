@@ -150,7 +150,9 @@ describe("JsliteSandbox", () => {
       }
     });
 
-    const spawnFn = vi.fn(() => child as unknown as JsliteChildProcess);
+    const spawnFn = vi.fn(
+      (..._args: Parameters<JsliteSpawn>) => child as unknown as JsliteChildProcess,
+    );
     const sandbox = new JsliteSandbox({
       spawnProcess: spawnFn as unknown as JsliteSpawn,
       env: {
@@ -187,7 +189,25 @@ describe("JsliteSandbox", () => {
         input: { query: "status:unread" },
       },
     ]);
-    expect(spawnFn).toHaveBeenCalledWith("/tmp/jslite-sidecar", [], expect.any(Object));
+    expect(spawnFn).toHaveBeenCalledWith(
+      "/tmp/jslite-sidecar",
+      [],
+      expect.objectContaining({
+        stdio: ["pipe", "pipe", "pipe"],
+        env: expect.objectContaining({
+          PATH: expect.stringContaining("/tmp"),
+        }),
+      }),
+    );
+    const spawnOptions = (
+      spawnFn.mock.calls[0] as [string, string[], { env: NodeJS.ProcessEnv }]
+    )[2];
+    expect(spawnOptions).toEqual(
+      expect.not.objectContaining({
+        OPENAI_API_KEY: expect.anything(),
+        STRIPE_SECRET_KEY: expect.anything(),
+      }),
+    );
   });
 
   it("returns a structured validation failure when JSLite rejects the source", async () => {
@@ -833,6 +853,112 @@ describe("JsliteSandbox", () => {
     expect(result.error).toContain('reserved key "__proto__"');
   });
 
+  it("allows constructor and prototype keys in host values", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as {
+          id: number;
+          method: string;
+          payload?: { type: string; value?: EncodedTestValue };
+        };
+        if (request.method === "compile") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: { kind: "program", program_base64: "program" },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "start") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "suspended",
+                  capability: "__keppo_search_tools",
+                  args: [stringValue("safe"), { Object: {} }],
+                  snapshot_base64: "snapshot-safe",
+                },
+              },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "resume") {
+          expect(request.payload).toEqual({
+            type: "value",
+            value: {
+              Object: {
+                constructor: stringValue("safe"),
+                prototype: stringValue("also-safe"),
+              },
+            },
+          });
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "completed",
+                  value: {
+                    Object: {
+                      success: boolValue(true),
+                      hasReturnValue: boolValue(true),
+                      returnValue: {
+                        Object: {
+                          accepted: boolValue(true),
+                        },
+                      },
+                      logs: { Array: [] },
+                      toolCallsExecuted: { Array: [] },
+                    },
+                  },
+                },
+              },
+            })}\n`,
+          );
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return await searchTools('safe');",
+      sdkSource:
+        "const searchTools = async function (query, options) { return __keppo_execute_search_tools(query, options); };",
+      toolCallHandler: async () => null,
+      searchToolsHandler: async () => ({
+        constructor: "safe",
+        prototype: "also-safe",
+      }),
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toEqual({
+      logs: [],
+      returnValue: { accepted: true },
+    });
+  });
+
   it("returns a structured runtime failure when the sidecar step response is a non-validation error", async () => {
     const child = new FakeJsliteProcess();
     child.stdin.on("data", (chunk: Buffer | string) => {
@@ -956,6 +1082,80 @@ describe("JsliteSandbox", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('reserved key "__proto__"');
+  });
+
+  it("allows constructor and prototype keys from sidecar responses", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "compile") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: { kind: "program", program_base64: "program" },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "start") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "completed",
+                  value: {
+                    Object: {
+                      success: boolValue(true),
+                      hasReturnValue: boolValue(true),
+                      returnValue: {
+                        Object: {
+                          constructor: stringValue("safe"),
+                          prototype: stringValue("also-safe"),
+                        },
+                      },
+                      logs: { Array: [] },
+                      toolCallsExecuted: { Array: [] },
+                    },
+                  },
+                },
+              },
+            })}\n`,
+          );
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return 1;",
+      sdkSource: "",
+      toolCallHandler: async () => null,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.output).toEqual({
+      logs: [],
+      returnValue: {
+        constructor: "safe",
+        prototype: "also-safe",
+      },
+    });
   });
 
   it("rejects oversized sidecar response lines before they can exhaust memory", async () => {
