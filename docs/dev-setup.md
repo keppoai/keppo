@@ -11,7 +11,7 @@ Local contributor setup, verification, and repo-maintainer workflow prerequisite
 - **ffmpeg / ffprobe** (required when trimming or reviewing reviewer-facing PR demo videos with the repo-owned `$create-video-demo` tooling)
 - **Secure Exec dependencies** (installed by `pnpm install`; used only for CI/test runs when `KEPPO_SANDBOX_PROVIDER=secure_exec` or `KEPPO_CODE_MODE_SANDBOX_PROVIDER=secure_exec`)
 - **Unikraft Cloud account + API token** (required only when intentionally validating `KEPPO_SANDBOX_PROVIDER=unikraft` or `KEPPO_CODE_MODE_SANDBOX_PROVIDER=unikraft`)
-- **Rust toolchain + adjacent `../jslite` checkout or explicit `KEPPO_JSLITE_SIDECAR_PATH`** (required only when intentionally validating `KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite`; this mode is local/dev-only and stays blocked in production)
+- **Rust toolchain + adjacent `../jslite` checkout, explicit `KEPPO_JSLITE_PROJECT_PATH`, or explicit `KEPPO_JSLITE_SIDECAR_PATH`** (required only when intentionally validating `KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite`; this mode is local/dev-only and stays blocked in production)
 - Environment variables loaded via [dotenvx](https://dotenvx.com)
 
 ## Runtime layout

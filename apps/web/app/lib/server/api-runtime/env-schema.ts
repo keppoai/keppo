@@ -429,8 +429,8 @@ const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
   }
 
   if (mode === "strict" && env.KEPPO_CODE_MODE_SANDBOX_PROVIDER === "jslite") {
-    missing.push(
-      "KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only; use vercel or unikraft in strict mode",
+    throw new Error(
+      "Invalid API environment: KEPPO_CODE_MODE_SANDBOX_PROVIDER=jslite is development-only. Use 'vercel' or 'unikraft' in strict mode.",
     );
   }
 

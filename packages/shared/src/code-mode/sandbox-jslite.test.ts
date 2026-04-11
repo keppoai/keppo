@@ -258,4 +258,135 @@ describe("JsliteSandbox", () => {
     });
     expect(spawnFn).not.toHaveBeenCalled();
   });
+
+  it("serializes cyclic arrays without recursing forever", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as {
+          id: number;
+          method: string;
+          payload?: { type?: string; value?: { Array?: Array<{ String?: string }> } };
+        };
+        if (request.method === "compile") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: { kind: "program", program_base64: "program" },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "start") {
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "suspended",
+                  capability: "__keppo_search_tools",
+                  args: [stringValue("cyclic"), { Object: {} }],
+                  snapshot_base64: "snapshot-1",
+                },
+              },
+            })}\n`,
+          );
+          continue;
+        }
+        if (request.method === "resume") {
+          expect(request.payload?.type).toBe("value");
+          expect(request.payload?.value).toEqual({
+            Array: [{ String: "self" }, { String: "[Circular]" }],
+          });
+          child.stdout.write(
+            `${JSON.stringify({
+              id: request.id,
+              ok: true,
+              result: {
+                kind: "step",
+                step: {
+                  type: "completed",
+                  value: {
+                    Object: {
+                      success: boolValue(true),
+                      hasReturnValue: boolValue(false),
+                      logs: { Array: [] },
+                      toolCallsExecuted: { Array: [] },
+                    },
+                  },
+                },
+              },
+            })}\n`,
+          );
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const cyclic: unknown[] = ["self"];
+    cyclic.push(cyclic);
+
+    const result = await sandbox.execute({
+      code: "return await searchTools('cyclic');",
+      sdkSource:
+        "const searchTools = async function (query, options) { return __keppo_execute_search_tools(query, options); };",
+      toolCallHandler: async () => null,
+      searchToolsHandler: async () => cyclic,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("preserves runtime crash messages instead of treating them as missing-binary errors", async () => {
+    const child = new FakeJsliteProcess();
+    child.stdin.on("data", (chunk: Buffer | string) => {
+      const lines = chunk
+        .toString("utf8")
+        .split("\n")
+        .filter((line) => line.length > 0);
+      for (const line of lines) {
+        const request = JSON.parse(line) as { id: number; method: string };
+        if (request.method === "compile") {
+          child.stderr.write("sidecar crashed during execution\n");
+          child.emit("close", 1, null);
+        }
+      }
+    });
+
+    const sandbox = new JsliteSandbox({
+      spawnProcess: vi.fn(() => child as unknown as JsliteChildProcess) as unknown as JsliteSpawn,
+      env: {
+        KEPPO_JSLITE_SIDECAR_PATH: "/tmp/jslite-sidecar",
+      },
+      fileExists: async (path) => path === "/tmp/jslite-sidecar",
+    });
+
+    const result = await sandbox.execute({
+      code: "return 1;",
+      sdkSource: "",
+      toolCallHandler: async () => null,
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe("sidecar crashed during execution");
+    expect(result.failure).toEqual({
+      type: "execution_failed",
+      errorCode: "sandbox_runtime_failed",
+      reason: "Code execution failed in the sandbox runtime.",
+    });
+  });
 });

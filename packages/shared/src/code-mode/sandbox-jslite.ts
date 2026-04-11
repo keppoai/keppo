@@ -13,7 +13,7 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const DEFAULT_PROJECT_DIR = "../jslite";
 const DEFAULT_RESULT_ERROR = "Code execution failed in JSLite sandbox.";
 const DEFAULT_UNAVAILABLE_ERROR =
-  "JSLite sandbox provider is unavailable. Build ../jslite/target/debug/jslite-sidecar or set KEPPO_JSLITE_SIDECAR_PATH.";
+  "JSLite sandbox provider is unavailable. Build jslite-sidecar first or set KEPPO_JSLITE_SIDECAR_PATH.";
 
 type JsliteStructuredValue =
   | undefined
@@ -126,22 +126,37 @@ const toStructuredValue = (
   ) {
     return value;
   }
+  if (typeof value === "object" && value !== null) {
+    if (seen.has(value)) {
+      return "[Circular]";
+    }
+    seen.add(value);
+  }
   if (Array.isArray(value)) {
-    return value.map((entry) => toStructuredValue(entry, seen));
+    const array = value.map((entry) => toStructuredValue(entry, seen));
+    seen.delete(value);
+    return array;
   }
   if (!isPlainStructuredObject(value)) {
+    seen.delete(value);
     return String(value);
   }
-  if (seen.has(value)) {
-    return "[Circular]";
-  }
-  seen.add(value);
   const record: Record<string, JsliteStructuredValue> = {};
   for (const [key, entry] of Object.entries(value)) {
     record[key] = toStructuredValue(entry, seen);
   }
   seen.delete(value);
   return record;
+};
+
+const isSpawnUnavailableError = (error: unknown): boolean => {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    ((error as { code?: unknown }).code === "ENOENT" ||
+      (error as { code?: unknown }).code === "EACCES")
+  );
 };
 
 const encodeNumber = (value: number): EncodedStructuredValue => {
@@ -464,14 +479,6 @@ export class JsliteSandbox implements SandboxProvider {
       return { command: debugPath, args: [] };
     }
 
-    const manifestPath = join(projectPath, "Cargo.toml");
-    if (await this.fileExists(manifestPath)) {
-      return {
-        command: "cargo",
-        args: ["run", "--quiet", "--manifest-path", manifestPath, "-p", "jslite-sidecar"],
-      };
-    }
-
     return null;
   }
 
@@ -729,20 +736,20 @@ export class JsliteSandbox implements SandboxProvider {
       }
 
       const message = error instanceof Error ? error.message : String(error);
-      const unavailable = typeof error === "object" && error !== null && "code" in error;
+      const unavailable = isSpawnUnavailableError(error);
       return {
         success: false,
         output: { logs: [] },
         error: unavailable ? DEFAULT_UNAVAILABLE_ERROR : message || DEFAULT_RESULT_ERROR,
-        ...(unavailable
-          ? {
-              failure: {
-                type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
-                errorCode: CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.sandboxUnavailable,
-                reason: "JSLite sandbox provider is unavailable.",
-              },
-            }
-          : {}),
+        failure: {
+          type: CODE_MODE_STRUCTURED_EXECUTION_ERROR_TYPE.executionFailed,
+          errorCode: unavailable
+            ? CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.sandboxUnavailable
+            : CODE_MODE_STRUCTURED_EXECUTION_ERROR_CODE.sandboxRuntimeFailed,
+          reason: unavailable
+            ? "JSLite sandbox provider is unavailable."
+            : "Code execution failed in the sandbox runtime.",
+        },
         toolCallsExecuted: [],
         durationMs: Date.now() - started,
       };
