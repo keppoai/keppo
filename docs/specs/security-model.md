@@ -66,12 +66,13 @@
 - sandbox bootstrap stays as minimal as the provider allows:
   - Vercel uses an explicit package-registry-only bootstrap stage with no runtime secrets.
   - Docker reuses a prebuilt local image and injects runtime secrets only when the run container starts.
-  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but runs that install in a secret-limited subprocess and only passes the full run-scoped runtime env to the final runner process because Machines do not expose a separate staged bootstrap API.
+  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but runs that install in a secret-limited subprocess, scrubs run-scoped env from the wrapper process before `npm install`, and only passes the full run-scoped runtime env to the final runner process because Machines do not expose a separate staged bootstrap API.
   - Unikraft reuses an image-based guest bootstrap and injects the composed runner env at instance start.
   - automation-issued MCP bearer tokens remain run-scoped: Convex revokes them when the owning run reaches a terminal state, and MCP auth rejects tokens whose `automation_run_id` no longer resolves to a non-terminal run in the same workspace.
 - Callback ingress hardening:
   - sandbox log/complete callbacks use per-run HMAC-signed URLs with expiry.
   - API rejects callbacks with missing/invalid signatures or expired timestamps.
+  - Fly in-guest callback posts use explicit timeouts, and the wrapper bounds repeated log-upload failures so unreachable callback endpoints do not livelock the machine before terminal completion can be reported.
   - Remote automation callback bases reject loopback, private, link-local, and metadata-address hosts fail-closed.
   - OAuth integration callback state is HMAC-signed; callbacks reject missing/tampered state tokens.
   - PKCE verifiers for managed OAuth flows stay in server-side storage keyed by the signed state correlation ID; they are not embedded in readable front-channel state.

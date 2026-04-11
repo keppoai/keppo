@@ -9,6 +9,14 @@ const toTrimmedString = (value: unknown): string | undefined => {
 };
 
 const optionalString = z.preprocess((value) => toTrimmedString(value), z.string().optional());
+const optionalHttpsUrl = z.preprocess(
+  (value) => toTrimmedString(value),
+  z
+    .string()
+    .url()
+    .refine((url) => url.startsWith("https://"), "must use https")
+    .optional(),
+);
 
 const booleanWithDefault = (defaultValue: boolean) =>
   z.preprocess((value) => {
@@ -201,7 +209,7 @@ const apiEnvSchema = z
     KEPPO_CODE_MODE_TIMEOUT_MS: positiveIntegerWithDefault(120_000),
     KEPPO_SANDBOX_PROVIDER: sandboxProviderSchema,
     FLY_API_TOKEN: optionalString,
-    FLY_API_HOSTNAME: optionalString,
+    FLY_API_HOSTNAME: optionalHttpsUrl,
     FLY_AUTOMATION_APP_NAME: optionalString,
     FLY_AUTOMATION_APP_NETWORK: optionalString,
     FLY_AUTOMATION_ORG_SLUG: optionalString,

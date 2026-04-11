@@ -369,12 +369,33 @@ type FlySandboxOptions = {
 
 const flyAppReadyByName = new Map<string, Promise<void>>();
 
+const getFlyAppCacheKey = (options: Pick<FlySandboxOptions, "appName" | "orgSlug">): string =>
+  `${options.orgSlug}:${options.appName}`;
+
+const resolveFlyApiHostname = (value: string | undefined): string => {
+  const hostname = value?.trim() || DEFAULT_FLY_API_HOSTNAME;
+  let url: URL;
+  try {
+    url = new URL(hostname);
+  } catch {
+    throw new Error("FLY_API_HOSTNAME must be a valid https URL.");
+  }
+  if (url.protocol !== "https:") {
+    throw new Error("FLY_API_HOSTNAME must use https.");
+  }
+  return url.toString();
+};
+
+export const resetFlyAppReadyCacheForTest = (): void => {
+  flyAppReadyByName.clear();
+};
+
 const createDefaultClient = (env: ApiEnv): FlyMachinesClientLike => {
   const token = env.FLY_API_TOKEN?.trim();
   if (!token) {
     throw new Error("FLY_API_TOKEN is required for the Fly Machines sandbox provider.");
   }
-  return new FlyMachinesHttpClient(token, env.FLY_API_HOSTNAME ?? DEFAULT_FLY_API_HOSTNAME);
+  return new FlyMachinesHttpClient(token, resolveFlyApiHostname(env.FLY_API_HOSTNAME));
 };
 
 const resolveFlySandboxOptions = (env: ApiEnv): FlySandboxOptions => {
@@ -389,7 +410,7 @@ const resolveFlySandboxOptions = (env: ApiEnv): FlySandboxOptions => {
   const appNetwork = env.FLY_AUTOMATION_APP_NETWORK?.trim();
   const region = env.FLY_AUTOMATION_MACHINE_REGION?.trim();
   return {
-    apiHostname: env.FLY_API_HOSTNAME ?? DEFAULT_FLY_API_HOSTNAME,
+    apiHostname: resolveFlyApiHostname(env.FLY_API_HOSTNAME),
     appName,
     automationImage: env.FLY_AUTOMATION_IMAGE ?? DEFAULT_FLY_AUTOMATION_IMAGE,
     cpuKind: env.FLY_AUTOMATION_MACHINE_CPU_KIND,
@@ -480,6 +501,21 @@ const buildFlyWrapperSource = (): string => {
     "const MAX_CARRY_CHARS = 65_536;",
     "const LOG_FLUSH_INTERVAL_MS = 250;",
     "const COMPLETION_RETRY_DELAYS_MS = [250, 750, 1500];",
+    "const CALLBACK_TIMEOUT_MS = 15_000;",
+    "const MAX_LOG_FLUSH_FAILURES = 5;",
+    "const BOOTSTRAP_PASSTHROUGH_ENV_KEYS = [",
+    "  'HOME',",
+    "  'PATH',",
+    "  'TMPDIR',",
+    "  'TEMP',",
+    "  'TMP',",
+    "  'SSL_CERT_FILE',",
+    "  'SSL_CERT_DIR',",
+    "  'HTTP_PROXY',",
+    "  'HTTPS_PROXY',",
+    "  'NO_PROXY',",
+    "  'NODE_EXTRA_CA_CERTS',",
+    "];",
     "",
     "const parsePackages = () => {",
     "  try {",
@@ -500,19 +536,30 @@ const buildFlyWrapperSource = (): string => {
     "    : content;",
     "",
     "const postJson = async (url, payload) => {",
-    "  const response = await fetch(url, {",
-    '    method: "POST",',
-    "    headers: {",
-    '      "content-type": "application/json",',
-    "      ...(VERCEL_AUTOMATION_BYPASS_SECRET",
-    '        ? { "x-vercel-protection-bypass": VERCEL_AUTOMATION_BYPASS_SECRET }',
-    "        : {}),",
-    "    },",
-    "    body: JSON.stringify(payload),",
-    "  });",
-    "  if (!response.ok) {",
-    "    const detail = (await response.text()).trim();",
-    "    throw new Error(detail || `Callback request failed with status ${String(response.status)}.`);",
+    "  try {",
+    "    const response = await fetch(url, {",
+    '      method: "POST",',
+    "      headers: {",
+    '        "content-type": "application/json",',
+    "        ...(VERCEL_AUTOMATION_BYPASS_SECRET",
+    '          ? { "x-vercel-protection-bypass": VERCEL_AUTOMATION_BYPASS_SECRET }',
+    "          : {}),",
+    "      },",
+    "      body: JSON.stringify(payload),",
+    "      signal: AbortSignal.timeout(CALLBACK_TIMEOUT_MS),",
+    "    });",
+    "    if (!response.ok) {",
+    "      const detail = (await response.text()).trim();",
+    "      throw new Error(detail || `Callback request failed with status ${String(response.status)}.`);",
+    "    }",
+    "  } catch (error) {",
+    "    if (",
+    "      (error instanceof Error && error.name === 'TimeoutError') ||",
+    "      (error instanceof DOMException && error.name === 'TimeoutError')",
+    "    ) {",
+    "      throw new Error(`Callback request timed out after ${String(CALLBACK_TIMEOUT_MS)}ms.`);",
+    "    }",
+    "    throw error;",
     "  }",
     "};",
     "",
@@ -520,6 +567,7 @@ const buildFlyWrapperSource = (): string => {
     "let droppedLogLineCount = 0;",
     "let logFlushPromise = null;",
     "let logFlushTimer = null;",
+    "let consecutiveLogFlushFailures = 0;",
     "",
     "const scheduleLogFlush = () => {",
     "  if (logFlushTimer !== null) {",
@@ -578,7 +626,9 @@ const buildFlyWrapperSource = (): string => {
     "        automation_run_id: RUN_ID,",
     "        lines: batch,",
     "      });",
+    "      consecutiveLogFlushFailures = 0;",
     "    } catch (error) {",
+    "      consecutiveLogFlushFailures += 1;",
     "      const retryLines = [",
     "        {",
     "          level: 'stderr',",
@@ -593,13 +643,18 @@ const buildFlyWrapperSource = (): string => {
     "        droppedLogLineCount += bufferedLogLines.length - MAX_BUFFERED_LOG_LINES;",
     "        bufferedLogLines = bufferedLogLines.slice(0, MAX_BUFFERED_LOG_LINES);",
     "      }",
-    "      if (truncatedCount > 0) {",
-    "        droppedLogLineCount += truncatedCount;",
+    "      if (consecutiveLogFlushFailures >= MAX_LOG_FLUSH_FAILURES) {",
+    "        process.stderr.write('[keppo-fly-wrapper] dropping remaining logs after repeated callback failures\\n');",
+    "        bufferedLogLines = [];",
+    "        droppedLogLineCount = 0;",
     "      }",
     "    }",
     "    finally {",
     "      logFlushPromise = null;",
-    "      if (bufferedLogLines.length > 0 || droppedLogLineCount > 0) {",
+    "      if (",
+    "        consecutiveLogFlushFailures < MAX_LOG_FLUSH_FAILURES &&",
+    "        (bufferedLogLines.length > 0 || droppedLogLineCount > 0)",
+    "      ) {",
     "        scheduleLogFlush();",
     "      }",
     "    }",
@@ -630,6 +685,15 @@ const buildFlyWrapperSource = (): string => {
     "    }",
     "  }",
     "  process.stderr.write(`[keppo-fly-wrapper] completion callback failed: ${lastError instanceof Error ? lastError.message : String(lastError)}\\n`);",
+    "};",
+    "",
+    "const drainPendingLogLines = async () => {",
+    "  while (",
+    "    consecutiveLogFlushFailures < MAX_LOG_FLUSH_FAILURES &&",
+    "    (logFlushPromise || bufferedLogLines.length > 0 || droppedLogLineCount > 0)",
+    "  ) {",
+    "    await flushLogLines();",
+    "  }",
     "};",
     "",
     "const splitLines = (carry, chunk) => {",
@@ -670,8 +734,16 @@ const buildFlyWrapperSource = (): string => {
     "",
     "const buildInstallEnv = () => {",
     "  const env = {};",
-    "  for (const key of ['HOME', 'PATH', 'TMPDIR', 'TEMP', 'TMP', 'npm_config_cache', 'NPM_CONFIG_CACHE', 'npm_config_userconfig', 'NPM_CONFIG_USERCONFIG', 'npm_config_prefix', 'NPM_CONFIG_PREFIX']) {",
-    "    const value = process.env[key];",
+    "  for (const key of BOOTSTRAP_PASSTHROUGH_ENV_KEYS) {",
+    "    const value = runtimeEnv[key];",
+    "    if (typeof value === 'string' && value.length > 0) {",
+    "      env[key] = value;",
+    "    }",
+    "  }",
+    "  for (const [key, value] of Object.entries(runtimeEnv)) {",
+    "    if (!(key.startsWith('npm_') || key.startsWith('NPM_'))) {",
+    "      continue;",
+    "    }",
     "    if (typeof value === 'string' && value.length > 0) {",
     "      env[key] = value;",
     "    }",
@@ -679,100 +751,148 @@ const buildFlyWrapperSource = (): string => {
     "  return env;",
     "};",
     "",
-    "validateEnv();",
-    "if (!installCommand && !commandScript) {",
-    "  throw new Error('No Fly sandbox runner command was configured.');",
-    "}",
+    "const runtimeEnv = Object.fromEntries(",
+    "  Object.entries(process.env).filter(([, value]) => typeof value === 'string'),",
+    ");",
     "",
-    "if (installCommand) {",
-    "  await new Promise((resolve, reject) => {",
-    '    const installChild = spawn("sh", ["-lc", installCommand], {',
-    "      env: buildInstallEnv(),",
-    '      stdio: ["ignore", "inherit", "inherit"],',
-    "    });",
-    '    installChild.on("error", reject);',
-    '    installChild.on("close", (code, signal) => {',
-    "      if (code === 0) {",
-    "        resolve(undefined);",
-    "        return;",
-    "      }",
-    '      reject(new Error(`Fly runner package install failed with code ${code ?? "null"}${signal ? ` (signal ${signal})` : ""}`));',
-    "    });",
-    "  });",
-    "}",
-    "",
-    "let timedOut = false;",
-    "let cancelled = false;",
-    'let stdoutCarry = "";',
-    'let stderrCarry = "";',
-    "",
-    'const child = spawn("sh", ["-lc", commandScript], {',
-    "  env: process.env,",
-    '  stdio: ["ignore", "pipe", "pipe"],',
-    "});",
-    "",
-    "const timeoutHandle = setTimeout(() => {",
-    "  timedOut = true;",
-    '  child.kill("SIGTERM");',
-    '  setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
-    "}, TIMEOUT_MS);",
-    "timeoutHandle.unref?.();",
-    "",
-    'child.stdout.on("data", (chunk) => {',
-    "  const { lines, carry } = splitLines(stdoutCarry, chunk);",
-    "  stdoutCarry = carry;",
-    '  enqueueLogLines("stdout", lines);',
-    "});",
-    "",
-    'child.stderr.on("data", (chunk) => {',
-    "  const { lines, carry } = splitLines(stderrCarry, chunk);",
-    "  stderrCarry = carry;",
-    '  enqueueLogLines("stderr", lines);',
-    "});",
-    "",
-    "const forwardTermination = () => {",
-    "  if (child.exitCode !== null) {",
-    "    return;",
+    "const scrubProcessEnvForBootstrap = () => {",
+    "  for (const key of Object.keys(process.env)) {",
+    "    if (",
+    "      BOOTSTRAP_PASSTHROUGH_ENV_KEYS.includes(key) ||",
+    "      key.startsWith('npm_') ||",
+    "      key.startsWith('NPM_')",
+    "    ) {",
+    "      continue;",
+    "    }",
+    "    delete process.env[key];",
     "  }",
-    "  cancelled = true;",
-    '  child.kill("SIGTERM");',
-    '  setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
     "};",
     "",
-    'process.on("SIGTERM", forwardTermination);',
-    'process.on("SIGINT", forwardTermination);',
+    "const main = async () => {",
+    "  validateEnv();",
+    "  if (!installCommand && !commandScript) {",
+    "    throw new Error('No Fly sandbox runner command was configured.');",
+    "  }",
+    "  scrubProcessEnvForBootstrap();",
     "",
-    "await new Promise((resolve) => {",
-    '  child.on("close", async (code, signal) => {',
-    "    clearTimeout(timeoutHandle);",
-    "    if (stdoutCarry.trim().length > 0) {",
-    '      enqueueLogLines("stdout", [stdoutCarry.trim()]);',
-    "    }",
-    "    if (stderrCarry.trim().length > 0) {",
-    '      enqueueLogLines("stderr", [stderrCarry.trim()]);',
-    "    }",
-    "    while (logFlushPromise || bufferedLogLines.length > 0 || droppedLogLineCount > 0) {",
-    "      await flushLogLines();",
-    "    }",
-    "    const status = timedOut",
-    '      ? "timed_out"',
-    "      : cancelled",
-    '        ? "cancelled"',
-    "        : code === 0",
-    '          ? "succeeded"',
-    '          : "failed";',
-    '    const errorMessage = status === "failed"',
-    '      ? `Sandbox process exited with code ${code ?? "null"}${signal ? ` (signal ${signal})` : ""}`',
-    '      : status === "timed_out"',
-    '        ? "Sandbox process exceeded timeout"',
-    '        : status === "cancelled"',
-    '          ? "Sandbox process terminated by request"',
-    "          : undefined;",
-    "    await postCompletion(status, errorMessage);",
-    '    process.exitCode = status === "succeeded" ? 0 : 1;',
-    "    resolve(undefined);",
+    "  if (installCommand) {",
+    "    let installStdoutCarry = '';",
+    "    let installStderrCarry = '';",
+    "    await new Promise((resolve, reject) => {",
+    '      const installChild = spawn("sh", ["-lc", installCommand], {',
+    "        env: buildInstallEnv(),",
+    '        stdio: ["ignore", "pipe", "pipe"],',
+    "      });",
+    "      installChild.stdout.on('data', (chunk) => {",
+    "        const { lines, carry } = splitLines(installStdoutCarry, chunk);",
+    "        installStdoutCarry = carry;",
+    "        enqueueLogLines('stdout', lines);",
+    "      });",
+    "      installChild.stderr.on('data', (chunk) => {",
+    "        const { lines, carry } = splitLines(installStderrCarry, chunk);",
+    "        installStderrCarry = carry;",
+    "        enqueueLogLines('stderr', lines);",
+    "      });",
+    '      installChild.on("error", reject);',
+    '      installChild.on("close", (code, signal) => {',
+    "        if (installStdoutCarry.trim().length > 0) {",
+    "          enqueueLogLines('stdout', [installStdoutCarry.trim()]);",
+    "        }",
+    "        if (installStderrCarry.trim().length > 0) {",
+    "          enqueueLogLines('stderr', [installStderrCarry.trim()]);",
+    "        }",
+    "        if (code === 0) {",
+    "          resolve(undefined);",
+    "          return;",
+    "        }",
+    '        reject(new Error(`Fly runner package install failed with code ${code ?? "null"}${signal ? ` (signal ${signal})` : ""}`));',
+    "      });",
+    "    });",
+    "  }",
+    "",
+    "  let timedOut = false;",
+    "  let cancelled = false;",
+    '  let stdoutCarry = "";',
+    '  let stderrCarry = "";',
+    "",
+    '  const child = spawn("sh", ["-lc", commandScript], {',
+    "    env: runtimeEnv,",
+    '    stdio: ["ignore", "pipe", "pipe"],',
     "  });",
-    "});",
+    "",
+    "  const timeoutHandle = setTimeout(() => {",
+    "    timedOut = true;",
+    '    child.kill("SIGTERM");',
+    '    setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
+    "  }, TIMEOUT_MS);",
+    "  timeoutHandle.unref?.();",
+    "",
+    '  child.stdout.on("data", (chunk) => {',
+    "    const { lines, carry } = splitLines(stdoutCarry, chunk);",
+    "    stdoutCarry = carry;",
+    '    enqueueLogLines("stdout", lines);',
+    "  });",
+    "",
+    '  child.stderr.on("data", (chunk) => {',
+    "    const { lines, carry } = splitLines(stderrCarry, chunk);",
+    "    stderrCarry = carry;",
+    '    enqueueLogLines("stderr", lines);',
+    "  });",
+    "",
+    "  const forwardTermination = () => {",
+    "    if (child.exitCode !== null) {",
+    "      return;",
+    "    }",
+    "    cancelled = true;",
+    '    child.kill("SIGTERM");',
+    '    setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
+    "  };",
+    "",
+    '  process.on("SIGTERM", forwardTermination);',
+    '  process.on("SIGINT", forwardTermination);',
+    "",
+    "  await new Promise((resolve) => {",
+    '    child.on("close", async (code, signal) => {',
+    "      clearTimeout(timeoutHandle);",
+    "      if (stdoutCarry.trim().length > 0) {",
+    '        enqueueLogLines("stdout", [stdoutCarry.trim()]);',
+    "      }",
+    "      if (stderrCarry.trim().length > 0) {",
+    '        enqueueLogLines("stderr", [stderrCarry.trim()]);',
+    "      }",
+    "      await drainPendingLogLines();",
+    "      const status = timedOut",
+    '        ? "timed_out"',
+    "        : cancelled",
+    '          ? "cancelled"',
+    "          : code === 0",
+    '            ? "succeeded"',
+    '            : "failed";',
+    '      const errorMessage = status === "failed"',
+    '        ? `Sandbox process exited with code ${code ?? "null"}${signal ? ` (signal ${signal})` : ""}`',
+    '        : status === "timed_out"',
+    '          ? "Sandbox process exceeded timeout"',
+    '          : status === "cancelled"',
+    '            ? "Sandbox process terminated by request"',
+    "            : undefined;",
+    "      await postCompletion(status, errorMessage);",
+    '      process.exitCode = status === "succeeded" ? 0 : 1;',
+    "      resolve(undefined);",
+    "    });",
+    "  });",
+    "};",
+    "",
+    "try {",
+    "  await main();",
+    "} catch (error) {",
+    "  const errorMessage = truncateLine(",
+    "    error instanceof Error ? error.message : String(error),",
+    "  );",
+    "  enqueueLogLines('stderr', [`[bootstrap failed] ${errorMessage}`]);",
+    "  await drainPendingLogLines();",
+    "  await postCompletion('failed', errorMessage);",
+    "  process.exitCode = 1;",
+    "}",
   ].join("\n");
 };
 
@@ -832,7 +952,7 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
       KEPPO_TRACE_CALLBACK_URL: config.runtime.callbacks.trace_url,
     });
 
-    const machine = await this.client.createMachine(this.options.appName, {
+    const machine = await this.createMachineWithAppRefresh({
       config: {
         auto_destroy: true,
         env: runtimeEnv,
@@ -908,17 +1028,33 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
   }
 
   private async ensureAppExists(): Promise<void> {
-    const existingCheck = flyAppReadyByName.get(this.options.appName);
+    const cacheKey = this.getAppCacheKey();
+    const existingCheck = flyAppReadyByName.get(cacheKey);
     if (existingCheck) {
       await existingCheck;
       return;
     }
     const check = this.ensureAppExistsUncached().catch((error) => {
-      flyAppReadyByName.delete(this.options.appName);
+      flyAppReadyByName.delete(cacheKey);
       throw error;
     });
-    flyAppReadyByName.set(this.options.appName, check);
+    flyAppReadyByName.set(cacheKey, check);
     await check;
+  }
+
+  private async createMachineWithAppRefresh(
+    request: FlyCreateMachineRequest,
+  ): Promise<FlyMachineDetails> {
+    try {
+      return await this.client.createMachine(this.options.appName, request);
+    } catch (error) {
+      if (getErrorStatus(error) !== 404) {
+        throw error;
+      }
+      this.invalidateAppCache();
+      await this.ensureAppExists();
+      return await this.client.createMachine(this.options.appName, request);
+    }
   }
 
   private async ensureAppExistsUncached(): Promise<void> {
@@ -938,5 +1074,13 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
       }
       throw error;
     }
+  }
+
+  private getAppCacheKey(): string {
+    return getFlyAppCacheKey(this.options);
+  }
+
+  private invalidateAppCache(): void {
+    flyAppReadyByName.delete(this.getAppCacheKey());
   }
 }

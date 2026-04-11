@@ -117,7 +117,7 @@ Provider rollout flags (all default `true`, set `false` to disable):
 | `KEPPO_CODE_MODE_TIMEOUT_MS`                               | server         | `120000`                          | Code Mode execution timeout                                                                                                                                                                                                       |
 | `KEPPO_AUTOMATION_DEFAULT_TIMEOUT_MS`                      | server         | `300000`                          | Fallback automation run timeout when dispatch cannot resolve an org subscription tier; tier-backed dispatches use the tier max run duration                                                                                       |
 | `FLY_API_TOKEN`                                            | server         | -                                 | Required when `KEPPO_SANDBOX_PROVIDER=fly`. Fly Machines API bearer token.                                                                                                                                                         |
-| `FLY_API_HOSTNAME`                                         | server         | `https://api.machines.dev`        | Optional Fly Machines API base URL override.                                                                                                                                                                                       |
+| `FLY_API_HOSTNAME`                                         | server         | `https://api.machines.dev`        | Optional Fly Machines API base URL override. Must remain an `https://` URL; insecure overrides are rejected at startup to avoid leaking the Fly bearer token over plaintext transport.                                             |
 | `FLY_AUTOMATION_APP_NAME`                                  | server         | -                                 | Required when `KEPPO_SANDBOX_PROVIDER=fly`. Unique Fly app that will own automation machines.                                                                                                                                     |
 | `FLY_AUTOMATION_ORG_SLUG`                                  | server         | -                                 | Required when `KEPPO_SANDBOX_PROVIDER=fly`. Fly organization slug used to auto-create the app if missing.                                                                                                                         |
 | `FLY_AUTOMATION_APP_NETWORK`                               | server         | -                                 | Optional Fly private network name for the automation app.                                                                                                                                                                          |
@@ -169,7 +169,7 @@ Notes:
 - `UNIKRAFT_CODE_MODE_BRIDGE_BASE_URL` must be reachable from the Unikraft MicroVM. In local-only experiments you can rely on the default loopback bridge URL, but production/preview deployments need a public or otherwise routable callback origin.
 - If Vercel Deployment Protection is enabled, propagate `VERCEL_AUTOMATION_BYPASS_SECRET` into both the API runtime and the hosted Convex env only for `preview` and `staging`. Do not propagate or use it when `KEPPO_ENVIRONMENT=production`.
 - Local `docker` sandbox execution requires a working Docker engine on the API host.
-- Fly automation machines bootstrap the repo-owned runner inside the guest at launch time. If you override `FLY_AUTOMATION_IMAGE`, keep a compatible Node + npm runtime available or machine startup will fail before the automation can report completion.
+- Fly automation machines bootstrap the repo-owned runner inside the guest at launch time. The wrapper scrubs run-scoped runtime env from its own process before `npm install`, runs callback posts with explicit timeouts, and gives up on log-drain retries after a bounded number of failures so terminal completion still posts. If you override `FLY_AUTOMATION_IMAGE`, keep a compatible Node + npm runtime available or machine startup will fail before the automation can report completion.
 - Fly does not currently enforce instance-level outbound allowlists. If an automation stays on `mcp_only`, set `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` explicitly to acknowledge that the restriction is currently a runner/tooling boundary rather than a hard egress boundary.
 - Sandboxed automation runs use a repo-owned `openai-agents-js` runner pinned to `@openai/agents@0.8.2` in the local automation sandbox image, the Vercel bootstrap path, and the Fly in-guest bootstrap path. Custom image-based automation runtimes should preserve that pin and the `/sandbox/.keppo-automation-runner/` entrypoint contract unless you are intentionally upgrading the runner.
 - OpenAI trace export is opt-in. Keppo sends hashed run/group identifiers plus non-sensitive metadata by default; full prompts, tool arguments, tool outputs, and automation memory are not included in trace exports.
@@ -208,11 +208,12 @@ Common auth failures:
 ## Fly Machines setup
 
 1. Create or choose a Fly organization, generate a Fly API token with access to manage apps and machines, and set `FLY_API_TOKEN=<token>`.
-2. Pick a globally unique Fly app name for automation runs and set `FLY_AUTOMATION_APP_NAME` plus `FLY_AUTOMATION_ORG_SLUG`.
-3. Optionally choose a dedicated Fly private network with `FLY_AUTOMATION_APP_NETWORK`, a specific region with `FLY_AUTOMATION_MACHINE_REGION`, and the machine resource shape with `FLY_AUTOMATION_MACHINE_CPU_KIND`, `FLY_AUTOMATION_MACHINE_CPUS`, and `FLY_AUTOMATION_MACHINE_MEMORY_MB`.
-4. Keep `KEPPO_API_INTERNAL_BASE_URL` on a publicly reachable URL so the Fly machine can post signed log, trace, and completion callbacks back into Keppo. Remote Fly callbacks reject loopback, private, link-local, and metadata-address hosts.
-5. If any automation config will run with `network_access="mcp_only"`, set `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` to acknowledge the current lack of hard egress enforcement on Fly.
-6. Set `KEPPO_SANDBOX_PROVIDER=fly`.
+2. If you override `FLY_API_HOSTNAME`, keep it on `https://`; Keppo rejects `http://` Fly API endpoints at startup.
+3. Pick a globally unique Fly app name for automation runs and set `FLY_AUTOMATION_APP_NAME` plus `FLY_AUTOMATION_ORG_SLUG`.
+4. Optionally choose a dedicated Fly private network with `FLY_AUTOMATION_APP_NETWORK`, a specific region with `FLY_AUTOMATION_MACHINE_REGION`, and the machine resource shape with `FLY_AUTOMATION_MACHINE_CPU_KIND`, `FLY_AUTOMATION_MACHINE_CPUS`, and `FLY_AUTOMATION_MACHINE_MEMORY_MB`.
+5. Keep `KEPPO_API_INTERNAL_BASE_URL` on a publicly reachable URL so the Fly machine can post signed log, trace, and completion callbacks back into Keppo. Remote Fly callbacks reject loopback, private, link-local, and metadata-address hosts.
+6. If any automation config will run with `network_access="mcp_only"`, set `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` to acknowledge the current lack of hard egress enforcement on Fly.
+7. Set `KEPPO_SANDBOX_PROVIDER=fly`.
 
 ## First-run operator path
 

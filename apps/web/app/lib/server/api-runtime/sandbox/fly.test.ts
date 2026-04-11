@@ -1,7 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildRunnerCommand } from "../routes/automations";
 import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
-import { FlyMachinesHttpClient, FlyMachinesSandboxProvider } from "./fly.js";
+import {
+  FlyMachinesHttpClient,
+  FlyMachinesSandboxProvider,
+  resetFlyAppReadyCacheForTest,
+} from "./fly.js";
 import { resetApiRuntimeEnvForTest } from "../runtime-env.js";
 
 const baseConfig = {
@@ -42,6 +46,7 @@ describe("FlyMachinesSandboxProvider", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
     resetApiRuntimeEnvForTest();
+    resetFlyAppReadyCacheForTest();
   });
 
   it("creates the app when it is missing and launches an auto-destroy machine", async () => {
@@ -193,7 +198,7 @@ describe("FlyMachinesSandboxProvider", () => {
 
     const provider = new FlyMachinesSandboxProvider(client, {
       apiHostname: "https://api.machines.dev",
-      appName: "keppo-automation-sandbox",
+      appName: "keppo-automation-sandbox-conflict",
       automationImage: "registry-1.docker.io/library/node:22-bookworm",
       cpuKind: "shared",
       cpus: 1,
@@ -203,7 +208,12 @@ describe("FlyMachinesSandboxProvider", () => {
     });
 
     await expect(provider.dispatch(baseConfig)).resolves.toEqual({
-      sandbox_id: "keppo-automation-sandbox::machine_123",
+      sandbox_id: "keppo-automation-sandbox-conflict::machine_123",
+    });
+    expect(client.getApp).toHaveBeenCalledWith("keppo-automation-sandbox-conflict");
+    expect(client.createApp).toHaveBeenCalledWith({
+      app_name: "keppo-automation-sandbox-conflict",
+      org_slug: "personal",
     });
   });
 
@@ -362,6 +372,45 @@ describe("FlyMachinesSandboxProvider", () => {
     });
   });
 
+  it("revalidates the Fly app if machine creation returns 404 after cache warmup", async () => {
+    vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
+    resetApiRuntimeEnvForTest();
+    const client = {
+      getApp: vi.fn().mockResolvedValue({ id: "app_123", name: "keppo-automation-sandbox" }),
+      createApp: vi.fn(),
+      createMachine: vi
+        .fn()
+        .mockRejectedValueOnce(Object.assign(new Error("missing app"), { status: 404 }))
+        .mockResolvedValueOnce({
+          id: "machine_123",
+          state: "started",
+        }),
+      waitForMachineStarted: vi.fn().mockResolvedValue({
+        id: "machine_123",
+        state: "started",
+      }),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.dispatch(baseConfig)).resolves.toEqual({
+      sandbox_id: "keppo-automation-sandbox::machine_123",
+    });
+
+    expect(client.getApp).toHaveBeenCalledTimes(2);
+    expect(client.createMachine).toHaveBeenCalledTimes(2);
+  });
+
   it("rejects sandbox handles that target a different configured Fly app", async () => {
     const client = {
       getApp: vi.fn(),
@@ -386,7 +435,7 @@ describe("FlyMachinesSandboxProvider", () => {
     );
   });
 
-  it("emits a wrapper that separates install-time env from runtime secrets and bounds log buffering", async () => {
+  it("emits a wrapper that separates install-time env from runtime secrets and bounds bootstrap logging", async () => {
     vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
     resetApiRuntimeEnvForTest();
     const client = {
@@ -418,7 +467,13 @@ describe("FlyMachinesSandboxProvider", () => {
     const files = client.createMachine.mock.calls[0]?.[1]?.config.files;
     const wrapperSource = Buffer.from(files?.[0]?.raw_value ?? "", "base64").toString("utf8");
     expect(wrapperSource).toContain("env: buildInstallEnv()");
+    expect(wrapperSource).toContain("scrubProcessEnvForBootstrap()");
+    expect(wrapperSource).toContain("env: runtimeEnv");
+    expect(wrapperSource).toContain("await postCompletion('failed', errorMessage)");
     expect(wrapperSource).toContain("MAX_CARRY_CHARS = 65_536");
+    expect(wrapperSource).toContain("CALLBACK_TIMEOUT_MS = 15_000");
+    expect(wrapperSource).toContain("MAX_LOG_FLUSH_FAILURES = 5");
     expect(wrapperSource).toContain("[log upload failed:");
+    expect(wrapperSource).not.toContain("droppedLogLineCount += truncatedCount");
   });
 });

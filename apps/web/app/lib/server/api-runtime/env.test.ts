@@ -224,6 +224,34 @@ describe("api env schema", () => {
     ).toThrow("KEPPO_LLM_GATEWAY_URL");
   });
 
+  it("rejects insecure Fly API hostname overrides", () => {
+    expect(() =>
+      parseApiEnv(
+        {
+          NODE_ENV: "development",
+          FLY_API_HOSTNAME: "http://api.machines.dev",
+        },
+        {
+          validateRequired: false,
+        },
+      ),
+    ).toThrow("FLY_API_HOSTNAME");
+  });
+
+  it("accepts https Fly API hostname overrides", () => {
+    const env = parseApiEnv(
+      {
+        NODE_ENV: "development",
+        FLY_API_HOSTNAME: "https://api.example.test",
+      },
+      {
+        validateRequired: false,
+      },
+    );
+
+    expect(env.FLY_API_HOSTNAME).toBe("https://api.example.test");
+  });
+
   it("accepts bundled gateway env when KEPPO_STRICT_MODE is truthy", () => {
     expect(() =>
       parseApiEnv(
