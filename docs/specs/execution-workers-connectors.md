@@ -119,7 +119,7 @@ These guarantees are unchanged by the queue migration; only execution transport 
   - gives the client-side `/wait` request additional response grace beyond Fly's server-side long-poll timeout so successful near-timeout starts are not misclassified as client timeouts,
   - bounds wrapper log-line and carry-buffer growth, requeues failed log-upload batches with an explicit diagnostic line instead of silently dropping them, and gives up on repeated callback failures after a bounded retry budget so terminal completion can still be reported,
   - invalidates the cached Fly-app readiness check and re-verifies the app once when machine creation returns `404`, so out-of-band app deletion self-heals instead of poisoning the long-lived worker cache,
-  - does not currently enforce instance-level outbound allowlists; `mcp_only` versus `mcp_and_web` remains enforced at the runner/tooling layer, and `mcp_only` dispatches require explicit operator opt-in via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true`.
+  - does not currently enforce instance-level outbound allowlists; `mcp_only` versus `mcp_and_web` remains enforced at the runner/tooling layer, so selecting the Fly provider requires explicit operator opt-in via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true`.
 - Production `unikraft` sandbox provider behavior:
   - creates a Unikraft Cloud MicroVM from an OCI image referenced by `UNIKRAFT_SANDBOX_IMAGE`,
   - injects the composed runner command, signed log/trace/completion callback URLs, and the base64 runner source through environment variables (`KEPPO_RUNNER_COMMAND`, `KEPPO_LOG_CALLBACK_URL`, `KEPPO_TRACE_CALLBACK_URL`, `KEPPO_COMPLETE_CALLBACK_URL`, `KEPPO_TIMEOUT_MS`),

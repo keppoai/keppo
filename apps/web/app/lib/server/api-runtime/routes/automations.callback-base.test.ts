@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   applyVercelProtectionBypassToUrl,
   assertRunnerAuthSupported,
@@ -12,65 +12,112 @@ import {
   resolveAutomationMcpServerUrl,
 } from "./automations";
 
+const { lookupMock } = vi.hoisted(() => ({
+  lookupMock: vi.fn(),
+}));
+
+vi.mock("node:dns/promises", () => ({
+  lookup: lookupMock,
+}));
+
+beforeEach(() => {
+  lookupMock.mockReset();
+  lookupMock.mockResolvedValue([{ address: "203.0.113.10" }]);
+});
+
 afterEach(() => {
   vi.unstubAllEnvs();
 });
 
 describe("assertSandboxCallbackBaseUrlReachable", () => {
-  it("allows localhost for docker sandboxes", () => {
-    expect(() =>
+  it("allows localhost for docker sandboxes", async () => {
+    await expect(
       assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "docker"),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  it("rejects localhost for Vercel sandboxes", () => {
-    expect(() => assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "vercel")).toThrow(
+  it("rejects localhost for Vercel sandboxes", async () => {
+    await expect(
+      assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "vercel"),
+    ).rejects.toThrow(
       "automation_route_failed: Vercel sandbox callbacks cannot reach http://localhost:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
     );
   });
 
-  it("rejects localhost for Fly sandboxes", () => {
-    expect(() => assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "fly")).toThrow(
+  it("rejects localhost for Fly sandboxes", async () => {
+    await expect(
+      assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "fly"),
+    ).rejects.toThrow(
       "automation_route_failed: Fly sandbox callbacks cannot reach http://localhost:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
     );
   });
 
-  it("rejects private IP callback bases for Fly sandboxes", () => {
-    expect(() => assertSandboxCallbackBaseUrlReachable("http://10.0.0.12:8787", "fly")).toThrow(
+  it("rejects private IP callback bases for Fly sandboxes", async () => {
+    await expect(
+      assertSandboxCallbackBaseUrlReachable("http://10.0.0.12:8787", "fly"),
+    ).rejects.toThrow(
       "automation_route_failed: Fly sandbox callbacks cannot reach http://10.0.0.12:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
     );
   });
 
-  it("rejects metadata callback bases for Unikraft sandboxes", () => {
-    expect(() =>
+  it("rejects metadata callback bases for Unikraft sandboxes", async () => {
+    await expect(
       assertSandboxCallbackBaseUrlReachable("http://metadata.google.internal", "unikraft"),
-    ).toThrow(
+    ).rejects.toThrow(
       "automation_route_failed: Unikraft sandbox callbacks cannot reach http://metadata.google.internal. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
     );
   });
 
-  it("rejects localhost for Unikraft sandboxes", () => {
-    expect(() =>
+  it("rejects localhost for Unikraft sandboxes", async () => {
+    await expect(
       assertSandboxCallbackBaseUrlReachable("http://localhost:8787", "unikraft"),
-    ).toThrow(
+    ).rejects.toThrow(
       "automation_route_failed: Unikraft sandbox callbacks cannot reach http://localhost:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
     );
   });
 
-  it("allows public callback bases for Vercel sandboxes", () => {
-    expect(() =>
+  it("rejects trailing-dot localhost variants for remote sandboxes", async () => {
+    await expect(
+      assertSandboxCallbackBaseUrlReachable("http://LOCALHOST.:8787", "fly"),
+    ).rejects.toThrow(
+      "automation_route_failed: Fly sandbox callbacks cannot reach http://LOCALHOST.:8787. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
+  it("allows public callback bases for Vercel sandboxes", async () => {
+    await expect(
       assertSandboxCallbackBaseUrlReachable("https://api.example.com", "vercel"),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  it("allows public callback bases for Fly sandboxes", () => {
-    expect(() =>
+  it("allows public callback bases for Fly sandboxes", async () => {
+    await expect(
       assertSandboxCallbackBaseUrlReachable("https://api.example.com", "fly"),
-    ).not.toThrow();
+    ).resolves.toBeUndefined();
   });
 
-  it("uses the active provider label for invalid callback base URLs", () => {
-    expect(() => assertSandboxCallbackBaseUrlReachable("not-a-url", "fly")).toThrow(
+  it("rejects hostnames whose DNS resolves to private addresses", async () => {
+    lookupMock.mockResolvedValue([{ address: "10.0.0.12" }]);
+
+    await expect(
+      assertSandboxCallbackBaseUrlReachable("https://internal.example.com", "fly"),
+    ).rejects.toThrow(
+      "automation_route_failed: Fly sandbox callbacks must resolve https://internal.example.com to a public IP address. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
+  it("rejects unresolved callback hostnames for remote sandboxes", async () => {
+    lookupMock.mockRejectedValue(new Error("getaddrinfo EAI_AGAIN api.example.com"));
+
+    await expect(
+      assertSandboxCallbackBaseUrlReachable("https://api.example.com", "fly"),
+    ).rejects.toThrow(
+      "automation_route_failed: Fly sandbox callbacks must resolve https://api.example.com to a public IP address. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.",
+    );
+  });
+
+  it("uses the active provider label for invalid callback base URLs", async () => {
+    await expect(assertSandboxCallbackBaseUrlReachable("not-a-url", "fly")).rejects.toThrow(
       "automation_route_failed: Invalid KEPPO_API_INTERNAL_BASE_URL for Fly sandbox callbacks: not-a-url",
     );
   });

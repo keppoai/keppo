@@ -498,7 +498,7 @@ export const handleInternalAutomationDispatchRequest = async (
     const gatewayEnabled = isGatewayRuntimeEnabled(env.KEPPO_LLM_GATEWAY_URL);
     const callbackBaseUrl = resolveAutomationCallbackBaseUrl(request.url);
     const providerMode = resolveAutomationSandboxProviderMode();
-    assertSandboxCallbackBaseUrlReachable(callbackBaseUrl, providerMode);
+    await assertSandboxCallbackBaseUrlReachable(callbackBaseUrl, providerMode);
     const [creditBalance, subscription, byoKey, legacyOpenAiKey] = await Promise.all([
       deps.convex.getAiCreditBalance({ orgId: context.automation.org_id }),
       deps.convex.getSubscriptionForOrg(context.automation.org_id),

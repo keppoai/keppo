@@ -380,6 +380,43 @@ describe("api env schema", () => {
     ).toThrow("FLY_AUTOMATION_APP_NAME");
   });
 
+  it("requires explicit Fly acknowledgment when the Fly sandbox is selected", () => {
+    expect(() =>
+      parseApiEnv(
+        {
+          NODE_ENV: "production",
+          CONVEX_URL: "https://example.convex.cloud",
+          KEPPO_CONVEX_ADMIN_KEY: "convex-admin-key",
+          KEPPO_MASTER_KEY: "master-key",
+          KEPPO_URL: "https://dashboard.keppo.ai",
+          STRIPE_SECRET_KEY: "stripe-secret",
+          STRIPE_PROVIDER_WEBHOOK_SECRET: "stripe-provider-webhook-secret",
+          STRIPE_BILLING_WEBHOOK_SECRET: "stripe-billing-webhook-secret",
+          GOOGLE_CLIENT_ID: "google-client-id",
+          GOOGLE_CLIENT_SECRET: "google-client-secret",
+          STRIPE_CLIENT_ID: "stripe-client-id",
+          GITHUB_CLIENT_ID: "github-client-id",
+          GITHUB_CLIENT_SECRET: "github-client-secret",
+          REDDIT_CLIENT_ID: "reddit-client-id",
+          REDDIT_CLIENT_SECRET: "reddit-client-secret",
+          OPENAI_API_KEY: "openai-api-key",
+          KEPPO_OAUTH_STATE_SECRET: "oauth-state-secret",
+          KEPPO_CALLBACK_HMAC_SECRET: "callback-hmac-secret",
+          BETTER_AUTH_SECRET: "better-auth-secret-better-auth-secret",
+          KEPPO_CRON_SECRET: "cron-secret",
+          KEPPO_SANDBOX_PROVIDER: "fly",
+          FLY_API_TOKEN: "fly_test",
+          FLY_AUTOMATION_APP_NAME: "keppo-sandbox",
+          FLY_AUTOMATION_ORG_SLUG: "personal",
+        },
+        {
+          validateRequired: true,
+          mode: "strict",
+        },
+      ),
+    ).toThrow("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true");
+  });
+
   it("accepts Fly automation credentials and normalizes Fly sandbox defaults", () => {
     const env = parseApiEnv(
       {
@@ -407,6 +444,7 @@ describe("api env schema", () => {
         FLY_API_TOKEN: "fly_test",
         FLY_AUTOMATION_APP_NAME: "keppo-sandbox",
         FLY_AUTOMATION_ORG_SLUG: "personal",
+        KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY: "true",
       },
       {
         validateRequired: true,
@@ -419,7 +457,7 @@ describe("api env schema", () => {
     expect(env.FLY_AUTOMATION_MACHINE_CPU_KIND).toBe("shared");
     expect(env.FLY_AUTOMATION_MACHINE_CPUS).toBe(1);
     expect(env.FLY_AUTOMATION_MACHINE_MEMORY_MB).toBe(1024);
-    expect(env.KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY).toBe(false);
+    expect(env.KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY).toBe(true);
   });
 
   it("maps legacy STRIPE_WEBHOOK_SECRET into both split webhook secrets", () => {

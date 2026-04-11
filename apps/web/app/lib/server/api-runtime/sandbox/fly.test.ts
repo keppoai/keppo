@@ -273,30 +273,6 @@ describe("FlyMachinesSandboxProvider", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("rejects Fly mcp_only runs unless the explicit opt-in env is set", async () => {
-    const client = {
-      getApp: vi.fn(),
-      createApp: vi.fn(),
-      createMachine: vi.fn(),
-      waitForMachineStarted: vi.fn(),
-      deleteMachine: vi.fn(),
-    };
-    const provider = new FlyMachinesSandboxProvider(client, {
-      apiHostname: "https://api.machines.dev",
-      appName: "keppo-automation-sandbox",
-      automationImage: "registry-1.docker.io/library/node:22-bookworm",
-      cpuKind: "shared",
-      cpus: 1,
-      memoryMb: 1024,
-      orgSlug: "personal",
-      timeoutGraceMs: 5_000,
-    });
-
-    await expect(provider.dispatch(baseConfig)).rejects.toThrow(
-      "Fly sandbox does not enforce mcp_only egress.",
-    );
-  });
-
   it("rejects malformed sandbox handles on terminate", async () => {
     const client = {
       getApp: vi.fn(),
@@ -339,6 +315,33 @@ describe("FlyMachinesSandboxProvider", () => {
     });
 
     expect(timeoutSpy).toHaveBeenCalledWith(15_000);
+  });
+
+  it("retries transient Fly API rate limits before failing", async () => {
+    const fetchFn = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response("rate limited", {
+          status: 429,
+          headers: { "retry-after": "0" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ id: "machine_123", state: "started" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const client = new FlyMachinesHttpClient("token", "https://api.machines.dev", fetchFn);
+
+    await expect(
+      client.waitForMachineStarted("keppo-automation-sandbox", "machine_123"),
+    ).resolves.toMatchObject({
+      id: "machine_123",
+      state: "started",
+    });
+
+    expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 
   it("best-effort deletes the machine if startup wait fails", async () => {
@@ -467,13 +470,15 @@ describe("FlyMachinesSandboxProvider", () => {
     const files = client.createMachine.mock.calls[0]?.[1]?.config.files;
     const wrapperSource = Buffer.from(files?.[0]?.raw_value ?? "", "base64").toString("utf8");
     expect(wrapperSource).toContain("env: buildInstallEnv()");
-    expect(wrapperSource).toContain("scrubProcessEnvForBootstrap()");
     expect(wrapperSource).toContain("env: runtimeEnv");
-    expect(wrapperSource).toContain("await postCompletion('failed', errorMessage)");
+    expect(wrapperSource).toContain("class SandboxTimeoutError extends Error");
+    expect(wrapperSource).toContain("let activeChild = null");
+    expect(wrapperSource).toContain("await postCompletion(status, errorMessage)");
     expect(wrapperSource).toContain("MAX_CARRY_CHARS = 65_536");
     expect(wrapperSource).toContain("CALLBACK_TIMEOUT_MS = 15_000");
     expect(wrapperSource).toContain("MAX_LOG_FLUSH_FAILURES = 5");
     expect(wrapperSource).toContain("[log upload failed:");
+    expect(wrapperSource).not.toContain("scrubProcessEnvForBootstrap");
     expect(wrapperSource).not.toContain("droppedLogLineCount += truncatedCount");
   });
 });

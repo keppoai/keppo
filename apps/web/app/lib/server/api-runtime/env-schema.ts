@@ -466,6 +466,11 @@ const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
       ["FLY_API_TOKEN", "FLY_AUTOMATION_APP_NAME", "FLY_AUTOMATION_ORG_SLUG"],
       missing,
     );
+    if (env.KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY !== true) {
+      missing.push(
+        "KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true (required because Fly does not enforce mcp_only egress)",
+      );
+    }
   }
 
   if (env.KEPPO_CODE_MODE_SANDBOX_PROVIDER === "unikraft") {

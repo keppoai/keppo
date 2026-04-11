@@ -6,6 +6,7 @@ import { VercelSandboxProvider } from "../../../../../../../cloud/api/sandbox/ve
 import { getEnv } from "../env.js";
 
 export type AutomationSandboxProviderMode = "docker" | "vercel" | "unikraft" | "fly";
+let flySandboxProviderSingleton: FlyMachinesSandboxProvider | null = null;
 
 export const resolveAutomationSandboxProviderMode = (): AutomationSandboxProviderMode => {
   return getEnv().KEPPO_SANDBOX_PROVIDER;
@@ -29,7 +30,8 @@ export const createAutomationSandboxProvider = (
     return new VercelSandboxProvider();
   }
   if (mode === "fly") {
-    return new FlyMachinesSandboxProvider();
+    flySandboxProviderSingleton ??= new FlyMachinesSandboxProvider();
+    return flySandboxProviderSingleton;
   }
   if (mode === "unikraft") {
     return new UnikraftSandboxProvider();

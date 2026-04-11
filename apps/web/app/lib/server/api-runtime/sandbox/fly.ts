@@ -11,6 +11,8 @@ const DEFAULT_FLY_FETCH_TIMEOUT_MS = 10_000;
 const DEFAULT_FLY_DELETE_TIMEOUT_MS = 15_000;
 const DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS = 10;
 const DEFAULT_FLY_WAIT_RESPONSE_GRACE_MS = 5_000;
+const DEFAULT_FLY_RETRY_ATTEMPTS = 3;
+const DEFAULT_FLY_RETRY_BASE_DELAY_MS = 250;
 const WRAPPER_ENTRYPOINT_PATH = "/sandbox/keppo-automation-runner-wrapper.mjs";
 const SANDBOX_HANDLE_SEPARATOR = "::";
 
@@ -77,6 +79,7 @@ class FlyApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    readonly retryAfterMs: number | null = null,
   ) {
     super(message);
     this.name = "FlyApiError";
@@ -99,6 +102,25 @@ const readTrimmedString = (value: unknown): string | undefined => {
   }
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+};
+
+const sleep = async (ms: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const parseRetryAfterMs = (value: string | null): number | null => {
+  if (!value) {
+    return null;
+  }
+  const seconds = Number.parseFloat(value);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds * 1_000);
+  }
+  const retryAt = Date.parse(value);
+  if (!Number.isFinite(retryAt)) {
+    return null;
+  }
+  return Math.max(0, retryAt - Date.now());
 };
 
 const parseFlyAppDetails = (value: unknown): FlyAppDetails => {
@@ -141,42 +163,47 @@ export class FlyMachinesHttpClient implements FlyMachinesClientLike {
 
   async getApp(appName: string): Promise<FlyAppDetails | null> {
     const action = `get Fly app ${appName}`;
-    const response = await this.fetchWithTimeout(
-      this.toUrl(`/v1/apps/${encodeURIComponent(appName)}`),
-      {
-        method: "GET",
-        headers: this.buildHeaders(),
-      },
-      { action, timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS },
-    );
-    if (response.status === 404) {
-      return null;
-    }
-    return parseFlyAppDetails(
-      await this.parseJsonResponse(response, {
-        action,
-        okStatuses: [200],
-      }),
-    );
+    return this.withRetries(action, async () => {
+      const response = await this.fetchWithTimeout(
+        this.toUrl(`/v1/apps/${encodeURIComponent(appName)}`),
+        {
+          method: "GET",
+          headers: this.buildHeaders(),
+        },
+        { action, timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS },
+      );
+      if (response.status === 404) {
+        return null;
+      }
+      return parseFlyAppDetails(
+        await this.parseJsonResponse(response, {
+          action,
+          okStatuses: [200],
+        }),
+      );
+    });
   }
 
   async createApp(request: FlyCreateAppRequest): Promise<void> {
-    const response = await this.fetchWithTimeout(
-      this.toUrl("/v1/apps"),
-      {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(request),
-      },
-      {
-        action: `create Fly app ${request.app_name}`,
-        timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS,
-      },
-    );
-    await this.parseJsonResponse(response, {
-      action: `create Fly app ${request.app_name}`,
-      okStatuses: [201],
-      allowEmptyBody: true,
+    const action = `create Fly app ${request.app_name}`;
+    await this.withRetries(action, async () => {
+      const response = await this.fetchWithTimeout(
+        this.toUrl("/v1/apps"),
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(request),
+        },
+        {
+          action,
+          timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS,
+        },
+      );
+      await this.parseJsonResponse(response, {
+        action,
+        okStatuses: [201],
+        allowEmptyBody: true,
+      });
     });
   }
 
@@ -184,24 +211,27 @@ export class FlyMachinesHttpClient implements FlyMachinesClientLike {
     appName: string,
     request: FlyCreateMachineRequest,
   ): Promise<FlyMachineDetails> {
-    const response = await this.fetchWithTimeout(
-      this.toUrl(`/v1/apps/${encodeURIComponent(appName)}/machines`),
-      {
-        method: "POST",
-        headers: this.buildHeaders(),
-        body: JSON.stringify(request),
-      },
-      {
-        action: `create Fly machine for app ${appName}`,
-        timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS,
-      },
-    );
-    return parseFlyMachineDetails(
-      await this.parseJsonResponse(response, {
-        action: `create Fly machine for app ${appName}`,
-        okStatuses: [200, 201],
-      }),
-    );
+    const action = `create Fly machine for app ${appName}`;
+    return this.withRetries(action, async () => {
+      const response = await this.fetchWithTimeout(
+        this.toUrl(`/v1/apps/${encodeURIComponent(appName)}/machines`),
+        {
+          method: "POST",
+          headers: this.buildHeaders(),
+          body: JSON.stringify(request),
+        },
+        {
+          action,
+          timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS,
+        },
+      );
+      return parseFlyMachineDetails(
+        await this.parseJsonResponse(response, {
+          action,
+          okStatuses: [200, 201],
+        }),
+      );
+    });
   }
 
   async deleteMachine(
@@ -256,23 +286,25 @@ export class FlyMachinesHttpClient implements FlyMachinesClientLike {
     );
     const action = `wait for Fly machine ${machineId} in app ${appName} to start`;
     const waitSeconds = options.timeoutSeconds ?? DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS;
-    const response = await this.fetchWithTimeout(
-      url,
-      {
-        method: "GET",
-        headers: this.buildHeaders(),
-      },
-      {
-        action,
-        timeoutMs: waitSeconds * 1_000 + DEFAULT_FLY_WAIT_RESPONSE_GRACE_MS,
-      },
-    );
-    return parseFlyMachineDetails(
-      await this.parseJsonResponse(response, {
-        action,
-        okStatuses: [200],
-      }),
-    );
+    return this.withRetries(action, async () => {
+      const response = await this.fetchWithTimeout(
+        url,
+        {
+          method: "GET",
+          headers: this.buildHeaders(),
+        },
+        {
+          action,
+          timeoutMs: waitSeconds * 1_000 + DEFAULT_FLY_WAIT_RESPONSE_GRACE_MS,
+        },
+      );
+      return parseFlyMachineDetails(
+        await this.parseJsonResponse(response, {
+          action,
+          okStatuses: [200],
+        }),
+      );
+    });
   }
 
   private buildHeaders(): HeadersInit {
@@ -323,6 +355,7 @@ export class FlyMachinesHttpClient implements FlyMachinesClientLike {
       throw new FlyApiError(
         response.status,
         this.toErrorMessage(options.action, response, bodyText),
+        parseRetryAfterMs(response.headers.get("retry-after")),
       );
     }
     if (bodyText.length === 0) {
@@ -351,6 +384,31 @@ export class FlyMachinesHttpClient implements FlyMachinesClientLike {
     }
     const status = getErrorStatus(error);
     return status !== null && status >= 500;
+  }
+
+  private async withRetries<T>(action: string, run: () => Promise<T>): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        return await run();
+      } catch (error) {
+        const status = getErrorStatus(error);
+        const retryAfterMs =
+          error instanceof FlyApiError ? error.retryAfterMs : DEFAULT_FLY_RETRY_BASE_DELAY_MS;
+        const shouldRetry =
+          attempt < DEFAULT_FLY_RETRY_ATTEMPTS &&
+          (error instanceof FlyRequestTimeoutError ||
+            status === 429 ||
+            (status !== null && status >= 500));
+        if (!shouldRetry) {
+          throw error;
+        }
+        const backoffMs =
+          status === 429 && retryAfterMs !== null
+            ? retryAfterMs
+            : DEFAULT_FLY_RETRY_BASE_DELAY_MS * 2 ** (attempt - 1);
+        await sleep(backoffMs);
+      }
+    }
   }
 }
 
@@ -527,6 +585,20 @@ const buildFlyWrapperSource = (): string => {
     "};",
     "",
     "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
+    "",
+    "class SandboxTimeoutError extends Error {",
+    "  constructor(message) {",
+    "    super(message);",
+    "    this.name = 'SandboxTimeoutError';",
+    "  }",
+    "}",
+    "",
+    "class SandboxCancelledError extends Error {",
+    "  constructor(message) {",
+    "    super(message);",
+    "    this.name = 'SandboxCancelledError';",
+    "  }",
+    "}",
     "",
     "const shellQuote = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;",
     "",
@@ -733,6 +805,7 @@ const buildFlyWrapperSource = (): string => {
     '  .join(" && ");',
     "",
     "const buildInstallEnv = () => {",
+    "  // The explicit allowlist here is the bootstrap security boundary.",
     "  const env = {};",
     "  for (const key of BOOTSTRAP_PASSTHROUGH_ENV_KEYS) {",
     "    const value = runtimeEnv[key];",
@@ -755,25 +828,35 @@ const buildFlyWrapperSource = (): string => {
     "  Object.entries(process.env).filter(([, value]) => typeof value === 'string'),",
     ");",
     "",
-    "const scrubProcessEnvForBootstrap = () => {",
-    "  for (const key of Object.keys(process.env)) {",
-    "    if (",
-    "      BOOTSTRAP_PASSTHROUGH_ENV_KEYS.includes(key) ||",
-    "      key.startsWith('npm_') ||",
-    "      key.startsWith('NPM_')",
-    "    ) {",
-    "      continue;",
-    "    }",
-    "    delete process.env[key];",
-    "  }",
-    "};",
-    "",
     "const main = async () => {",
     "  validateEnv();",
     "  if (!installCommand && !commandScript) {",
     "    throw new Error('No Fly sandbox runner command was configured.');",
     "  }",
-    "  scrubProcessEnvForBootstrap();",
+    "  let timedOut = false;",
+    "  let cancelled = false;",
+    "  let activeChild = null;",
+    "  const scheduleForcedKill = (child) => {",
+    "    setTimeout(() => child.kill('SIGKILL'), TIMEOUT_GRACE_MS).unref?.();",
+    "  };",
+    "  const terminateActiveChild = () => {",
+    "    if (!activeChild || activeChild.exitCode !== null) {",
+    "      return;",
+    "    }",
+    "    activeChild.kill('SIGTERM');",
+    "    scheduleForcedKill(activeChild);",
+    "  };",
+    "  const timeoutHandle = setTimeout(() => {",
+    "    timedOut = true;",
+    "    terminateActiveChild();",
+    "  }, TIMEOUT_MS);",
+    "  timeoutHandle.unref?.();",
+    "  const forwardTermination = () => {",
+    "    cancelled = true;",
+    "    terminateActiveChild();",
+    "  };",
+    "  process.on('SIGTERM', forwardTermination);",
+    "  process.on('SIGINT', forwardTermination);",
     "",
     "  if (installCommand) {",
     "    let installStdoutCarry = '';",
@@ -783,6 +866,7 @@ const buildFlyWrapperSource = (): string => {
     "        env: buildInstallEnv(),",
     '        stdio: ["ignore", "pipe", "pipe"],',
     "      });",
+    "      activeChild = installChild;",
     "      installChild.stdout.on('data', (chunk) => {",
     "        const { lines, carry } = splitLines(installStdoutCarry, chunk);",
     "        installStdoutCarry = carry;",
@@ -795,11 +879,20 @@ const buildFlyWrapperSource = (): string => {
     "      });",
     '      installChild.on("error", reject);',
     '      installChild.on("close", (code, signal) => {',
+    "        activeChild = null;",
     "        if (installStdoutCarry.trim().length > 0) {",
     "          enqueueLogLines('stdout', [installStdoutCarry.trim()]);",
     "        }",
     "        if (installStderrCarry.trim().length > 0) {",
     "          enqueueLogLines('stderr', [installStderrCarry.trim()]);",
+    "        }",
+    "        if (timedOut) {",
+    "          reject(new SandboxTimeoutError('Sandbox process exceeded timeout'));",
+    "          return;",
+    "        }",
+    "        if (cancelled) {",
+    "          reject(new SandboxCancelledError('Sandbox process terminated by request'));",
+    "          return;",
     "        }",
     "        if (code === 0) {",
     "          resolve(undefined);",
@@ -810,8 +903,6 @@ const buildFlyWrapperSource = (): string => {
     "    });",
     "  }",
     "",
-    "  let timedOut = false;",
-    "  let cancelled = false;",
     '  let stdoutCarry = "";',
     '  let stderrCarry = "";',
     "",
@@ -819,13 +910,7 @@ const buildFlyWrapperSource = (): string => {
     "    env: runtimeEnv,",
     '    stdio: ["ignore", "pipe", "pipe"],',
     "  });",
-    "",
-    "  const timeoutHandle = setTimeout(() => {",
-    "    timedOut = true;",
-    '    child.kill("SIGTERM");',
-    '    setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
-    "  }, TIMEOUT_MS);",
-    "  timeoutHandle.unref?.();",
+    "  activeChild = child;",
     "",
     '  child.stdout.on("data", (chunk) => {',
     "    const { lines, carry } = splitLines(stdoutCarry, chunk);",
@@ -839,20 +924,9 @@ const buildFlyWrapperSource = (): string => {
     '    enqueueLogLines("stderr", lines);',
     "  });",
     "",
-    "  const forwardTermination = () => {",
-    "    if (child.exitCode !== null) {",
-    "      return;",
-    "    }",
-    "    cancelled = true;",
-    '    child.kill("SIGTERM");',
-    '    setTimeout(() => child.kill("SIGKILL"), TIMEOUT_GRACE_MS).unref?.();',
-    "  };",
-    "",
-    '  process.on("SIGTERM", forwardTermination);',
-    '  process.on("SIGINT", forwardTermination);',
-    "",
     "  await new Promise((resolve) => {",
     '    child.on("close", async (code, signal) => {',
+    "      activeChild = null;",
     "      clearTimeout(timeoutHandle);",
     "      if (stdoutCarry.trim().length > 0) {",
     '        enqueueLogLines("stdout", [stdoutCarry.trim()]);',
@@ -880,6 +954,8 @@ const buildFlyWrapperSource = (): string => {
     "      resolve(undefined);",
     "    });",
     "  });",
+    "  process.off('SIGTERM', forwardTermination);",
+    "  process.off('SIGINT', forwardTermination);",
     "};",
     "",
     "try {",
@@ -890,13 +966,19 @@ const buildFlyWrapperSource = (): string => {
     "  );",
     "  enqueueLogLines('stderr', [`[bootstrap failed] ${errorMessage}`]);",
     "  await drainPendingLogLines();",
-    "  await postCompletion('failed', errorMessage);",
+    "  const status = error instanceof SandboxTimeoutError",
+    "    ? 'timed_out'",
+    "    : error instanceof SandboxCancelledError",
+    "      ? 'cancelled'",
+    "      : 'failed';",
+    "  await postCompletion(status, errorMessage);",
     "  process.exitCode = 1;",
     "}",
   ].join("\n");
 };
 
 const FLY_WRAPPER_SOURCE = buildFlyWrapperSource();
+const FLY_WRAPPER_SOURCE_BASE64 = encodeFileContent(FLY_WRAPPER_SOURCE);
 
 const omitEmptyEnvValues = (env: Record<string, string>): Record<string, string> =>
   Object.fromEntries(
@@ -914,15 +996,6 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
   }
 
   async dispatch(config: SandboxConfig): Promise<SandboxDispatchResult> {
-    if (
-      config.runtime.network_access === "mcp_only" &&
-      getEnv().KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY !== true
-    ) {
-      throw new Error(
-        "Fly sandbox does not enforce mcp_only egress. Set KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true to allow this configuration explicitly.",
-      );
-    }
-
     const runId =
       extractRunId(config.runtime.callbacks.complete_url) ??
       extractRunId(config.runtime.callbacks.log_url);
@@ -959,7 +1032,7 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
         files: [
           {
             guest_path: WRAPPER_ENTRYPOINT_PATH,
-            raw_value: encodeFileContent(FLY_WRAPPER_SOURCE),
+            raw_value: FLY_WRAPPER_SOURCE_BASE64,
           },
           {
             guest_path: config.runtime.runner.entrypoint_path,

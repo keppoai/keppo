@@ -1,4 +1,5 @@
 import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
+import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import {
   AI_MODEL_PROVIDER,
@@ -494,17 +495,10 @@ const redactVercelProtectionBypassUrl = (rawUrl: string): string => {
 const getSandboxProviderLabel = (providerMode: AutomationSandboxProviderMode): string =>
   providerMode === "vercel" ? "Vercel" : providerMode === "fly" ? "Fly" : "Unikraft";
 
-const isBlockedSandboxCallbackHostname = (hostname: string): boolean => {
-  const normalized = normalizeHostname(hostname);
-  return (
-    BLOCKED_HOSTNAMES.has(normalized) || (isIP(normalized) !== 0 && isBlockedIpAddress(normalized))
-  );
-};
-
-export const assertSandboxCallbackBaseUrlReachable = (
+export const assertSandboxCallbackBaseUrlReachable = async (
   baseUrl: string,
   providerMode: AutomationSandboxProviderMode,
-): void => {
+): Promise<void> => {
   if (providerMode === "docker") {
     return;
   }
@@ -518,10 +512,26 @@ export const assertSandboxCallbackBaseUrlReachable = (
       `Invalid KEPPO_API_INTERNAL_BASE_URL for ${providerLabel} sandbox callbacks: ${baseUrl}`,
     );
   }
-  if (isBlockedSandboxCallbackHostname(parsed.hostname)) {
+  const normalizedHostname = normalizeHostname(parsed.hostname);
+  if (
+    BLOCKED_HOSTNAMES.has(normalizedHostname) ||
+    (isIP(normalizedHostname) !== 0 && isBlockedIpAddress(normalizedHostname))
+  ) {
     throw createAutomationRouteError(
       "automation_route_failed",
       `${providerLabel} sandbox callbacks cannot reach ${baseUrl}. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
+    );
+  }
+
+  try {
+    const resolved = await lookup(normalizedHostname, { all: true, verbatim: true });
+    if (resolved.length === 0 || resolved.some((address) => isBlockedIpAddress(address.address))) {
+      throw new Error("blocked_address");
+    }
+  } catch {
+    throw createAutomationRouteError(
+      "automation_route_failed",
+      `${providerLabel} sandbox callbacks must resolve ${baseUrl} to a public IP address. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
     );
   }
 };

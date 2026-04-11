@@ -61,12 +61,12 @@
   - `mcp_only` default denies arbitrary outbound web access.
   - `mcp_and_web` is explicit opt-in per automation config version.
   - Production Vercel sandboxes enforce the fine-grained outbound allowlist.
-  - Production Fly sandboxes provide per-run Firecracker-MicroVM isolation, but currently do not enforce the same fine-grained outbound allowlist as Vercel; `mcp_only` requires explicit operator acknowledgment via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true` and remains a runner/tooling boundary there.
+  - Production Fly sandboxes provide per-run Firecracker-MicroVM isolation, but currently do not enforce the same fine-grained outbound allowlist as Vercel; selecting `KEPPO_SANDBOX_PROVIDER=fly` therefore requires explicit operator acknowledgment via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true`, and `mcp_only` remains a runner/tooling boundary there.
   - Local Docker sandboxes provide container isolation and must translate host-loopback callback and MCP URLs to `host.docker.internal` so the isolated container can reach local API services without falling back to host-process execution.
 - sandbox bootstrap stays as minimal as the provider allows:
   - Vercel uses an explicit package-registry-only bootstrap stage with no runtime secrets.
   - Docker reuses a prebuilt local image and injects runtime secrets only when the run container starts.
-  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but runs that install in a secret-limited subprocess, scrubs run-scoped env from the wrapper process before `npm install`, and only passes the full run-scoped runtime env to the final runner process because Machines do not expose a separate staged bootstrap API.
+  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but runs that install in a secret-limited subprocess, covers the full install-plus-run lifecycle with the sandbox timeout, and only passes the full run-scoped runtime env to the final runner process because Machines do not expose a separate staged bootstrap API.
   - Unikraft reuses an image-based guest bootstrap and injects the composed runner env at instance start.
   - automation-issued MCP bearer tokens remain run-scoped: Convex revokes them when the owning run reaches a terminal state, and MCP auth rejects tokens whose `automation_run_id` no longer resolves to a non-terminal run in the same workspace.
 - Callback ingress hardening:
