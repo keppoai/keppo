@@ -1,4 +1,6 @@
 import { createHash, createHmac, timingSafeEqual, webcrypto } from "node:crypto";
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 import {
   AI_MODEL_PROVIDER,
   AUTOMATION_RUN_CONFIG_KEYS,
@@ -28,6 +30,11 @@ import {
   parseJsonValue,
   tryParseJsonValue,
 } from "@keppo/shared/providers/boundaries/json";
+import {
+  BLOCKED_HOSTNAMES,
+  isBlockedIpAddress,
+  normalizeHostname,
+} from "@keppo/shared/network-address-policy";
 import { getEnv, getRawEnv } from "../env.js";
 import type { AutomationSandboxProviderMode } from "../sandbox/index.js";
 import { resolveSandboxRunnerEntrypointPath } from "../sandbox/agents-sdk-runner.js";
@@ -485,31 +492,46 @@ const redactVercelProtectionBypassUrl = (rawUrl: string): string => {
   }
 };
 
-const isLoopbackHostname = (hostname: string): boolean => {
-  const normalized = hostname.trim().toLowerCase();
-  return normalized === "localhost" || normalized === "127.0.0.1" || normalized === "::1";
-};
+const getSandboxProviderLabel = (providerMode: AutomationSandboxProviderMode): string =>
+  providerMode === "vercel" ? "Vercel" : providerMode === "fly" ? "Fly" : "Unikraft";
 
-export const assertSandboxCallbackBaseUrlReachable = (
+export const assertSandboxCallbackBaseUrlReachable = async (
   baseUrl: string,
   providerMode: AutomationSandboxProviderMode,
-): void => {
-  if (providerMode !== "vercel") {
+): Promise<void> => {
+  if (providerMode === "docker") {
     return;
   }
+  const providerLabel = getSandboxProviderLabel(providerMode);
   let parsed: URL;
   try {
     parsed = new URL(baseUrl);
   } catch {
     throw createAutomationRouteError(
       "automation_route_failed",
-      `Invalid KEPPO_API_INTERNAL_BASE_URL for Vercel sandbox callbacks: ${baseUrl}`,
+      `Invalid KEPPO_API_INTERNAL_BASE_URL for ${providerLabel} sandbox callbacks: ${baseUrl}`,
     );
   }
-  if (isLoopbackHostname(parsed.hostname)) {
+  const normalizedHostname = normalizeHostname(parsed.hostname);
+  if (
+    BLOCKED_HOSTNAMES.has(normalizedHostname) ||
+    (isIP(normalizedHostname) !== 0 && isBlockedIpAddress(normalizedHostname))
+  ) {
     throw createAutomationRouteError(
       "automation_route_failed",
-      `Vercel sandbox callbacks cannot reach ${baseUrl}. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
+      `${providerLabel} sandbox callbacks cannot reach ${baseUrl}. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
+    );
+  }
+
+  try {
+    const resolved = await lookup(normalizedHostname, { all: true, verbatim: true });
+    if (resolved.length === 0 || resolved.some((address) => isBlockedIpAddress(address.address))) {
+      throw new Error("blocked_address");
+    }
+  } catch {
+    throw createAutomationRouteError(
+      "automation_route_failed",
+      `${providerLabel} sandbox callbacks must resolve ${baseUrl} to a public IP address. Set KEPPO_API_INTERNAL_BASE_URL to a public API URL.`,
     );
   }
 };

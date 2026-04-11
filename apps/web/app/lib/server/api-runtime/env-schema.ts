@@ -9,6 +9,14 @@ const toTrimmedString = (value: unknown): string | undefined => {
 };
 
 const optionalString = z.preprocess((value) => toTrimmedString(value), z.string().optional());
+const optionalHttpsUrl = z.preprocess(
+  (value) => toTrimmedString(value),
+  z
+    .string()
+    .url()
+    .refine((url) => url.startsWith("https://"), "must use https")
+    .optional(),
+);
 
 const booleanWithDefault = (defaultValue: boolean) =>
   z.preprocess((value) => {
@@ -78,7 +86,7 @@ const sandboxProviderSchema = z.preprocess(
     const normalized = toTrimmedString(value);
     return (normalized ?? "docker").toLowerCase();
   },
-  z.enum(["docker", "vercel", "unikraft"]),
+  z.enum(["docker", "vercel", "unikraft", "fly"]),
 );
 
 const codeModeSandboxSchema = z.preprocess(
@@ -87,6 +95,29 @@ const codeModeSandboxSchema = z.preprocess(
     return (normalized ?? "docker").toLowerCase();
   },
   z.enum(["docker", "vercel", "unikraft"]),
+);
+
+const flyCpuKindSchema = z.preprocess(
+  (value) => {
+    const normalized = toTrimmedString(value);
+    return (normalized ?? "shared").toLowerCase();
+  },
+  z.enum(["shared", "performance"]),
+);
+
+const flyMemoryMbSchema = z.preprocess(
+  (value) => {
+    const normalized = toTrimmedString(value);
+    if (!normalized) {
+      return 1024;
+    }
+    return Number.parseInt(normalized, 10);
+  },
+  z
+    .number()
+    .int()
+    .positive()
+    .refine((value) => value % 256 === 0, "must be a positive multiple of 256"),
 );
 
 const apiEnvSchema = z
@@ -177,6 +208,17 @@ const apiEnvSchema = z
     KEPPO_CODE_MODE_SANDBOX_PROVIDER: codeModeSandboxSchema,
     KEPPO_CODE_MODE_TIMEOUT_MS: positiveIntegerWithDefault(120_000),
     KEPPO_SANDBOX_PROVIDER: sandboxProviderSchema,
+    FLY_API_TOKEN: optionalString,
+    FLY_API_HOSTNAME: optionalHttpsUrl,
+    FLY_AUTOMATION_APP_NAME: optionalString,
+    FLY_AUTOMATION_APP_NETWORK: optionalString,
+    FLY_AUTOMATION_ORG_SLUG: optionalString,
+    FLY_AUTOMATION_IMAGE: optionalString,
+    FLY_AUTOMATION_MACHINE_REGION: optionalString,
+    FLY_AUTOMATION_MACHINE_CPU_KIND: flyCpuKindSchema,
+    FLY_AUTOMATION_MACHINE_CPUS: positiveIntegerWithDefault(1),
+    FLY_AUTOMATION_MACHINE_MEMORY_MB: flyMemoryMbSchema,
+    KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY: booleanWithDefault(false),
     UNIKRAFT_API_TOKEN: optionalString,
     UNIKRAFT_METRO: optionalString,
     UNIKRAFT_SANDBOX_IMAGE: optionalString,
@@ -416,6 +458,19 @@ const validateRequiredEnv = (env: ApiEnv, mode: ApiEnvMode): void => {
       ["UNIKRAFT_API_TOKEN", "UNIKRAFT_METRO", "UNIKRAFT_SANDBOX_IMAGE"],
       missing,
     );
+  }
+
+  if (env.KEPPO_SANDBOX_PROVIDER === "fly") {
+    requireNonEmpty(
+      env,
+      ["FLY_API_TOKEN", "FLY_AUTOMATION_APP_NAME", "FLY_AUTOMATION_ORG_SLUG"],
+      missing,
+    );
+    if (env.KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY !== true) {
+      missing.push(
+        "KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true (required because Fly does not enforce mcp_only egress)",
+      );
+    }
   }
 
   if (env.KEPPO_CODE_MODE_SANDBOX_PROVIDER === "unikraft") {

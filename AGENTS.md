@@ -91,6 +91,7 @@ Add `#skip-bugbot` or `#skip-bb` to the PR description for trivial PRs that won'
 | `docs/specs/core-domain-model.md`            | Core domain model                         |
 | `docs/specs/mcp-protocol-handling.md`        | MCP surface and protocol handling         |
 | `docs/specs/control-plane-api.md`            | Control-plane API                         |
+| `docs/specs/automation-runner-sandbox.md`    | Automation runner sandbox evaluation      |
 | `docs/specs/execution-workers-connectors.md` | Execution workers, queues, and connectors |
 | `docs/specs/dashboard-ux.md`                 | Dashboard UX                              |
 | `docs/specs/security-model.md`               | Security model                            |

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isBlockedIpAddress, isBlockedIPv6, isLoopbackAddress } from "./network-address-policy.js";
+import {
+  isBlockedIpAddress,
+  isBlockedIPv6,
+  isLoopbackAddress,
+  normalizeHostname,
+} from "./network-address-policy.js";
 
 describe("network address policy", () => {
   it("blocks hex-encoded IPv4-mapped loopback IPv6 literals", () => {
@@ -17,5 +22,10 @@ describe("network address policy", () => {
 
   it("allows public IPv4-mapped IPv6 literals", () => {
     expect(isBlockedIPv6("::ffff:0808:0808")).toBe(false);
+  });
+
+  it("strips trailing dots from normalized hostnames", () => {
+    expect(normalizeHostname(" LOCALHOST. ")).toBe("localhost");
+    expect(normalizeHostname("metadata.")).toBe("metadata");
   });
 });

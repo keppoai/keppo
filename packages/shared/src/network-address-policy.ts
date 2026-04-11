@@ -13,7 +13,9 @@ const stripIpv6ZoneId = (address: string): string => {
 };
 
 export const normalizeHostname = (hostname: string): string =>
-  stripIpv6ZoneId(hostname.trim().toLowerCase()).replace(/^\[(.*)\]$/u, "$1");
+  stripIpv6ZoneId(hostname.trim().toLowerCase())
+    .replace(/^\[(.*)\]$/u, "$1")
+    .replace(/\.+$/u, "");
 
 const toIPv4Octets = (ip: string): number[] | null => {
   const parts = ip.split(".");
