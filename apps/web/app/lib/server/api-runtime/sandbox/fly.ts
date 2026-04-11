@@ -10,6 +10,7 @@ const DEFAULT_TERMINATION_GRACE_MS = 5_000;
 const DEFAULT_FLY_FETCH_TIMEOUT_MS = 10_000;
 const DEFAULT_FLY_DELETE_TIMEOUT_MS = 15_000;
 const DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS = 10;
+const DEFAULT_FLY_WAIT_RESPONSE_GRACE_MS = 5_000;
 const WRAPPER_ENTRYPOINT_PATH = "/sandbox/keppo-automation-runner-wrapper.mjs";
 const SANDBOX_HANDLE_SEPARATOR = "::";
 
@@ -131,7 +132,7 @@ const parseFlyMachineDetails = (value: unknown): FlyMachineDetails => {
   };
 };
 
-class FlyMachinesHttpClient implements FlyMachinesClientLike {
+export class FlyMachinesHttpClient implements FlyMachinesClientLike {
   constructor(
     private readonly token: string,
     private readonly apiHostname: string,
@@ -254,13 +255,17 @@ class FlyMachinesHttpClient implements FlyMachinesClientLike {
       String(options.timeoutSeconds ?? DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS),
     );
     const action = `wait for Fly machine ${machineId} in app ${appName} to start`;
+    const waitSeconds = options.timeoutSeconds ?? DEFAULT_FLY_WAIT_STARTED_TIMEOUT_SECONDS;
     const response = await this.fetchWithTimeout(
       url,
       {
         method: "GET",
         headers: this.buildHeaders(),
       },
-      { action, timeoutMs: DEFAULT_FLY_FETCH_TIMEOUT_MS },
+      {
+        action,
+        timeoutMs: waitSeconds * 1_000 + DEFAULT_FLY_WAIT_RESPONSE_GRACE_MS,
+      },
     );
     return parseFlyMachineDetails(
       await this.parseJsonResponse(response, {
@@ -471,6 +476,8 @@ const buildFlyWrapperSource = (): string => {
     'const RUN_ID = process.env.KEPPO_AUTOMATION_RUN_ID?.trim() ?? "";',
     "const MAX_LOG_BATCH_LINES = 100;",
     "const MAX_BUFFERED_LOG_LINES = 500;",
+    "const MAX_LOG_LINE_CHARS = 16_384;",
+    "const MAX_CARRY_CHARS = 65_536;",
     "const LOG_FLUSH_INTERVAL_MS = 250;",
     "const COMPLETION_RETRY_DELAYS_MS = [250, 750, 1500];",
     "",
@@ -486,6 +493,11 @@ const buildFlyWrapperSource = (): string => {
     "const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));",
     "",
     "const shellQuote = (value) => `'${String(value).replace(/'/g, `'\"'\"'`)}'`;",
+    "",
+    "const truncateLine = (content) =>",
+    "  content.length > MAX_LOG_LINE_CHARS",
+    "    ? `${content.slice(0, MAX_LOG_LINE_CHARS)}...[truncated]`",
+    "    : content;",
     "",
     "const postJson = async (url, payload) => {",
     "  const response = await fetch(url, {",
@@ -525,11 +537,12 @@ const buildFlyWrapperSource = (): string => {
     "    return;",
     "  }",
     "  for (const content of lines) {",
+    "    const normalizedContent = truncateLine(content);",
     "    if (bufferedLogLines.length >= MAX_BUFFERED_LOG_LINES) {",
     "      droppedLogLineCount += 1;",
     "      continue;",
     "    }",
-    "    bufferedLogLines.push({ level, content });",
+    "    bufferedLogLines.push({ level, content: normalizedContent });",
     "  }",
     "  if (bufferedLogLines.length >= MAX_LOG_BATCH_LINES) {",
     "    void flushLogLines();",
@@ -565,7 +578,25 @@ const buildFlyWrapperSource = (): string => {
     "        automation_run_id: RUN_ID,",
     "        lines: batch,",
     "      });",
-    "    } catch {}",
+    "    } catch (error) {",
+    "      const retryLines = [",
+    "        {",
+    "          level: 'stderr',",
+    "          content: truncateLine(",
+    "            `[log upload failed: ${error instanceof Error ? error.message : String(error)}]`,",
+    "          ),",
+    "        },",
+    "        ...batch,",
+    "      ];",
+    "      bufferedLogLines = [...retryLines, ...bufferedLogLines];",
+    "      if (bufferedLogLines.length > MAX_BUFFERED_LOG_LINES) {",
+    "        droppedLogLineCount += bufferedLogLines.length - MAX_BUFFERED_LOG_LINES;",
+    "        bufferedLogLines = bufferedLogLines.slice(0, MAX_BUFFERED_LOG_LINES);",
+    "      }",
+    "      if (truncatedCount > 0) {",
+    "        droppedLogLineCount += truncatedCount;",
+    "      }",
+    "    }",
     "    finally {",
     "      logFlushPromise = null;",
     "      if (bufferedLogLines.length > 0 || droppedLogLineCount > 0) {",
@@ -604,10 +635,15 @@ const buildFlyWrapperSource = (): string => {
     "const splitLines = (carry, chunk) => {",
     '  const normalized = `${carry}${chunk.toString("utf8").replace(/\\r\\n/g, "\\n")}`;',
     '  const parts = normalized.split("\\n");',
-    '  const nextCarry = parts.pop() ?? "";',
+    '  let nextCarry = parts.pop() ?? "";',
+    "  const lines = parts.map((line) => truncateLine(line.trimEnd())).filter((line) => line.length > 0);",
+    "  if (nextCarry.length > MAX_CARRY_CHARS) {",
+    "    lines.push(truncateLine(`${nextCarry.slice(0, MAX_CARRY_CHARS)}...[truncated]`));",
+    '    nextCarry = "";',
+    "  }",
     "  return {",
     "    carry: nextCarry,",
-    "    lines: parts.map((line) => line.trimEnd()).filter((line) => line.length > 0),",
+    "    lines,",
     "  };",
     "};",
     "",
@@ -627,14 +663,42 @@ const buildFlyWrapperSource = (): string => {
     "const installCommand = packages.length > 0",
     "  ? `npm install --no-audit --no-fund --prefix ${shellQuote(dirname(RUNNER_ENTRYPOINT_PATH))} ${packages.map(shellQuote).join(' ')}`",
     "  : '';",
-    "const commandScript = [installCommand, RUNNER_SETUP_COMMAND, RUNNER_BOOTSTRAP_COMMAND, RUNNER_COMMAND]",
+    "const commandScript = [RUNNER_SETUP_COMMAND, RUNNER_BOOTSTRAP_COMMAND, RUNNER_COMMAND]",
     "  .map((part) => part.trim())",
     "  .filter((part) => part.length > 0)",
     '  .join(" && ");',
     "",
+    "const buildInstallEnv = () => {",
+    "  const env = {};",
+    "  for (const key of ['HOME', 'PATH', 'TMPDIR', 'TEMP', 'TMP', 'npm_config_cache', 'NPM_CONFIG_CACHE', 'npm_config_userconfig', 'NPM_CONFIG_USERCONFIG', 'npm_config_prefix', 'NPM_CONFIG_PREFIX']) {",
+    "    const value = process.env[key];",
+    "    if (typeof value === 'string' && value.length > 0) {",
+    "      env[key] = value;",
+    "    }",
+    "  }",
+    "  return env;",
+    "};",
+    "",
     "validateEnv();",
-    "if (!commandScript) {",
+    "if (!installCommand && !commandScript) {",
     "  throw new Error('No Fly sandbox runner command was configured.');",
+    "}",
+    "",
+    "if (installCommand) {",
+    "  await new Promise((resolve, reject) => {",
+    '    const installChild = spawn("sh", ["-lc", installCommand], {',
+    "      env: buildInstallEnv(),",
+    '      stdio: ["ignore", "inherit", "inherit"],',
+    "    });",
+    '    installChild.on("error", reject);',
+    '    installChild.on("close", (code, signal) => {',
+    "      if (code === 0) {",
+    "        resolve(undefined);",
+    "        return;",
+    "      }",
+    '      reject(new Error(`Fly runner package install failed with code ${code ?? "null"}${signal ? ` (signal ${signal})` : ""}`));',
+    "    });",
+    "  });",
     "}",
     "",
     "let timedOut = false;",
@@ -808,7 +872,14 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
       ...(this.options.region ? { region: this.options.region } : {}),
       skip_service_registration: true,
     });
-    await this.client.waitForMachineStarted(this.options.appName, machine.id);
+    try {
+      await this.client.waitForMachineStarted(this.options.appName, machine.id);
+    } catch (error) {
+      await this.client
+        .deleteMachine(this.options.appName, machine.id, { force: true })
+        .catch(() => undefined);
+      throw error;
+    }
 
     return {
       sandbox_id: toSandboxHandle(this.options.appName, machine.id),
@@ -819,6 +890,11 @@ export class FlyMachinesSandboxProvider implements SandboxProvider {
     const { appName, machineId } = parseSandboxHandle(sandboxId);
     if (!appName || !machineId) {
       throw new Error("Invalid Fly sandbox handle.");
+    }
+    if (appName !== this.options.appName) {
+      throw new Error(
+        `Fly sandbox handle targets app "${appName}" but this provider manages "${this.options.appName}".`,
+      );
     }
 
     try {

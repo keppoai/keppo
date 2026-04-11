@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildRunnerCommand } from "../routes/automations";
 import { buildSandboxRunnerContract } from "./agents-sdk-runner.js";
-import { FlyMachinesSandboxProvider } from "./fly.js";
+import { FlyMachinesHttpClient, FlyMachinesSandboxProvider } from "./fly.js";
 import { resetApiRuntimeEnvForTest } from "../runtime-env.js";
 
 const baseConfig = {
@@ -307,5 +307,118 @@ describe("FlyMachinesSandboxProvider", () => {
     });
 
     await expect(provider.terminate("bad-handle")).rejects.toThrow("Invalid Fly sandbox handle.");
+  });
+
+  it("adds a network grace margin beyond the Fly wait timeout", async () => {
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockReturnValue(new AbortController().signal);
+    const fetchFn = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ id: "machine_123", state: "started" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new FlyMachinesHttpClient("token", "https://api.machines.dev", fetchFn);
+
+    await expect(
+      client.waitForMachineStarted("keppo-automation-sandbox", "machine_123"),
+    ).resolves.toMatchObject({
+      id: "machine_123",
+      state: "started",
+    });
+
+    expect(timeoutSpy).toHaveBeenCalledWith(15_000);
+  });
+
+  it("best-effort deletes the machine if startup wait fails", async () => {
+    vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
+    resetApiRuntimeEnvForTest();
+    const client = {
+      getApp: vi.fn().mockResolvedValue({ id: "app_123", name: "keppo-automation-sandbox" }),
+      createApp: vi.fn(),
+      createMachine: vi.fn().mockResolvedValue({
+        id: "machine_123",
+      }),
+      waitForMachineStarted: vi.fn().mockRejectedValue(new Error("wait failed")),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.dispatch(baseConfig)).rejects.toThrow("wait failed");
+
+    expect(client.deleteMachine).toHaveBeenCalledWith("keppo-automation-sandbox", "machine_123", {
+      force: true,
+    });
+  });
+
+  it("rejects sandbox handles that target a different configured Fly app", async () => {
+    const client = {
+      getApp: vi.fn(),
+      createApp: vi.fn(),
+      createMachine: vi.fn(),
+      waitForMachineStarted: vi.fn(),
+      deleteMachine: vi.fn(),
+    };
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await expect(provider.terminate("other-app::machine_123")).rejects.toThrow(
+      'Fly sandbox handle targets app "other-app" but this provider manages "keppo-automation-sandbox".',
+    );
+  });
+
+  it("emits a wrapper that separates install-time env from runtime secrets and bounds log buffering", async () => {
+    vi.stubEnv("KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY", "true");
+    resetApiRuntimeEnvForTest();
+    const client = {
+      getApp: vi.fn().mockResolvedValue({ id: "app_123", name: "keppo-automation-sandbox" }),
+      createApp: vi.fn(),
+      createMachine: vi.fn().mockResolvedValue({
+        id: "machine_123",
+      }),
+      waitForMachineStarted: vi.fn().mockResolvedValue({
+        id: "machine_123",
+        state: "started",
+      }),
+      deleteMachine: vi.fn().mockResolvedValue(undefined),
+    };
+
+    const provider = new FlyMachinesSandboxProvider(client, {
+      apiHostname: "https://api.machines.dev",
+      appName: "keppo-automation-sandbox",
+      automationImage: "registry-1.docker.io/library/node:22-bookworm",
+      cpuKind: "shared",
+      cpus: 1,
+      memoryMb: 1024,
+      orgSlug: "personal",
+      timeoutGraceMs: 5_000,
+    });
+
+    await provider.dispatch(baseConfig);
+
+    const files = client.createMachine.mock.calls[0]?.[1]?.config.files;
+    const wrapperSource = Buffer.from(files?.[0]?.raw_value ?? "", "base64").toString("utf8");
+    expect(wrapperSource).toContain("env: buildInstallEnv()");
+    expect(wrapperSource).toContain("MAX_CARRY_CHARS = 65_536");
+    expect(wrapperSource).toContain("[log upload failed:");
   });
 });

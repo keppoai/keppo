@@ -20,6 +20,7 @@
 - Automation configs and runs live in Convex.
 - Provider-trigger configs persist a provider id, provider trigger key, schema version, structured filter payload, preferred/fallback delivery modes, and provider-managed subscription state instead of only flat event strings.
 - API dispatches automation runs to a sandbox provider selected by `KEPPO_SANDBOX_PROVIDER` (`docker`, `vercel`, `fly`, or `unikraft`).
+- The sandbox architecture rationale and provider tradeoff analysis live in [`docs/specs/automation-runner-sandbox.md`](automation-runner-sandbox.md).
 - Automation configs may still store legacy runner metadata (`chatgpt_codex` or `claude_code`), but sandbox execution always dispatches through the managed `openai-agents-js` runner and rejects Anthropic/Claude automation models fail-closed.
 - Sandboxes stream logs and completion back through signed callback routes; termination is a separate internal route.
 
@@ -109,11 +110,14 @@ These guarantees are unchanged by the queue migration; only execution transport 
 - Production `fly` sandbox provider behavior:
   - ensures a configured Fly app exists via the Machines API, creating it in the configured org when necessary,
   - creates one Fly Machine per automation run from a configurable Node base image, writing both the shared sandbox wrapper and the repo-owned runner source into the guest via the Machine `files` API before boot,
-  - launches an in-guest Node wrapper as the machine `init.exec`, which installs the explicit managed runner packages from `runtime.runner.install_packages`, executes the runner command, forwards stdout/stderr to the signed log callback, and posts terminal completion directly to the signed completion callback,
+  - launches an in-guest Node wrapper as the machine `init.exec`, which installs the explicit managed runner packages from `runtime.runner.install_packages` in a secret-limited bootstrap subprocess before starting the runner with the full runtime env, then forwards stdout/stderr to the signed log callback and posts terminal completion directly to the signed completion callback,
   - sets `auto_destroy=true` with `restart.policy=no` so completed runs tear down their own machine state instead of relying on a persistent worker pool,
-  - stores `sandbox_id` as an opaque Fly app + Machine handle so terminate requests can force-delete the machine,
+  - stores `sandbox_id` as an opaque Fly app + Machine handle so terminate requests can force-delete the machine, and terminate rejects handles that do not match the configured managed app,
   - waits for the new Machine to reach `started` before reporting dispatch success, so create-time scheduling failures do not leave runs stuck in `running` without guest execution,
+  - best-effort force-deletes the Machine if that startup wait fails after creation, so failed dispatches do not leak orphaned guests,
   - bounds Machines API requests with explicit timeouts and a retryable delete path so Fly control-plane stalls do not hang Keppo dispatch/terminate indefinitely,
+  - gives the client-side `/wait` request additional response grace beyond Fly's server-side long-poll timeout so successful near-timeout starts are not misclassified as client timeouts,
+  - bounds wrapper log-line and carry-buffer growth, and requeues failed log-upload batches with an explicit diagnostic line instead of silently dropping them,
   - does not currently enforce instance-level outbound allowlists; `mcp_only` versus `mcp_and_web` remains enforced at the runner/tooling layer, and `mcp_only` dispatches require explicit operator opt-in via `KEPPO_FLY_ALLOW_UNENFORCED_MCP_ONLY=true`.
 - Production `unikraft` sandbox provider behavior:
   - creates a Unikraft Cloud MicroVM from an OCI image referenced by `UNIKRAFT_SANDBOX_IMAGE`,

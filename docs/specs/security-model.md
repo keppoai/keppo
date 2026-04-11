@@ -56,6 +56,7 @@
 ### Automation sandbox security
 
 - Automation runs execute in isolated sandbox providers (`docker` local, `vercel` / `fly` / `unikraft` remote).
+- The architecture rationale and provider tradeoff analysis for automation sandboxing live in [`docs/specs/automation-runner-sandbox.md`](automation-runner-sandbox.md).
 - Network policy expectations:
   - `mcp_only` default denies arbitrary outbound web access.
   - `mcp_and_web` is explicit opt-in per automation config version.
@@ -65,7 +66,7 @@
 - sandbox bootstrap stays as minimal as the provider allows:
   - Vercel uses an explicit package-registry-only bootstrap stage with no runtime secrets.
   - Docker reuses a prebuilt local image and injects runtime secrets only when the run container starts.
-  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but the machine already holds its run-scoped runtime env because Machines do not expose a separate staged bootstrap API.
+  - Fly installs the pinned runner packages inside the per-run machine before executing the runner, but runs that install in a secret-limited subprocess and only passes the full run-scoped runtime env to the final runner process because Machines do not expose a separate staged bootstrap API.
   - Unikraft reuses an image-based guest bootstrap and injects the composed runner env at instance start.
   - automation-issued MCP bearer tokens remain run-scoped: Convex revokes them when the owning run reaches a terminal state, and MCP auth rejects tokens whose `automation_run_id` no longer resolves to a non-terminal run in the same workspace.
 - Callback ingress hardening:

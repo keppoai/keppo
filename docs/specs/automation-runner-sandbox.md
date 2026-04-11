@@ -18,10 +18,10 @@ In other words: **hybrid is the right shape here**. The control plane should sta
 
 Sandboxing is not just an implementation detail in Keppo. It is tied directly to the runtime and security contract:
 
-- Automation runs are explicitly dispatched through a sandbox provider in [`apps/web/app/lib/server/automation-runtime.ts`](apps/web/app/lib/server/automation-runtime.ts) and described as such in [`docs/specs/execution-workers-connectors.md`](docs/specs/execution-workers-connectors.md).
-- The security model says automation runs execute in isolated sandbox providers, with `mcp_only` as the default network posture and `mcp_and_web` as explicit opt-in in [`docs/specs/security-model.md`](docs/specs/security-model.md).
-- The security rules require sandboxes to receive minimal env and network access, and they explicitly forbid production use of the Docker provider in [`docs/rules/security.md`](docs/rules/security.md).
-- The env/runtime rules require an explicit runner package contract and minimal sandbox `PATH`, not ad hoc host execution in [`docs/rules/env_runtime.md`](docs/rules/env_runtime.md).
+- Automation runs are explicitly dispatched through a sandbox provider in [`apps/web/app/lib/server/automation-runtime.ts`](../../apps/web/app/lib/server/automation-runtime.ts) and described as such in [`docs/specs/execution-workers-connectors.md`](execution-workers-connectors.md).
+- The security model says automation runs execute in isolated sandbox providers, with `mcp_only` as the default network posture and `mcp_and_web` as explicit opt-in in [`docs/specs/security-model.md`](security-model.md).
+- The security rules require sandboxes to receive minimal env and network access, and they explicitly forbid production use of the Docker provider in [`docs/rules/security.md`](../rules/security.md).
+- The env/runtime rules require an explicit runner package contract and minimal sandbox `PATH`, not ad hoc host execution in [`docs/rules/env_runtime.md`](../rules/env_runtime.md).
 
 The current runtime also relies on sandbox-specific controls that become much weaker or disappear if the runner executes directly on the host:
 
@@ -118,7 +118,7 @@ The sandboxed runner does the low-trust execution work:
 - supports real per-run isolation
 - makes `mcp_only` enforceable when the provider supports egress policy
 - preserves deterministic run lifecycle through callbacks and run ids
-- maps well to the existing repo-owned runner contract in [`apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`](apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts)
+- maps well to the existing repo-owned runner contract in [`apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`](../../apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts)
 
 **Cons**
 
@@ -187,7 +187,7 @@ Current role: local dev / test only.
 
 - easiest local parity
 - straightforward to inspect and debug
-- aligns well with the repo-owned runner image in [`apps/web/app/lib/server/api-runtime/sandbox/Dockerfile`](apps/web/app/lib/server/api-runtime/sandbox/Dockerfile)
+- aligns well with the repo-owned runner image in [`apps/web/app/lib/server/api-runtime/sandbox/Dockerfile`](../../apps/web/app/lib/server/api-runtime/sandbox/Dockerfile)
 
 **Cons**
 
@@ -208,7 +208,7 @@ Current role: strongest managed remote sandbox path.
 - clear bootstrap/runtime separation
 - bootstrap can stay package-registry-only and secret-free
 - runtime can enforce host allowlists for `mcp_only`
-- detached command lifecycle and termination are already implemented in [`cloud/api/sandbox/vercel.ts`](cloud/api/sandbox/vercel.ts)
+- detached command lifecycle and termination are already implemented in [`cloud/api/sandbox/vercel.ts`](../../cloud/api/sandbox/vercel.ts)
 
 **Cons**
 
@@ -476,13 +476,13 @@ If Keppo ever revisits this decision, these properties should remain:
 
 ## References
 
-- [`apps/web/app/lib/server/automation-runtime.ts`](apps/web/app/lib/server/automation-runtime.ts)
-- [`apps/web/app/lib/server/api-runtime/sandbox/index.ts`](apps/web/app/lib/server/api-runtime/sandbox/index.ts)
-- [`apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`](apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts)
-- [`apps/web/app/lib/server/api-runtime/sandbox/Dockerfile`](apps/web/app/lib/server/api-runtime/sandbox/Dockerfile)
-- [`cloud/api/sandbox/vercel.ts`](cloud/api/sandbox/vercel.ts)
-- [`apps/web/app/lib/server/api-runtime/sandbox/unikraft.ts`](apps/web/app/lib/server/api-runtime/sandbox/unikraft.ts)
-- [`docs/specs/execution-workers-connectors.md`](docs/specs/execution-workers-connectors.md)
-- [`docs/specs/security-model.md`](docs/specs/security-model.md)
-- [`docs/rules/security.md`](docs/rules/security.md)
-- [`docs/rules/env_runtime.md`](docs/rules/env_runtime.md)
+- [`apps/web/app/lib/server/automation-runtime.ts`](../../apps/web/app/lib/server/automation-runtime.ts)
+- [`apps/web/app/lib/server/api-runtime/sandbox/index.ts`](../../apps/web/app/lib/server/api-runtime/sandbox/index.ts)
+- [`apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts`](../../apps/web/app/lib/server/api-runtime/sandbox/agents-sdk-runner.ts)
+- [`apps/web/app/lib/server/api-runtime/sandbox/Dockerfile`](../../apps/web/app/lib/server/api-runtime/sandbox/Dockerfile)
+- [`cloud/api/sandbox/vercel.ts`](../../cloud/api/sandbox/vercel.ts)
+- [`apps/web/app/lib/server/api-runtime/sandbox/unikraft.ts`](../../apps/web/app/lib/server/api-runtime/sandbox/unikraft.ts)
+- [`docs/specs/execution-workers-connectors.md`](execution-workers-connectors.md)
+- [`docs/specs/security-model.md`](security-model.md)
+- [`docs/rules/security.md`](../rules/security.md)
+- [`docs/rules/env_runtime.md`](../rules/env_runtime.md)
