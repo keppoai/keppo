@@ -18,6 +18,21 @@ const isRetryableExecuteCodeError = (error: unknown): boolean =>
   isOptimisticConcurrencyMcpError(error);
 
 /**
+ * Returns true when the execute_code output indicates the sandbox is not yet
+ * ready — either via a structured `execution_failed` payload with a transient
+ * error code **or** via a text-level unavailability message.  Used by retry
+ * loops so both detection paths are retried instead of falling through to
+ * `skipIfSandboxUnavailable` which would throw under
+ * `KEPPO_E2E_REQUIRE_CODE_MODE_SANDBOX=1`.
+ */
+const isSandboxNotReady = (value: Record<string, unknown> | string | undefined): boolean => {
+  if (value === undefined) return false;
+  if (isTransientSandboxFailurePayload(value)) return true;
+  const message = typeof value === "string" ? value : JSON.stringify(value);
+  return SANDBOX_UNAVAILABLE_PATTERN.test(message);
+};
+
+/**
  * error_code values that indicate the code-mode sandbox failed to start or
  * encountered a transient runtime failure — these are infra flakes, not
  * product defects, and should be retried before the test asserts product
@@ -234,25 +249,28 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  // Retry on transient Convex timeouts, OCC, or session expiry — the
-  // blocked-provider path is fast but can hit 1s mutation budget under CI
-  // resource contention. Also retry when the sandbox itself reports a
-  // transient startup/runtime failure, which would otherwise mask the
-  // product behavior this test asserts.
+  // Retry on transient Convex timeouts, OCC, session expiry, or sandbox
+  // not-ready responses — the blocked-provider path is fast but can hit 1s
+  // mutation budget under CI resource contention.  The sandbox itself can
+  // also report transient startup/runtime failures or text-level
+  // unavailability while it spins up, which would otherwise mask the product
+  // behavior this test asserts.  Five attempts with exponential backoff give
+  // the sandbox enough headroom to become available.
+  const MAX_ATTEMPTS = 5;
   let output: Record<string, unknown> | string | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     try {
       output = await mcp.executeCode({
         description: "Try a Slack read to verify disabled providers are blocked.",
         code: 'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
       });
-      if (attempt < 2 && isTransientSandboxFailurePayload(output)) {
+      if (attempt < MAX_ATTEMPTS - 1 && isSandboxNotReady(output)) {
         await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
         continue;
       }
       break;
     } catch (error) {
-      if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
+      if (attempt >= MAX_ATTEMPTS - 1 || !isRetryableExecuteCodeError(error)) {
         throw error;
       }
       await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
