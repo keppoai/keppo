@@ -16,7 +16,7 @@ The watcher uses a **two-pass** architecture:
 
 1. **Pass 1 (deterministic):** `collect.mjs` collects all PR signals via GitHub APIs and handles clear-cut cases (draft, closed, terminal label already applied, fix-pr:failed, max attempts). For anything requiring judgment, it writes a context file and exits with `action=needs-evaluation`.
 
-2. **Claude evaluation:** The workflow invokes Claude (via `claude-code-action`) with the context file. Claude reads the full review comments, CI status, and unresolved thread content, then classifies severity and decides the action. Claude is the **sole decision-maker** — there is no heuristic or regex-based parsing.
+2. **Claude evaluation:** The workflow invokes Claude (via the Claude Code CLI directly, since this is a headless `workflow_run`-triggered evaluation rather than a PR/issue event) with the context file. Claude reads the full review comments, CI status, and unresolved thread content, then classifies severity and decides the action. Claude is the **sole decision-maker** — there is no heuristic or regex-based parsing.
 
 3. **Pass 2 (deterministic):** `apply-decision.mjs` reads Claude's decision file, validates it against an allowlist of actions/labels, and outputs the final action/label.
 
