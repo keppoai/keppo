@@ -22,6 +22,7 @@
 - Existing paid orgs may change plans in-app via `POST /api/billing/subscription/change` (upgrades use `subscriptions.update` with prorations; paid-to-paid downgrades use Subscription Schedules from the current period end; cancel-to-free uses `cancel_at_period_end`). First-time free→paid remains Stripe Checkout.
 - Invite promo billing is a separate non-Stripe source of temporary paid access: treat it as `billing_source="invite_promo"`, keep Stripe portal/native plan-change flows disabled, and leave recurring checkout available so the org can convert to Stripe explicitly.
 - `subscriptions.invite_code_id` is historical invite attribution only. Time-bounded paid invite promos must live in `invite_code_redemptions` and must expire or convert independently of the subscription row's invite marker.
+- Tests that need an active invite promo must freeze time or seed an `invite_code_redemptions.expires_at` safely in the future. Do not use near-term fixed dates for active-promo fixtures; they become wall-clock flakes when real time passes the fixture expiry.
 - Billing portal access plus every Stripe session creation route (`/api/billing/checkout`, `/api/billing/credits/checkout`, `/api/billing/automation-runs/checkout`, and `/api/billing/subscription/change`) must be restricted to org `owner` or `admin` roles server-side, even when the UI hides those controls for lower-privilege members.
 
 ## Usage enforcement
