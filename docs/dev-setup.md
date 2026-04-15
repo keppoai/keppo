@@ -208,7 +208,7 @@ Token requirements:
 
 ### Convex preview deployment cleanup
 
-The `convex-preview-cleanup.yml` workflow runs nightly and on manual dispatch to delete stale Convex preview deployments. It uses the `convex-preview-cleanup` GitHub Actions environment and requires:
+The `convex-preview-cleanup.yml` workflow runs hourly and on manual dispatch to delete stale Convex preview deployments. It uses the `convex-preview-cleanup` GitHub Actions environment and requires:
 
 - environment secret `CONVEX_TEAM_ACCESS_TOKEN` - a Convex team access token with permission to list and delete deployments
 - environment variable `CONVEX_PROJECT_ID` - the numeric Convex project ID
