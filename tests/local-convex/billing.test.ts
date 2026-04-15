@@ -41,6 +41,8 @@ const refs = {
 
 type Tier = "free" | "starter" | "pro";
 const BILLING_TEST_PASSWORD = "KeppoE2E!123";
+const ACTIVE_INVITE_PROMO_REDEEMED_AT = "2099-03-10T12:00:00.000Z";
+const ACTIVE_INVITE_PROMO_EXPIRES_AT = "2099-04-10T12:00:00.000Z";
 type SeedableProvider =
   | "google"
   | "stripe"
@@ -442,8 +444,8 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           orgId: seeded.orgId,
           inviteCodeId,
           grantTier: "starter",
-          redeemedAt: "2026-03-12T12:00:00.000Z",
-          expiresAt: "2026-04-12T12:00:00.000Z",
+          redeemedAt: ACTIVE_INVITE_PROMO_REDEEMED_AT,
+          expiresAt: ACTIVE_INVITE_PROMO_EXPIRES_AT,
         });
 
         const checkoutResponse = await createCheckoutSessionFetch({
@@ -884,8 +886,8 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           orgId: seeded.orgId,
           inviteCodeId,
           grantTier: "starter",
-          redeemedAt: "2026-03-10T12:00:00.000Z",
-          expiresAt: "2026-04-10T12:00:00.000Z",
+          redeemedAt: ACTIVE_INVITE_PROMO_REDEEMED_AT,
+          expiresAt: ACTIVE_INVITE_PROMO_EXPIRES_AT,
         });
 
         const usage = await getBillingUsageForOrg(convexUrl, seeded.orgId);
@@ -893,8 +895,8 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
         expect(usage.invite_promo).toMatchObject({
           code: "PROM11",
           grant_tier: "starter",
-          redeemed_at: "2026-03-10T12:00:00.000Z",
-          expires_at: "2026-04-10T12:00:00.000Z",
+          redeemed_at: ACTIVE_INVITE_PROMO_REDEEMED_AT,
+          expires_at: ACTIVE_INVITE_PROMO_EXPIRES_AT,
         });
         expect(usage.tier).toBe("starter");
         expect(usage.status).toBe("trialing");
@@ -921,8 +923,8 @@ describe.sequential("Local Convex Billing Integration", { timeout: 120_000 }, ()
           orgId: seeded.orgId,
           inviteCodeId,
           grantTier: "pro",
-          redeemedAt: "2026-03-11T12:00:00.000Z",
-          expiresAt: "2026-04-11T12:00:00.000Z",
+          redeemedAt: ACTIVE_INVITE_PROMO_REDEEMED_AT,
+          expiresAt: ACTIVE_INVITE_PROMO_EXPIRES_AT,
         });
 
         const portalResponse = await createPortalSessionFetch({
