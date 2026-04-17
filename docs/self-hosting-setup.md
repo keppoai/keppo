@@ -8,7 +8,7 @@ Bootstrap shared defaults from [`.env.example`](../.env.example) into your deplo
 
 - The default runtime shape is one unified web project rooted at `apps/web`, backed by a Convex deployment.
 - `cloud/` is a normal workspace package that holds the canonical billing, scheduler, advanced gating, and Vercel sandbox runtime modules.
-- The unified web deployment owns same-origin `/api/*` plus the root-path MCP, webhook, OAuth callback, helper-download, and `/internal/*` ingress surfaces directly.
+- The unified web deployment owns same-origin `/api/*` plus the root-path MCP, webhook, OAuth callback, and `/internal/*` ingress surfaces directly.
 - Managed provider OAuth callbacks fail closed if the provider profile API cannot produce a provider-issued external account identifier; Keppo will not persist an org-derived fallback account id for connected integrations.
 - Preview, staging, and production use the same project boundary. Preview relies on deployment-provided env, while staging and production bundle the selected environment-specific runtime env file into the Nitro server output.
 - Hosted builds sync Convex env and run `convex deploy --cmd '<build command>'` so schema/function changes ship with the matching web artifact.
