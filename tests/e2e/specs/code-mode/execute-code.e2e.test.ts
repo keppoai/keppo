@@ -234,28 +234,24 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  // Retry on transient Convex timeouts, OCC, or session expiry — the
-  // blocked-provider path is fast but can hit 1s mutation budget under CI
-  // resource contention. Also retry when the sandbox itself reports a
-  // transient startup/runtime failure, which would otherwise mask the
-  // product behavior this test asserts.
+  const MAX_ATTEMPTS = 5;
   let output: Record<string, unknown> | string | undefined;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt += 1) {
     try {
       output = await mcp.executeCode({
         description: "Try a Slack read to verify disabled providers are blocked.",
         code: 'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
       });
-      if (attempt < 2 && isTransientSandboxFailurePayload(output)) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+      if (attempt < MAX_ATTEMPTS - 1 && isTransientSandboxFailurePayload(output)) {
+        await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt + 1)));
         continue;
       }
       break;
     } catch (error) {
-      if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
+      if (attempt >= MAX_ATTEMPTS - 1 || !isRetryableExecuteCodeError(error)) {
         throw error;
       }
-      await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
+      await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt + 1)));
       if (isSessionExpiredMcpError(error)) {
         await mcp.initialize();
       }
