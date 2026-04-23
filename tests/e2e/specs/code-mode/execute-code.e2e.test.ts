@@ -17,38 +17,6 @@ const isRetryableExecuteCodeError = (error: unknown): boolean =>
   isSessionExpiredMcpError(error) ||
   isOptimisticConcurrencyMcpError(error);
 
-/**
- * error_code values that indicate the code-mode sandbox failed to start or
- * encountered a transient runtime failure — these are infra flakes, not
- * product defects, and should be retried before the test asserts product
- * behavior.
- */
-const TRANSIENT_SANDBOX_FAILURE_CODES = new Set([
-  "sandbox_unavailable",
-  "sandbox_startup_failed",
-  "sandbox_runtime_failed",
-  // The blocked-provider path is supposed to short-circuit before any tool
-  // call runs, but under CI resource contention the sandbox itself can hit
-  // KEPPO_CODE_MODE_TIMEOUT_MS before returning. Treat that as a transient
-  // sandbox failure for tests that retry on it (callers that legitimately
-  // assert on `timeout` payloads use `expectedFailedCodes` instead).
-  "timeout",
-]);
-
-const isTransientSandboxFailurePayload = (
-  value: Record<string, unknown> | string | undefined,
-): boolean => {
-  if (value === undefined) {
-    return false;
-  }
-  const payload =
-    typeof value === "string" ? findJsonPayloadInOutput(value) : (value as Record<string, unknown>);
-  return (
-    payload.status === "execution_failed" &&
-    TRANSIENT_SANDBOX_FAILURE_CODES.has(String(payload.error_code ?? ""))
-  );
-};
-
 const findJsonPayloadInOutput = (
   value: Record<string, unknown> | string,
 ): Record<string, unknown> => {
@@ -234,11 +202,9 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
   const mcp = provider.createMcpClient(seeded.workspaceId, seeded.credentialSecret);
   await mcp.initialize();
 
-  // Retry on transient Convex timeouts, OCC, or session expiry — the
-  // blocked-provider path is fast but can hit 1s mutation budget under CI
-  // resource contention. Also retry when the sandbox itself reports a
-  // transient startup/runtime failure, which would otherwise mask the
-  // product behavior this test asserts.
+  // Retry on transient Convex timeouts, OCC, or session expiry.
+  // The blocked-provider check now short-circuits before the sandbox
+  // launches, so sandbox-related retries are no longer needed.
   let output: Record<string, unknown> | string | undefined;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -246,10 +212,6 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
         description: "Try a Slack read to verify disabled providers are blocked.",
         code: 'await slack.listChannels({ limit: 5 }); console.log("should-not-run");',
       });
-      if (attempt < 2 && isTransientSandboxFailurePayload(output)) {
-        await new Promise((resolve) => setTimeout(resolve, 1_000 * (attempt + 1)));
-        continue;
-      }
       break;
     } catch (error) {
       if (attempt >= 2 || !isRetryableExecuteCodeError(error)) {
@@ -262,7 +224,6 @@ test("execute_code blocks tools from disabled providers", async ({ pages, auth, 
     }
   }
 
-  skipIfSandboxUnavailable(output!);
   expect(output).toMatchObject({
     status: "blocked",
     tool_name: "slack.listChannels",
