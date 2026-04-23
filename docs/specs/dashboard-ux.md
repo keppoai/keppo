@@ -361,6 +361,7 @@ Generic visual, interaction, and accessibility rules live in `docs/rules/ux.md`.
 - Admin sidebar sections are:
   - `Overview` (`/admin`)
   - `Feature Flags` (`/admin/flags`)
+  - `Invite Codes` (`/admin/invite-codes`)
   - `System Health` (`/admin/health`)
   - `Usage` (`/admin/usage`)
   - `Abuse` (`/admin/abuse`)
