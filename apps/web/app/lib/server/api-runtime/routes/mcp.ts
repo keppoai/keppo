@@ -1164,6 +1164,43 @@ const createMcpServer = (
           const allowedToolNames = new Set(indexedTools.map((tool) => tool.name));
           const preApprovedTools = new Set(extractToolReferences(code, allowedToolNames));
 
+          // Short-circuit before sandbox launch if any statically referenced
+          // tool belongs to a disabled or unconnected provider.
+          for (const refToolName of preApprovedTools) {
+            const refTool = toolMap.get(refToolName);
+            if (!refTool || refTool.provider === "keppo") continue;
+            const availabilityError = resolveProviderAvailabilityError(
+              refTool.provider as CanonicalProviderId,
+              refToolName,
+            );
+            if (availabilityError) {
+              const structuredPayload = parseExecuteCodeStructuredResultPayload(
+                availabilityError.message,
+              );
+              if (structuredPayload) {
+                recordTypedToolCallFailureMetrics(deps, {
+                  errorMessage: availabilityError.message,
+                  orgId: handlerContext.orgId,
+                });
+                logReturnedMcpErrorResult(deps, {
+                  eventName: "mcp.execute_code.failed",
+                  redactedEventName: "mcp.execute_code.error_redacted",
+                  workspaceId: handlerContext.workspaceId,
+                  runId: handlerContext.runId,
+                  orgId: handlerContext.orgId,
+                  ...(extra.sessionId ? { sessionId: extra.sessionId } : {}),
+                  toolName: "execute_code",
+                  rawMessage: availabilityError.message,
+                  clientMessage: formatExecuteCodeStructuredResultText(structuredPayload),
+                  ...(structuredPayload.error_code
+                    ? { errorCode: structuredPayload.error_code }
+                    : {}),
+                });
+                return buildExecuteCodeStructuredResult(structuredPayload);
+              }
+            }
+          }
+
           const env = getEnv();
           const sandboxMode = env.KEPPO_CODE_MODE_SANDBOX_PROVIDER;
           const sandbox = await createSandboxProvider(sandboxMode);
