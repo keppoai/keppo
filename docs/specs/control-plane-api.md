@@ -1,6 +1,6 @@
 # Control-plane API
 
-The control-plane HTTP surface now runs through the unified TanStack Start runtime in `apps/web`: same-origin `/api/health*`, `/api/invites/*`, `/api/billing/*`, `/api/automations/generate-questions`, `/api/automations/generate-prompt`, `/api/mcp/test`, `/api/oauth/integrations/:provider/connect`, `/oauth/integrations/:provider/callback`, `/webhooks/:provider`, `GET|POST|DELETE /mcp/:workspaceId`, `/internal/cron/maintenance`, `/internal/queue/dispatch-approved-action`, `/internal/health/deep`, `/internal/dlq*`, the full `/internal/automations/*` dispatch/terminate/log/complete family, and `/api/notifications/push/subscribe` routes plus typed app-internal server functions. Shared server helpers live under `apps/web/app/lib/server/api-runtime`; there is no separate first-party HTTP runtime.
+The control-plane HTTP surface now runs through the unified TanStack Start runtime in `apps/web`: same-origin `/api/health*`, `/api/invites/*`, `/api/billing/*`, `/api/automations/generate-questions`, `/api/automations/generate-prompt`, `/api/mcp/test`, `/api/oauth/integrations/:provider/connect`, `/oauth/integrations/:provider/callback`, `/webhooks/:provider`, `GET|POST|DELETE /mcp/:workspaceId`, `/internal/cron/maintenance`, `/internal/queue/dispatch-approved-action`, `/internal/health/deep`, `/internal/dlq*`, the full `/internal/automations/*` dispatch/terminate/log/trace/complete family, and `/api/notifications/push/subscribe` routes plus typed app-internal server functions. Shared server helpers live under `apps/web/app/lib/server/api-runtime`; there is no separate first-party HTTP runtime.
 
 ## Public routes
 
@@ -18,7 +18,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 | Area                    | Routes                                                                                                                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Maintenance and queue   | `POST /internal/cron/maintenance`, `POST /internal/queue/dispatch-approved-action`                                                                     |
-| Automation runtime      | `POST /internal/automations/dispatch`, `POST /internal/automations/terminate`, `POST /internal/automations/log`, `POST /internal/automations/complete` |
+| Automation runtime      | `POST /internal/automations/dispatch`, `POST /internal/automations/terminate`, `POST /internal/automations/log`, `POST /internal/automations/trace`, `POST /internal/automations/complete` |
 | Notifications           | `POST /internal/notifications/deliver`                                                                                                                 |
 | DLQ and operator health | `GET /internal/health/deep`, `GET /internal/dlq`, `POST /internal/dlq/:id/replay`, `POST /internal/dlq/:id/abandon`                                    |
 
@@ -29,7 +29,7 @@ The control-plane HTTP surface now runs through the unified TanStack Start runti
 - OAuth connect derives org scope from the authenticated session, not from caller input.
 - MCP uses workspace bearer credentials, not user cookies.
 - Internal maintenance and queue routes require the internal bearer secret.
-- Automation log and completion callbacks are HMAC-signed.
+- Automation log, trace, and completion callbacks are HMAC-signed.
 - Provider webhooks are verified by provider-specific webhook hooks.
 
 ## Registry and rollout behavior
