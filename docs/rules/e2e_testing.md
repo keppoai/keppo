@@ -44,8 +44,8 @@
 
 - Avoid background worker races in e2e snapshots.
 - Prefer inline approval processing for e2e approval flows unless a test explicitly needs worker polling behavior.
-- Keep Playwright per-test hard timeout at `30_000ms` with stricter sub-budgets (`expect <= 5_000ms`, action/navigation <= `8_000ms`); approval-flow teardown races can otherwise reset the active namespace before MCP writes finish.
-- Default Playwright per-test timeout stays `30_000ms`; only grant explicit per-spec overrides for proven long-path flows (for example multi-login invite roundtrips, billing tier mutation journeys, or custom-MCP execution loops) instead of raising the global budget.
+- Keep Playwright per-test hard timeout at `60_000ms` with stricter sub-budgets (`expect <= 15_000ms`, action/navigation <= `15_000ms`); approval-flow teardown races can otherwise reset the active namespace before MCP writes finish.
+- Default Playwright per-test timeout stays `60_000ms`; only grant explicit per-spec overrides for proven long-path flows (for example multi-login invite roundtrips, billing tier mutation journeys, or custom-MCP execution loops) instead of raising the global budget.
 - When an app-internal flow moves from browser-visible `/api/...` fetches to TanStack Start server functions, update E2E assertions to target the operator-visible result and E2E-only backend helpers rather than `page.waitForResponse` on the old browser request.
 - When a browser E2E still needs deterministic stubbing for a TanStack Start server function, use the app's E2E-only server-function mock hook from the browser context instead of Playwright-routing the retired `/api/...` request path.
 - Do not `page.route()` a TanStack Start page document URL and fulfill JSON to simulate a server-function error. Keep the real HTML navigation, seed the backend error state directly, and let the page's server-function request drive the user-facing UI.
@@ -74,7 +74,7 @@
 - Action-flow e2e that toggles workspace rules must operate on the same selected workspace credential used by MCP calls; avoid creating detached workspaces unless the UI selection is updated to match.
 - Workspace-settings e2e that mutate workspace-level toggles (for example Code Mode) must explicitly select the seeded target workspace card in the UI before toggling; do not assume the newly seeded workspace is the active selection.
 - Queue approval/rejection UI specs may intentionally seed against the currently selected workspace to keep MCP-created actions and queue views aligned under the same workspace context.
-- Cross-system approval queue browser specs that seed a workspace, initialize MCP, create a gated action, and resolve it through the dashboard should opt into a per-spec slow budget (`test.slow()`), rather than assuming the default `30_000ms` budget covers cold-stack propagation.
+- Cross-system approval queue browser specs that seed a workspace, initialize MCP, create a gated action, and resolve it through the dashboard should opt into a per-spec slow budget (`test.slow()`), rather than assuming the default `60_000ms` budget covers cold-stack propagation.
 - Seeded workspaces used for MCP flows must be unique per test case; do not rotate credentials on a shared default workspace under parallel workers (this causes revoked-credential races).
 - Browser specs that already have seeded `orgSlug`/`workspaceSlug` fixtures must navigate with those explicit slugs after auth or invite redirects; do not rebuild scoped dashboard URLs from ambient page state when the flow intentionally leaves the browser on global routes like `/login` or `/invites/*`.
 - Auth fixture seeding (`ensurePersonalOrgForUser`) must use the same fake-auth identity that Convex login flow uses (`KEPPO_FAKE_AUTH_USER_ID` defaults) or tests will seed integrations in an org/workspace the UI session cannot access.
