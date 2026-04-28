@@ -55,7 +55,7 @@
 
 ### Automation sandbox security
 
-- Automation runs execute in isolated sandbox providers (`docker` local, `vercel` production).
+- Automation runs execute in isolated sandbox providers (`docker` local, `vercel` or `unikraft` production).
 - Network policy expectations:
   - `mcp_only` default denies arbitrary outbound web access.
   - `mcp_and_web` is explicit opt-in per automation config version.
@@ -105,7 +105,7 @@
 
 - Code Mode execution runs in sandbox providers:
   - local/e2e default: Docker container sandbox (`docker` mode).
-  - production target: Vercel sandbox provider (`vercel` mode).
+  - production target: Vercel (`vercel` mode) or Unikraft (`unikraft` mode) sandbox provider.
 - `search_tools` fails closed to tools that are actually usable in the current workspace: built-in providers must be both enabled and connected, while custom MCP tools must remain workspace-enabled.
 - Vercel sandbox execution is created with `runtime: node24` and `networkPolicy: "deny-all"` for fail-closed outbound network access.
 - Host/tool communication in `vercel` mode uses a structured stdout request marker + host-written response files under `/tmp`, so provider tool calls never execute directly inside the microVM.
