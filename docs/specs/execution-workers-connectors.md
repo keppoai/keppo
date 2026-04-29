@@ -58,7 +58,7 @@
   - `packages/shared/src/provider-sdk/base-sdk.ts` centralizes provider SDK call-log capture for real clients.
   - `packages/shared/src/provider-sdk/base-fake-client.ts` centralizes fake-client namespace state lifecycle, reset semantics, and call-log capture for deterministic fakes.
   - Provider modules keep ownership of provider-specific policies, dispatch payload shaping, request normalization, and fixture seeding; Stripe is the reference migration onto the new bases.
-  - Provider entrypoints stay stable at `connector.ts`, `sdk.ts`, and `fake-client.ts`, but the large provider-specific implementations may live in adjacent runtime files (for example `connector-runtime.ts`, `sdk-runtime.ts`, `fake-client-runtime.ts`) so imports stay stable while the scanned entry files remain thin.
+  - Provider module entrypoints stay stable at `connector.ts` (with implementation in `connector-runtime.ts`), while SDK files live in a separate `packages/shared/src/provider-sdk/<provider>/` tree with `real.ts`, `fake.ts`, `sdk-runtime.ts`, and `fake-client-runtime.ts`.
 - Enforce capability checks (`read`, `write`, `refresh_credentials`) before provider dispatch.
 - Validate queue/maintenance envelopes using shared boundary contracts before any execution.
 - Worker-side JSON payload decode should use the shared parse helpers plus worker schemas so scheduler, MCP, and cloud overlays fail closed on malformed stored payloads before connector execution starts.

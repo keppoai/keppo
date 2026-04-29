@@ -55,7 +55,7 @@
 
 ### Automation sandbox security
 
-- Automation runs execute in isolated sandbox providers (`docker` local, `vercel` production).
+- Automation runs execute in isolated sandbox providers (`docker` local, `vercel` production, `unikraft` alternative production).
 - Network policy expectations:
   - `mcp_only` default denies arbitrary outbound web access.
   - `mcp_and_web` is explicit opt-in per automation config version.

@@ -54,7 +54,7 @@ This prevents alert storms and supports automatic resolve when health recovers.
 
 - Missing incidents:
   - Verify `PAGERDUTY_ROUTING_KEY` exists in API env.
-  - Check API logs for `health.deep.pagerduty_notify_failed`.
+  - Check API logs for `pagerduty.health.subsystem.<name>`, `pagerduty.cron.<jobName>`, or `pagerduty.circuit_breakers.multiple_open` task identifiers.
 - Repeated incidents:
   - Confirm dedup keys are stable and no middleware rewrites route behavior.
 - Alerts not resolving:
