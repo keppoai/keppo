@@ -32,7 +32,7 @@ Both Claude and Codex reviews emit a structured `**Recommendation:**` line in th
 | `auto-fix`     | All HIGH issues are mechanical — an agent can fix them. |
 | `human-review` | At least one HIGH issue requires human judgment.        |
 
-These are informational signals that Claude reads when making its decision. If missing (e.g. old prompt format), `validate-review.mjs` injects a `**Recommendation: human-review (default)**` fallback.
+These are informational signals that Claude reads when making its decision. If missing (e.g. old prompt format), `validate-review-summary.mjs` injects a `**Recommendation: human-review (default)**` fallback.
 
 ## Inputs
 
