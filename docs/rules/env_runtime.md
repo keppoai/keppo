@@ -43,7 +43,7 @@
 - Security-sensitive runtime secrets are fail-closed. Outside development/e2e contexts, Keppo does not accept fallback defaults for auth, crypto, webhook verification, or internal route protection.
 - If required secrets are missing, services will fail startup or return explicit fail-closed responses (`401`/`503`) instead of silently running with insecure defaults.
 - Use `.env.example` as the bootstrap template for local/self-host setups, then set unique deployment secrets per environment.
-- This repo defaults local Convex CLI usage to `CONVEX_AUTOMATION_MODE=anonymous` via `.env.dev`, which avoids requiring `convex login` when working only with local deployments.
+- This repo defaults local Convex CLI usage to `CONVEX_AGENT_MODE=anonymous` via `.env.dev`, which avoids requiring `convex login` when working only with local deployments.
 - Root `pnpm dev` waits for the local Convex sync to write `VITE_CONVEX_URL` / `VITE_CONVEX_SITE_URL` into `.env.local`, then starts the dashboard through `dotenvx` so those repo-root `VITE_*` values reach the Vite process.
 - To refresh Vercel sandbox auth locally, run `pnpm vercel-refresh`; it pulls Vercel env, copies `VERCEL_OIDC_TOKEN` into `.env.local`, and deletes the temp file.
 - Configure Vercel with `apps/web` as the project Root Directory so Nitro's Build Output API bundle lands at the project-local `.vercel/output/` path Vercel expects. Leave Vercel's Output Directory unset.
@@ -51,7 +51,7 @@
 ## Secret handling
 
 - Keep committed `.env.dev`, `.env.staging`, and optional `.env.production` plus untracked `.env.local` `dotenvx`-compatible. Do not commit machine-local admin keys or runtime secrets in `.env.local`.
-- Shared `dotenvx` loaders must honor committed `.env.keys` values for `DOTENV_PRIVATE_KEY_DEV`, `DOTENV_PRIVATE_KEY_LOCAL`, and generic `DOTENV_PRIVATE_KEY`; CI/test flows must not rely on manual shell exports alone to decrypt committed env files such as `.env.dev`.
+- Shared `dotenvx` loaders must honor local `.env.keys` values for `DOTENV_PRIVATE_KEY_DEV`, `DOTENV_PRIVATE_KEY_LOCAL`, and generic `DOTENV_PRIVATE_KEY`; CI/test flows must not rely on manual shell exports alone to decrypt committed env files such as `.env.dev`.
 - CI workflows that run `dotenvx`-backed local/test harnesses must provide explicit test-safe values for required encrypted secrets (for example `BETTER_AUTH_SECRET`, callback/cron secrets, master key, provider client secrets, `OPENAI_API_KEY`) whenever the runner does not have access to `.env.keys`.
 - Shared `dotenvx` loaders must also preserve explicit caller-provided secret env vars after `dotenvx run`; encrypted `.env.dev` entries that cannot be decrypted in CI/test must not erase test-safe values already exported by the workflow or wrapper script.
 - Keep `BETTER_AUTH_SECRET` stable across local restarts unless you are intentionally resetting local auth state.
