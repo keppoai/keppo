@@ -17,7 +17,7 @@ For GitHub Actions workflows that run Claude, Codex, or other coding agents, als
 ## Auth and trust boundaries
 
 - User-facing routes must derive identity from the Better Auth session, not caller-provided org or user fields.
-- NextAuth session callbacks must not copy provider or repository-scoped bearer tokens into the client-visible session payload when server-side code can read the JWT or provider token directly.
+- NextAuth session callbacks in `apps/izzy` must not copy provider or repository-scoped bearer tokens into the client-visible session payload when server-side code can read the JWT or provider token directly.
 - Start-owned routes that manage org-wide integrations or credentials must enforce the same owner/admin authorization as the canonical dashboard mutation path; do not rely on an internal Convex mutation caller to supply that missing role check.
 - Start-owned routes that author automations or spend org-scoped AI credits must enforce the same owner/admin authorization boundary as the dashboard automation builder before loading workspace context, deducting credits, or calling AI generation providers.
 - Public automation mutations that create runs or consume shared workspace credentials must enforce explicit owner/admin authorization server-side; never inherit the default workspace-member role set from a generic lookup helper.

@@ -48,7 +48,6 @@ This document defines the naming scheme for GitHub issue and pull request labels
 ### Human-attention labels
 
 - `needs-human:review-issue`
-- `needs-human:final-check`
 
 ## Notes
 
