@@ -9,7 +9,6 @@ Local contributor setup, verification, and repo-maintainer workflow prerequisite
 - **Convex CLI** (`npx convex`)
 - **Docker** (required for local automation sandbox runs when `KEPPO_SANDBOX_PROVIDER=docker`, for local Code Mode runs when `KEPPO_CODE_MODE_SANDBOX_PROVIDER=docker`, and for PR/main GitHub Actions E2E validation of those Docker-backed paths)
 - **ffmpeg / ffprobe** (required when trimming or reviewing reviewer-facing PR demo videos with the repo-owned `$create-video-demo` tooling)
-- **Secure Exec dependencies** (installed by `pnpm install`; used only for CI/test runs when `KEPPO_SANDBOX_PROVIDER=secure_exec` or `KEPPO_CODE_MODE_SANDBOX_PROVIDER=secure_exec`)
 - **Unikraft Cloud account + API token** (required only when intentionally validating `KEPPO_SANDBOX_PROVIDER=unikraft` or `KEPPO_CODE_MODE_SANDBOX_PROVIDER=unikraft`)
 - Environment variables loaded via [dotenvx](https://dotenvx.com)
 
@@ -141,7 +140,7 @@ Notes:
 Label contract:
 
 - Issue labels: `/do-issue`, `/plan-issue`, `?agent:claude`, `?agent:codex`, `?agent:gh-copilot`, `do-issue:pending|done|failed`, `plan-issue:pending|done|failed`
-- PR labels: `/fix-pr`, `?agent:claude`, `?agent:codex`, `fix-pr:pending|done|failed`, `/sync-pr`, `sync-pr:pending|failed`, `needs-human:review-issue`, `needs-human:final-check`
+- PR labels: `/fix-pr`, `?agent:claude`, `?agent:codex`, `fix-pr:pending|done|failed`, `/sync-pr`, `sync-pr:pending|failed`, `needs-human:review-issue`
 
 Selection rules:
 
@@ -187,7 +186,7 @@ Token requirements:
 
 ### Nightly recent code architecture workflow
 
-The `code-architect-recent.yml` workflow runs nightly at `4:00 AM` Pacific time during daylight saving time (`3:00 AM` Pacific during standard time) and on manual dispatch in the `ai-bots` GitHub Actions environment. Manual dispatch supports `codex` and `claude` agents and defaults to `codex`. The workflow runs the selected agent against the repo-local `code-architect:recent` prompt context for commits from the last 7 days, writes confirmed `critical`/`high` structural maintainability findings as individual markdown files to `out-code-architect/findings/`, uploads session logs, files GitHub issues labeled `architecture-review` for new findings, deduplicates against existing architecture-review issues, and sends a Mailgun email when the run creates new issues or needs operator attention.
+The `code-architect-recent.yml` workflow runs on manual dispatch in the `ai-bots` GitHub Actions environment. Manual dispatch supports `codex` and `claude` agents and defaults to `codex`. The workflow runs the selected agent against the repo-local `code-architect:recent` prompt context for commits from the last 7 days, writes confirmed `critical`/`high` structural maintainability findings as individual markdown files to `out-code-architect/findings/`, uploads session logs, files GitHub issues labeled `architecture-review` for new findings, deduplicates against existing architecture-review issues, and sends a Mailgun email when the run creates new issues or needs operator attention.
 
 Required configuration:
 
